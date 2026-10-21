@@ -1,0 +1,25 @@
+# Build & Executables
+*.exe
+*.dll
+*.pdb
+*.obj
+bin/
+
+# User Data & Runtime Profiles
+.edge_profile/
+downloads/
+settings.json
+
+# Logs & Temporary Files
+*.log
+*.tmp
+*.aria2
+.cache/
+
+# IDE & Editor Files
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates

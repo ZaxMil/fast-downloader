@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "FastDownloader Integration",
+  "version": "1.0.0",
+  "description": "One-click video and multi-part download integration for FastDownloader.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0NX+lcxlIM3pqASgxWQQ76KjoNpdG4bPLKpzkxpbuXWe+agb38CA2sgpb3o639OTBB0oW1vtljxPM30gIYyPw1YT8Tqm61eSRKLxYkpeHqxT75wl1Tv//GNVIUaIkdu+qMKMf/X1jFB6udXUFMNJoTraTA8vIQz5GRt+Q4/QdMgdY8tHO1XDK2sjLsya65HU795xCucCHkm1ARsTAAMJN0R6Pym13ht5k9CYTedZ+Hv8VzqopvxUU8IFTvtE7yqCHm44+LFmZvUqXxaac6N+58xXgh+eszjwPL3qOwbp7A13DIojuoJxf1gwrTrMFRfnM4ZW5sBZQDplQoInNSivqwIDAQAB",
+  "permissions": [
+    "contextMenus",
+    "activeTab",
+    "downloads",
+    "cookies",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:6801/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "FastDownloader Pro",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icons/icon16.png",
+        "icons/icon32.png",
+        "icons/icon48.png",
+        "icons/icon128.png"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

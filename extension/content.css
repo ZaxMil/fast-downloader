@@ -1,0 +1,312 @@
+/* FastDownloader Pro - Floating Video Download Bar & YouTube In-Page UI */
+
+.fd-download-btn-container {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2147483647;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: auto;
+  user-select: none;
+}
+
+/* Reveal when parent video is hovered or button is active */
+.fd-parent-hover .fd-download-btn-container,
+.fd-download-btn-container:hover,
+.fd-download-btn-container.fd-menu-open {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Glassmorphic Main Pill Container */
+.fd-download-pill {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 20px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 1px rgba(255, 255, 255, 0.2);
+  padding: 3px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fd-download-pill:hover,
+.fd-download-btn-container.fd-menu-open .fd-download-pill {
+  background: rgba(15, 23, 42, 0.96);
+  border-color: rgba(16, 185, 129, 0.55);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55), 0 0 16px rgba(16, 185, 129, 0.3);
+}
+
+/* Primary Action Area */
+.fd-pill-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px 5px 8px;
+  background: transparent;
+  border: none;
+  color: #F8FAFC;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 16px;
+  transition: background 0.15s, color 0.15s;
+  line-height: 1;
+}
+
+.fd-pill-action:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.fd-pill-action:active {
+  transform: scale(0.98);
+}
+
+.fd-pill-icon {
+  width: 17px;
+  height: 17px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.45);
+  display: block;
+}
+
+.fd-pill-text {
+  font-size: 12px;
+  letter-spacing: -0.1px;
+}
+
+/* Dropdown Arrow Trigger */
+.fd-pill-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 26px;
+  background: transparent;
+  border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  color: #94A3B8;
+  cursor: pointer;
+  border-radius: 0 16px 16px 0;
+  transition: all 0.15s;
+}
+
+.fd-pill-arrow:hover,
+.fd-download-btn-container.fd-menu-open .fd-pill-arrow {
+  background: rgba(255, 255, 255, 0.08);
+  color: #10B981;
+}
+
+.fd-pill-arrow svg {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fd-download-btn-container.fd-menu-open .fd-pill-arrow svg {
+  transform: rotate(180deg);
+}
+
+/* Dropdown Quality Menu */
+.fd-download-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: rgba(15, 23, 42, 0.96);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6), 0 0 1px rgba(255, 255, 255, 0.2);
+  display: none;
+  flex-direction: column;
+  min-width: 220px;
+  animation: fdMenuDrop 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fdMenuDrop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.fd-download-menu.fd-show {
+  display: flex;
+}
+
+.fd-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #94A3B8;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.fd-menu-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #10B981;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.fd-menu-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10B981;
+  box-shadow: 0 0 6px #10B981;
+}
+
+.fd-menu-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  color: #F1F5F9;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.fd-menu-item:hover {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10B981;
+}
+
+.fd-menu-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fd-menu-badge {
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+  color: #94A3B8;
+  padding: 2px 7px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.fd-menu-item:hover .fd-menu-badge {
+  background: rgba(16, 185, 129, 0.25);
+  color: #10B981;
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+.fd-menu-badge.fd-badge-best {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34D399;
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.fd-menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 6px;
+}
+
+/* Success Feedback State on Pill */
+.fd-download-pill.fd-success {
+  background: rgba(6, 78, 59, 0.95);
+  border-color: #10B981;
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.5);
+}
+
+.fd-download-pill.fd-success .fd-pill-action {
+  color: #A7F3D0;
+}
+
+/* Native YouTube In-Page Action Button */
+.fd-yt-action-wrap {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+}
+
+.fd-yt-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.1);
+  color: #F8FAFC;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.fd-yt-action-btn:hover {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: rgba(16, 185, 129, 0.5);
+  color: #34D399;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.25);
+}
+
+.fd-yt-action-btn img {
+  width: 17px;
+  height: 17px;
+  border-radius: 4px;
+}
+
+/* Bottom Right Toast HUD */
+.fd-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #F8FAFC;
+  border: 1px solid #10B981;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 16px rgba(16, 185, 129, 0.25);
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  z-index: 2147483647;
+  opacity: 0;
+  transform: translateY(12px) scale(0.97);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fd-toast.fd-toast-show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.fd-toast.fd-toast-error {
+  border-color: #EF4444;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 16px rgba(239, 68, 68, 0.25);
+}
