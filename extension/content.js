@@ -32,6 +32,32 @@
   // Detect Best Media / Stream URL (Sniffs HLS, DASH, or direct src)
   function detectBestMediaUrl(element) {
     if (!element) return window.location.href;
+
+    // 1. Facebook & Instagram specific URL resolve
+    if (window.location.hostname.includes('facebook.com') || window.location.hostname.includes('fb.watch')) {
+      if (window.location.pathname.includes('/videos/') || window.location.pathname.includes('/reel/') || window.location.pathname.includes('/watch')) {
+        return window.location.href;
+      }
+      const post = element.closest('[role="article"], [data-pagelet*="FeedUnit"], .x1y1aw1k');
+      if (post) {
+        const link = post.querySelector('a[href*="/videos/"], a[href*="/reel/"], a[href*="/watch/"]');
+        if (link && link.href) return link.href;
+      }
+      return window.location.href;
+    }
+
+    if (window.location.hostname.includes('instagram.com')) {
+      if (window.location.pathname.includes('/p/') || window.location.pathname.includes('/reel/')) {
+        return window.location.href;
+      }
+      const post = element.closest('article, main');
+      if (post) {
+        const link = post.querySelector('a[href*="/p/"], a[href*="/reel/"]');
+        if (link && link.href) return link.href;
+      }
+      return window.location.href;
+    }
+
     let src = element.currentSrc || element.src;
     if (src && !src.startsWith('blob:') && !src.startsWith('data:')) {
       return src;

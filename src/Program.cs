@@ -23,6 +23,151 @@ namespace FastDownloader
         public static Dictionary<string, object> ParseDict(string json) { return serializer.Deserialize<Dictionary<string, object>>(json); }
     }
 
+    public static class MediaUrlHelper
+    {
+        public static bool IsMediaPlatformUrl(string url)
+        {
+            if (string.IsNullOrEmpty(url)) return false;
+            string lower = url.ToLowerInvariant();
+            return lower.Contains("youtube.com") || lower.Contains("youtu.be") ||
+                   lower.Contains("facebook.com") || lower.Contains("fb.watch") || lower.Contains("fb.com") ||
+                   lower.Contains("instagram.com") ||
+                   lower.Contains("tiktok.com") ||
+                   lower.Contains("twitter.com") || lower.Contains("x.com") ||
+                   lower.Contains("reddit.com") || lower.Contains("v.redd.it") ||
+                   lower.Contains("vimeo.com") ||
+                   lower.Contains("dailymotion.com") ||
+                   lower.Contains("twitch.tv") ||
+                   lower.Contains("pinterest.com") ||
+                   lower.Contains("threads.net") ||
+                   lower.Contains("bilibili.com") ||
+                   lower.Contains("rumble.com") ||
+                   lower.Contains("streamable.com");
+        }
+
+        public static bool HasDirectFileExtension(string url)
+        {
+            if (string.IsNullOrEmpty(url)) return false;
+            try
+            {
+                Uri u = new Uri(url);
+                string path = u.LocalPath.ToLowerInvariant();
+                string[] directExts = new string[] { ".zip", ".rar", ".7z", ".tar", ".gz", ".iso", ".exe", ".msi", ".dmg", ".pdf", ".apk", ".bin", ".mp4", ".mkv", ".webm", ".avi", ".mp3", ".wav" };
+                foreach (var ext in directExts)
+                {
+                    if (path.EndsWith(ext)) return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+    }
+
+    public static class MagicBytesDetector
+    {
+        public static string FixExtension(string filePath)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return filePath;
+
+                string currentExt = Path.GetExtension(filePath);
+                if (!string.IsNullOrEmpty(currentExt) && currentExt.Length >= 3 && currentExt.ToLowerInvariant() != ".tmp")
+                {
+                    return filePath;
+                }
+
+                byte[] buffer = new byte[64];
+                int read = 0;
+                using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    read = fs.Read(buffer, 0, buffer.Length);
+                }
+                if (read < 4) return filePath;
+
+                string newExt = null;
+
+                // 1. MP4 / MOV / M4V (ftyp box at offset 4)
+                if (read >= 12 && buffer[4] == 0x66 && buffer[5] == 0x74 && buffer[6] == 0x79 && buffer[7] == 0x70)
+                {
+                    newExt = ".mp4";
+                }
+                // 2. WebM / Matroska (0x1A 0x45 0xDF 0xA3)
+                else if (buffer[0] == 0x1A && buffer[1] == 0x45 && buffer[2] == 0xDF && buffer[3] == 0xA3)
+                {
+                    newExt = ".webm";
+                }
+                // 3. JPEG (0xFF 0xD8 0xFF)
+                else if (buffer[0] == 0xFF && buffer[1] == 0xD8 && buffer[2] == 0xFF)
+                {
+                    newExt = ".jpg";
+                }
+                // 4. PNG (0x89 'P' 'N' 'G')
+                else if (buffer[0] == 0x89 && buffer[1] == 0x50 && buffer[2] == 0x4E && buffer[3] == 0x47)
+                {
+                    newExt = ".png";
+                }
+                // 5. WebP (RIFF....WEBP)
+                else if (read >= 12 && buffer[0] == 0x52 && buffer[1] == 0x49 && buffer[2] == 0x46 && buffer[3] == 0x46 &&
+                         buffer[8] == 0x57 && buffer[9] == 0x45 && buffer[10] == 0x42 && buffer[11] == 0x50)
+                {
+                    newExt = ".webp";
+                }
+                // 6. GIF ('G' 'I' 'F')
+                else if (buffer[0] == 0x47 && buffer[1] == 0x49 && buffer[2] == 0x46)
+                {
+                    newExt = ".gif";
+                }
+                // 7. ZIP / Office formats (PK 0x03 0x04)
+                else if (buffer[0] == 0x50 && buffer[1] == 0x4B && buffer[2] == 0x03 && buffer[3] == 0x04)
+                {
+                    newExt = ".zip";
+                }
+                // 8. RAR (Rar! 0x1A 0x07)
+                else if (read >= 6 && buffer[0] == 0x52 && buffer[1] == 0x61 && buffer[2] == 0x72 && buffer[3] == 0x21 && buffer[4] == 0x1A && buffer[5] == 0x07)
+                {
+                    newExt = ".rar";
+                }
+                // 9. 7-Zip (7z 0xBC 0xAF 0x27 0x1C)
+                else if (read >= 6 && buffer[0] == 0x37 && buffer[1] == 0x7A && buffer[2] == 0xBC && buffer[3] == 0xAF && buffer[4] == 0x27 && buffer[5] == 0x1C)
+                {
+                    newExt = ".7z";
+                }
+                // 10. PDF (%PDF)
+                else if (buffer[0] == 0x25 && buffer[1] == 0x50 && buffer[2] == 0x44 && buffer[3] == 0x46)
+                {
+                    newExt = ".pdf";
+                }
+                // 11. MP3 (ID3 or 0xFF 0xFB)
+                else if ((buffer[0] == 0x49 && buffer[1] == 0x44 && buffer[2] == 0x33) || (buffer[0] == 0xFF && (buffer[1] == 0xFB || buffer[1] == 0xF3)))
+                {
+                    newExt = ".mp3";
+                }
+                // 12. HTML page (<!DOCTYPE or <html)
+                else
+                {
+                    string textStart = Encoding.ASCII.GetString(buffer, 0, Math.Min(read, 24)).TrimStart();
+                    if (textStart.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase) || textStart.StartsWith("<html", StringComparison.OrdinalIgnoreCase))
+                    {
+                        newExt = ".html";
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(newExt))
+                {
+                    string targetPath = filePath + newExt;
+                    if (!File.Exists(targetPath))
+                    {
+                        File.Move(filePath, targetPath);
+                        return targetPath;
+                    }
+                }
+            }
+            catch { }
+            return filePath;
+        }
+    }
+
     public class BrowserInfo
     {
         public string id { get; set; }
@@ -563,7 +708,7 @@ namespace FastDownloader
                     ProcessStartInfo psi = new ProcessStartInfo
                     {
                         FileName = ytExe,
-                        Arguments = string.Format("--ffmpeg-location \"{0}\" {1}{2} --external-downloader aria2c --downloader-args \"aria2c:-x 16 -s 16 -k 1M --disable-ipv6=true --async-dns-server=8.8.8.8,1.1.1.1\" -P \"{3}\" --newline \"{4}\"",
+                        Arguments = string.Format("--ffmpeg-location \"{0}\" {1}{2} -o \"%(title).60s [%(id)s].%(ext)s\" --windows-filenames --external-downloader aria2c --downloader-args \"aria2c:-x 16 -s 16 -k 1M --disable-ipv6=true --async-dns-server=8.8.8.8,1.1.1.1\" -P \"{3}\" --newline \"{4}\"",
                             ffmpegDir, formatArg, extraHeaders, DownloadsFolder, url),
                         CreateNoWindow = true,
                         UseShellExecute = false,
@@ -578,7 +723,20 @@ namespace FastDownloader
                         string line;
                         while ((line = p.StandardOutput.ReadLine()) != null)
                         {
-                            if (line.Contains("[download]") && line.Contains("%"))
+                            if (line.Contains("Destination: "))
+                            {
+                                try
+                                {
+                                    int dIdx = line.IndexOf("Destination: ");
+                                    string dest = line.Substring(dIdx + 13).Trim(' ', '"');
+                                    if (!string.IsNullOrEmpty(dest))
+                                    {
+                                        taskInfo.Name = Path.GetFileName(dest);
+                                    }
+                                }
+                                catch { }
+                            }
+                            else if (line.Contains("[download]") && line.Contains("%"))
                             {
                                 int idx = line.IndexOf('%');
                                 if (idx > 0)
@@ -840,7 +998,14 @@ namespace FastDownloader
                                         if (firstFile.ContainsKey("path") && firstFile["path"] != null)
                                         {
                                             string p = firstFile["path"].ToString();
-                                            if (!string.IsNullOrEmpty(p)) filename = Path.GetFileName(p);
+                                            if (!string.IsNullOrEmpty(p))
+                                            {
+                                                if (status == "complete" && File.Exists(p))
+                                                {
+                                                    p = MagicBytesDetector.FixExtension(p);
+                                                }
+                                                filename = Path.GetFileName(p);
+                                            }
                                         }
                                         if (string.IsNullOrEmpty(filename) && firstFile.ContainsKey("uris"))
                                         {
@@ -919,13 +1084,13 @@ namespace FastDownloader
                         string userAgent = data.ContainsKey("userAgent") ? data["userAgent"].ToString() : "";
                         string referer = data.ContainsKey("referer") ? data["referer"].ToString() : "";
                         string filename = data.ContainsKey("filename") ? data["filename"].ToString() : "";
+                        string type = data.ContainsKey("type") ? data["type"].ToString().ToLowerInvariant() : "";
                         bool startNow = true;
                         if (data.ContainsKey("startNow")) bool.TryParse(data["startNow"].ToString(), out startNow);
 
                         if (!string.IsNullOrEmpty(dlUrl))
                         {
-                            bool isVideo = dlUrl.Contains("youtube.com") || dlUrl.Contains("youtu.be") ||
-                                           dlUrl.Contains("tiktok.com") || dlUrl.Contains("twitter.com") || dlUrl.Contains("x.com");
+                            bool isVideo = MediaUrlHelper.IsMediaPlatformUrl(dlUrl) || (type == "video" && !MediaUrlHelper.HasDirectFileExtension(dlUrl));
 
                             string assignedGid;
                             if (isVideo)
@@ -1446,11 +1611,7 @@ namespace FastDownloader
                 string lower = text.ToLower();
                 string[] exts = new string[] { ".zip", ".exe", ".iso", ".rar", ".7z", ".tar", ".gz", ".mp4", ".mkv", ".pdf", ".dmg", ".msi" };
                 foreach (var ext in exts) if (lower.Contains(ext)) return true;
-                if (lower.Contains("youtube.com/watch") || lower.Contains("youtu.be/") ||
-                    lower.Contains("tiktok.com/") || lower.Contains("twitter.com/") || lower.Contains("x.com/"))
-                {
-                    return true;
-                }
+                if (MediaUrlHelper.IsMediaPlatformUrl(lower)) return true;
             }
             return false;
         }
