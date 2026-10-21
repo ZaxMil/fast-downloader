@@ -3,6 +3,7 @@
 *.dll
 *.pdb
 *.obj
+*.zip
 bin/
 
 # User Data & Runtime Profiles

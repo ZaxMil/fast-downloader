@@ -294,7 +294,32 @@ namespace FastDownloader
         {
             string ariaExe = Path.Combine(AppDir, "bin", "aria2c.exe");
             if (!File.Exists(ariaExe)) ariaExe = Path.Combine(AppDir, "aria2c.exe");
-            if (!File.Exists(ariaExe)) return;
+            if (!File.Exists(ariaExe))
+            {
+                string scriptPath = Path.Combine(AppDir, "scripts", "setup-binaries.ps1");
+                if (File.Exists(scriptPath))
+                {
+                    ThreadPool.QueueUserWorkItem((state) =>
+                    {
+                        try
+                        {
+                            ProcessStartInfo psi = new ProcessStartInfo
+                            {
+                                FileName = "powershell.exe",
+                                Arguments = string.Format("-ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File \"{0}\"", scriptPath),
+                                CreateNoWindow = true,
+                                UseShellExecute = false,
+                                WindowStyle = ProcessWindowStyle.Hidden
+                            };
+                            var p = Process.Start(psi);
+                            p.WaitForExit();
+                            StartAria2();
+                        }
+                        catch { }
+                    });
+                }
+                return;
+            }
 
             try
             {

@@ -86,32 +86,41 @@ FastDownloader Pro gives you the raw downloading power of **IDM** paired with a 
 
 ---
 
-## 📥 Quick Start
+## 📥 Easy 1-Click Installation
 
-### Option A: Ready-to-Run (Recommended)
-1. Download **`FastDownloader.exe`** from the [Latest Releases](https://github.com/ZaxMil/fast-downloader/releases/latest).
-2. Run the helper engine setup to download authentic upstream tools (`aria2c`, `yt-dlp`, `ffmpeg`):
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File scripts\setup-binaries.ps1
-   ```
-3. Double-click **`FastDownloader.exe`** and enjoy turbo downloads!
+Choose your preferred way to install FastDownloader Pro:
+
+### ⚡ Method 1: The 1-Second PowerShell Command (Easiest)
+Open Windows PowerShell and paste this single command:
+
+```powershell
+irm https://raw.githubusercontent.com/ZaxMil/fast-downloader/main/scripts/install.ps1 | iex
+```
+*✨ Automatically installs FastDownloader, configures turbo engines, creates Desktop + Start Menu shortcuts, and launches the app instantly!*
+
+---
+
+### 📦 Method 2: Download Ready-to-Run Portable Zip
+1. Download **[`FastDownloader-v1.0.0-Windows-x64.zip`](https://github.com/ZaxMil/fast-downloader/releases/latest/download/FastDownloader-v1.0.0-Windows-x64.zip)** from Releases.
+2. Extract the zip to any folder.
+3. Double-click **`install.bat`** (or `FastDownloader.exe`).
+   - Sets up desktop shortcuts and auto-fetches turbo engines in the background on first run!
+
+---
 
 <details>
-<summary><b>Option B: Build From Source in 2 Seconds (Zero SDKs Required)</b></summary>
+<summary><b>🛠️ Method 3: Build From Source (For Developers)</b></summary>
 <br />
-
-Every Windows machine has the C# `.NET Framework` compiler pre-installed:
 
 ```cmd
 :: 1. Clone repository
 git clone https://github.com/ZaxMil/fast-downloader.git
 cd fast-downloader
 
-:: 2. Fetch official helper engines
-powershell -ExecutionPolicy Bypass -File scripts\setup-binaries.ps1
-
-:: 3. Compile in 1 second using built-in csc.exe
-build.bat
+:: 2. Run 1-click installer & builder
+install.bat
+```
+</details>
 
 :: 4. Run
 FastDownloader.exe
