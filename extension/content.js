@@ -33,19 +33,46 @@
   function detectBestMediaUrl(element) {
     if (!element) return window.location.href;
 
-    // 1. Facebook & Instagram specific URL resolve
+    // 1. Direct video src check first!
+    let src = element.currentSrc || element.src;
+    if (src && !src.startsWith('blob:') && !src.startsWith('data:') && src.startsWith('http')) {
+      return src;
+    }
+    const sources = element.querySelectorAll('source');
+    for (const s of sources) {
+      if (s.src && !s.src.startsWith('blob:') && !s.src.startsWith('data:') && s.src.startsWith('http')) {
+        return s.src;
+      }
+    }
+
+    // 2. Facebook specific permalink & stream lookup
     if (window.location.hostname.includes('facebook.com') || window.location.hostname.includes('fb.watch')) {
       if (window.location.pathname.includes('/videos/') || window.location.pathname.includes('/reel/') || window.location.pathname.includes('/watch')) {
         return window.location.href;
       }
-      const post = element.closest('[role="article"], [data-pagelet*="FeedUnit"], .x1y1aw1k');
+      const post = element.closest('[role="article"], [data-pagelet*="FeedUnit"], .x1y1aw1k, [data-visualcompletion]');
       if (post) {
-        const link = post.querySelector('a[href*="/videos/"], a[href*="/reel/"], a[href*="/watch/"]');
-        if (link && link.href) return link.href;
+        const links = post.querySelectorAll('a[href]');
+        for (const a of links) {
+          const href = a.href;
+          if (href && (href.includes('/videos/') || href.includes('/reel/') || href.includes('/watch') || href.includes('watch?v=') || href.includes('/posts/'))) {
+            return href;
+          }
+        }
       }
-      return window.location.href;
+      // Check network performance entries for the latest fbcdn stream chunk
+      try {
+        const entries = performance.getEntriesByType('resource');
+        for (let i = entries.length - 1; i >= 0 && i >= entries.length - 35; i--) {
+          const name = entries[i].name;
+          if (name.includes('fbcdn.net') && (name.includes('/v/t') || name.includes('.mp4') || name.includes('.mpd'))) {
+            return name;
+          }
+        }
+      } catch (e) {}
     }
 
+    // 3. Instagram specific
     if (window.location.hostname.includes('instagram.com')) {
       if (window.location.pathname.includes('/p/') || window.location.pathname.includes('/reel/')) {
         return window.location.href;
@@ -55,19 +82,9 @@
         const link = post.querySelector('a[href*="/p/"], a[href*="/reel/"]');
         if (link && link.href) return link.href;
       }
-      return window.location.href;
     }
 
-    let src = element.currentSrc || element.src;
-    if (src && !src.startsWith('blob:') && !src.startsWith('data:')) {
-      return src;
-    }
-    const sources = element.querySelectorAll('source');
-    for (const s of sources) {
-      if (s.src && !s.src.startsWith('blob:') && !s.src.startsWith('data:')) {
-        return s.src;
-      }
-    }
+    // 4. Check for HLS or DASH stream in performance entries
     try {
       const entries = performance.getEntriesByType('resource');
       for (let i = entries.length - 1; i >= 0 && i >= entries.length - 35; i--) {
@@ -77,6 +94,7 @@
         }
       }
     } catch (e) {}
+
     return window.location.href;
   }
 
@@ -193,22 +211,31 @@
 
   // Inject Floating Button onto any Video or Media Player
   function injectDownloadButton(targetElement, isCanvas = false) {
-    if (processedElements.has(targetElement)) return;
-    processedElements.add(targetElement);
+    let anchor = targetElement.parentElement;
+    if (!anchor) return;
 
-    const parent = targetElement.parentElement;
-    if (!parent) return;
+    // 1. On Facebook & Instagram, anchor to the outer player container so button sits ON TOP of all transparent overlays
+    if (window.location.hostname.includes('facebook.com') || window.location.hostname.includes('fb.watch')) {
+      const fbPlayer = targetElement.closest('[data-visualcompletion*="media-vc-image"], div[style*="max-height"], .x1y1aw1k, [role="article"]') || targetElement.parentElement;
+      if (fbPlayer) anchor = fbPlayer;
+    } else if (window.location.hostname.includes('youtube.com')) {
+      const ytPlayer = targetElement.closest('#movie_player, .html5-video-player');
+      if (ytPlayer) anchor = ytPlayer;
+    }
 
-    // Ensure parent is positioning anchor
-    const parentStyle = window.getComputedStyle(parent);
-    if (parentStyle.position === 'static') {
-      parent.style.position = 'relative';
+    // 2. Prevent duplicate button in the same anchor
+    if (anchor.querySelector(':scope > .fd-download-btn-container')) return;
+
+    // 3. Ensure anchor is positioning context
+    const anchorStyle = window.getComputedStyle(anchor);
+    if (anchorStyle.position === 'static') {
+      anchor.style.position = 'relative';
     }
 
     // Hover helpers
-    parent.addEventListener('mouseenter', () => parent.classList.add('fd-parent-hover'));
-    parent.addEventListener('mouseleave', () => {
-      parent.classList.remove('fd-parent-hover');
+    anchor.addEventListener('mouseenter', () => anchor.classList.add('fd-parent-hover'));
+    anchor.addEventListener('mouseleave', () => {
+      anchor.classList.remove('fd-parent-hover');
       container.classList.remove('fd-menu-open');
       menu.classList.remove('fd-show');
     });
@@ -352,7 +379,7 @@
 
     container.appendChild(pill);
     container.appendChild(menu);
-    parent.appendChild(container);
+    anchor.appendChild(container);
   }
 
   // Inject Native Action Bar Button on YouTube Video Page
@@ -395,7 +422,8 @@
   function scanMedia() {
     // 1. Scan Standard HTML5 Video elements
     document.querySelectorAll('video').forEach((v) => {
-      if (v.offsetWidth >= 180 && v.offsetHeight >= 120) {
+      const rect = v.getBoundingClientRect();
+      if (v.offsetWidth >= 80 || v.videoWidth >= 80 || rect.width >= 80) {
         injectDownloadButton(v, false);
       }
     });
@@ -414,6 +442,70 @@
     document.querySelectorAll('canvas').forEach((c) => {
       if (c.offsetWidth >= 320 && c.offsetHeight >= 220 && !c.closest('.fd-download-btn-container')) {
         injectDownloadButton(c, true);
+      }
+    });
+  }
+
+  // Listen for messages from background script (Batch grabber & Toast alerts)
+  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
+      if (req.type === 'FD_COLLECT_ALL_LINKS') {
+        const found = [];
+        const seen = new Set();
+        const exts = new Set([
+          "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "iso", "img",
+          "exe", "msi", "dmg", "pkg", "apk", "bin",
+          "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm",
+          "mp3", "flac", "wav", "m4a", "aac", "ogg",
+          "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+          "torrent"
+        ]);
+
+        // Scan all anchor links
+        document.querySelectorAll('a[href]').forEach(a => {
+          try {
+            const raw = a.href;
+            if (!raw || raw.startsWith('javascript:') || raw.startsWith('mailto:') || raw.startsWith('#')) return;
+            const u = new URL(raw, window.location.href);
+            const path = u.pathname.toLowerCase();
+            const dotIdx = path.lastIndexOf('.');
+            const ext = dotIdx !== -1 ? path.substring(dotIdx + 1) : '';
+            if (exts.has(ext) && !seen.has(u.href)) {
+              seen.add(u.href);
+              const text = (a.innerText || a.getAttribute('title') || '').trim();
+              found.push({
+                url: u.href,
+                title: text || path.split('/').pop() || 'Download',
+                filename: path.split('/').pop() || ''
+              });
+            }
+          } catch (e) {}
+        });
+
+        // Scan all audio/video elements
+        document.querySelectorAll('video, audio, source').forEach(el => {
+          try {
+            const src = el.src || el.currentSrc;
+            if (src && !src.startsWith('blob:') && !src.startsWith('data:') && !seen.has(src)) {
+              seen.add(src);
+              found.push({
+                url: src,
+                title: document.title || 'Media File',
+                filename: ''
+              });
+            }
+          } catch (e) {}
+        });
+
+        showToast(`⚡ Batch Grabber: Found <strong>${found.length}</strong> downloadable file(s)!`);
+        sendResponse({ ok: true, count: found.length, links: found });
+        return true;
+      }
+
+      if (req.type === 'FD_SHOW_TOAST') {
+        showToast(req.message, req.isError);
+        sendResponse({ ok: true });
+        return true;
       }
     });
   }

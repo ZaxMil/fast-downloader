@@ -59,27 +59,213 @@ async function sendDownloadToApp({ url, title, type = "auto", quality = "best", 
   }
 }
 
-// 3. CONTEXT MENUS SETUP
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: "fd-download-link",
-    title: "⚡ Download with FastDownloader",
-    contexts: ["link", "video", "audio", "image"]
+// 3. CONTEXT MENUS SETUP (IDM-Grade Right-Click Menus)
+function setupContextMenus() {
+  chrome.contextMenus.removeAll(() => {
+    // 1. Direct Link Download (16x Threads)
+    chrome.contextMenus.create({
+      id: "fd-download-link",
+      title: "⚡ Fast Download Link (16x Turbo)",
+      contexts: ["link"]
+    });
+
+    // 2. Video - Best Quality
+    chrome.contextMenus.create({
+      id: "fd-download-video-best",
+      title: "⚡ Fast Download Video (Best Quality)",
+      contexts: ["video"]
+    });
+
+    // 3. Audio Extraction (MP3)
+    chrome.contextMenus.create({
+      id: "fd-download-video-audio",
+      title: "🎵 Extract Audio (MP3)",
+      contexts: ["video", "audio"]
+    });
+
+    // 4. Image Download
+    chrome.contextMenus.create({
+      id: "fd-download-image",
+      title: "⚡ Fast Download Image",
+      contexts: ["image"]
+    });
+
+    // 5. Highlighted Selection (Extract all URLs / Magnets)
+    chrome.contextMenus.create({
+      id: "fd-download-selection",
+      title: "⚡ Download Selected Links",
+      contexts: ["selection"]
+    });
+
+    // 6. Page-wide Batch Grabber
+    chrome.contextMenus.create({
+      id: "fd-download-all",
+      title: "⚡ Download All Links with FastDownloader...",
+      contexts: ["page"]
+    });
   });
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  setupContextMenus();
   sendHeartbeat();
 });
 
+chrome.runtime.onStartup.addListener(() => {
+  setupContextMenus();
+});
+
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  const referer = tab ? tab.url : "";
+  const tabTitle = tab ? tab.title : "";
+
+  // 1. Single Link Download
   if (info.menuItemId === "fd-download-link") {
-    const targetUrl = info.linkUrl || info.srcUrl || info.pageUrl;
-    const referer = tab ? tab.url : "";
-    const title = tab ? tab.title : "Direct Download";
-    await sendDownloadToApp({
+    const targetUrl = info.linkUrl;
+    if (!targetUrl) return;
+
+    let filename = "";
+    try {
+      const u = new URL(targetUrl);
+      filename = u.pathname.split("/").pop() || "";
+    } catch (e) {}
+
+    const res = await sendDownloadToApp({
       url: targetUrl,
-      title: title,
+      title: filename || tabTitle || "Direct Link Download",
       referer: referer,
+      filename: filename,
       type: "auto",
       quality: "best"
+    });
+
+    if (tab && tab.id) {
+      chrome.tabs.sendMessage(tab.id, {
+        type: "FD_SHOW_TOAST",
+        message: res.ok ? "⚡ Fast Download started!" : "⚠️ App unreachable. Start FastDownloader.",
+        isError: !res.ok
+      }).catch(() => {});
+    }
+    return;
+  }
+
+  // 2. Video - Best Quality
+  if (info.menuItemId === "fd-download-video-best") {
+    const targetUrl = info.srcUrl || info.pageUrl;
+    const res = await sendDownloadToApp({
+      url: targetUrl,
+      title: tabTitle || "Video Download",
+      referer: referer,
+      type: "video",
+      quality: "best"
+    });
+    if (tab && tab.id) {
+      chrome.tabs.sendMessage(tab.id, {
+        type: "FD_SHOW_TOAST",
+        message: res.ok ? "⚡ Video download sent in Best Quality!" : "⚠️ App unreachable.",
+        isError: !res.ok
+      }).catch(() => {});
+    }
+    return;
+  }
+
+  // 3. Audio Extraction (MP3)
+  if (info.menuItemId === "fd-download-video-audio") {
+    const targetUrl = info.srcUrl || info.pageUrl;
+    const res = await sendDownloadToApp({
+      url: targetUrl,
+      title: tabTitle || "Audio Track",
+      referer: referer,
+      type: "audio",
+      quality: "audio"
+    });
+    if (tab && tab.id) {
+      chrome.tabs.sendMessage(tab.id, {
+        type: "FD_SHOW_TOAST",
+        message: res.ok ? "🎵 Audio extraction sent to FastDownloader!" : "⚠️ App unreachable.",
+        isError: !res.ok
+      }).catch(() => {});
+    }
+    return;
+  }
+
+  // 4. Image Download
+  if (info.menuItemId === "fd-download-image") {
+    const targetUrl = info.srcUrl;
+    if (!targetUrl) return;
+    let filename = "";
+    try {
+      filename = new URL(targetUrl).pathname.split("/").pop() || "";
+    } catch (e) {}
+    await sendDownloadToApp({
+      url: targetUrl,
+      title: filename || "Image Download",
+      referer: referer,
+      filename: filename,
+      type: "image"
+    });
+    return;
+  }
+
+  // 5. Selected Links Grabber
+  if (info.menuItemId === "fd-download-selection") {
+    const text = info.selectionText || "";
+    const urlRegex = /(https?:\/\/[^\s"'<>]+|magnet:\?xt=[^\s"'<>]+)/gi;
+    const matches = text.match(urlRegex) || [];
+    if (!matches.length) {
+      if (tab && tab.id) {
+        chrome.tabs.sendMessage(tab.id, {
+          type: "FD_SHOW_TOAST",
+          message: "⚠️ No valid URLs found in selection.",
+          isError: true
+        }).catch(() => {});
+      }
+      return;
+    }
+
+    let queued = 0;
+    for (const u of matches) {
+      const cleanUrl = u.replace(/[.,;:)\]>]+$/, "");
+      sendDownloadToApp({
+        url: cleanUrl,
+        title: "Selected Link",
+        referer: referer,
+        type: "auto"
+      });
+      queued++;
+    }
+
+    if (tab && tab.id) {
+      chrome.tabs.sendMessage(tab.id, {
+        type: "FD_SHOW_TOAST",
+        message: `⚡ Queued <strong>${queued}</strong> selected link(s) in FastDownloader!`
+      }).catch(() => {});
+    }
+    return;
+  }
+
+  // 6. Download All Links on Page (Batch Grabber)
+  if (info.menuItemId === "fd-download-all") {
+    if (!tab || !tab.id) return;
+    chrome.tabs.sendMessage(tab.id, { type: "FD_COLLECT_ALL_LINKS" }, async (resp) => {
+      if (chrome.runtime.lastError || !resp || !resp.links || !resp.links.length) {
+        chrome.tabs.sendMessage(tab.id, {
+          type: "FD_SHOW_TOAST",
+          message: "ℹ️ No downloadable archives or media found on this page.",
+          isError: false
+        }).catch(() => {});
+        return;
+      }
+
+      for (const item of resp.links) {
+        await sendDownloadToApp({
+          url: item.url,
+          title: item.title,
+          referer: referer,
+          filename: item.filename || "",
+          type: "auto"
+        });
+      }
     });
   }
 });
