@@ -6,11 +6,12 @@
 #>
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 Write-Host ""
 Write-Host " ====================================================== " -ForegroundColor Cyan
-Write-Host "    ⚡ FastDownloader Pro - 1-Liner Quick Installer      " -ForegroundColor Cyan
+Write-Host "    ⚡ FastDownloader Pro - Turbo Quick Installer       " -ForegroundColor Cyan
 Write-Host " ====================================================== " -ForegroundColor Cyan
 Write-Host ""
 
@@ -19,17 +20,21 @@ if (-not (Test-Path $InstallDir)) {
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 }
 
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$webClient = New-Object System.Net.WebClient
+
 # 1. Download latest archive from GitHub
-Write-Host "[1/4] Downloading latest FastDownloader release..." -ForegroundColor Yellow
+Write-Host "[1/4] 🚀 Fetching FastDownloader application package..." -ForegroundColor Yellow
 $ZipPath = Join-Path $env:TEMP "fast-downloader-latest.zip"
 $ZipUrl = "https://github.com/ZaxMil/fast-downloader/archive/refs/heads/main.zip"
-Invoke-WebRequest -Uri $ZipUrl -OutFile $ZipPath -UseBasicParsing
+$webClient.DownloadFile($ZipUrl, $ZipPath)
 
-# 2. Extract into local application directory
-Write-Host "[2/4] Extracting application files..." -ForegroundColor Yellow
+# 2. Extract instantly via .NET ZipFile
+Write-Host "[2/4] ⚡ Extracting files..." -ForegroundColor Yellow
 $TempExtract = Join-Path $env:TEMP "fast-downloader-extract"
 if (Test-Path $TempExtract) { Remove-Item $TempExtract -Recurse -Force }
-Expand-Archive -Path $ZipPath -DestinationPath $TempExtract -Force
+
+[System.IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $TempExtract)
 
 $SourceFolder = Join-Path $TempExtract "fast-downloader-main"
 Get-ChildItem -Path $SourceFolder | Copy-Item -Destination $InstallDir -Recurse -Force
@@ -37,27 +42,42 @@ Get-ChildItem -Path $SourceFolder | Copy-Item -Destination $InstallDir -Recurse 
 Remove-Item $ZipPath -Force -ErrorAction SilentlyContinue
 Remove-Item $TempExtract -Recurse -Force -ErrorAction SilentlyContinue
 
-# 3. Setup turbo engines
-Write-Host "[3/4] Setting up high-speed download engines (aria2, yt-dlp, ffmpeg)..." -ForegroundColor Yellow
-$SetupBinScript = Join-Path $InstallDir "scripts\setup-binaries.ps1"
-if (Test-Path $SetupBinScript) {
-    & $SetupBinScript
-}
-
-# 4. Compile binary if needed
+# 3. Compile binary if needed
 $ExePath = Join-Path $InstallDir "FastDownloader.exe"
 if (-not (Test-Path $ExePath)) {
-    Write-Host "[4/4] Compiling native FastDownloader executable..." -ForegroundColor Yellow
+    Write-Host "[3/4] ⚙️ Compiling native FastDownloader executable..." -ForegroundColor Yellow
     $CscPath = "$env:SystemRoot\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
     if (-not (Test-Path $CscPath)) { $CscPath = "$env:SystemRoot\Microsoft.NET\Framework\v4.0.30319\csc.exe" }
     
     $SrcFile = Join-Path $InstallDir "src\Program.cs"
     $IcoFile = Join-Path $InstallDir "app.ico"
     
-    & $CscPath /target:winexe /out:"$ExePath" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /win32icon:"$IcoFile" "$SrcFile"
+    & $CscPath /target:winexe /out:"$ExePath" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /win32icon:"$IcoFile" "$SrcFile" | Out-Null
+} else {
+    Write-Host "[3/4] [OK] FastDownloader executable ready." -ForegroundColor Gray
 }
 
-# 5. Create Desktop & Start Menu Shortcuts
+# 4. Setup turbo engines with 16x acceleration
+Write-Host "[4/4] ⚡ Initializing 16-connection download engines..." -ForegroundColor Yellow
+$SetupBinScript = Join-Path $InstallDir "scripts\setup-binaries.ps1"
+if (Test-Path $SetupBinScript) {
+    & $SetupBinScript
+}
+
+# 5. Auto-register Native Messaging Host for Chrome & Edge
+try {
+    $JsonHostPath = Join-Path $InstallDir "com.fastdownloader.app.json"
+    if (Test-Path $JsonHostPath) {
+        $regEdge = "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.fastdownloader.app"
+        $regChrome = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.fastdownloader.app"
+        New-Item -Path $regEdge -Force | Out-Null
+        Set-ItemProperty -Path $regEdge -Name "(Default)" -Value $JsonHostPath -Force | Out-Null
+        New-Item -Path $regChrome -Force | Out-Null
+        Set-ItemProperty -Path $regChrome -Name "(Default)" -Value $JsonHostPath -Force | Out-Null
+    }
+} catch { }
+
+# 6. Create Desktop & Start Menu Shortcuts
 $WshShell = New-Object -ComObject WScript.Shell
 $DesktopPath = [Environment]::GetFolderPath('Desktop')
 $Shortcut1 = $WshShell.CreateShortcut((Join-Path $DesktopPath "FastDownloader Pro.lnk"))
@@ -74,6 +94,8 @@ $Shortcut2.WorkingDirectory = $InstallDir
 $Shortcut2.IconLocation = "$InstallDir\app.ico,0"
 $Shortcut2.Description = "FastDownloader Pro - Turbo Download Manager"
 $Shortcut2.Save()
+
+$webClient.Dispose()
 
 Write-Host ""
 Write-Host "====================================================== " -ForegroundColor Green

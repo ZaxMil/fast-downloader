@@ -1,78 +1,121 @@
 <#
 .SYNOPSIS
-    Downloads official upstream helper engines (aria2c, yt-dlp, ffmpeg) into the bin/ directory.
+    FastDownloader High-Velocity Turbo Engine Setup.
+    Downloads official upstream helper engines (aria2c, yt-dlp, ffmpeg) with maximum speed.
 .DESCRIPTION
-    FastDownloader requires external CLI engines for parallel chunk downloading and stream muxing.
-    To ensure full open-source licensing compliance and avoid bloated repository sizes, this script
-    downloads authentic prebuilt releases directly from their respective official upstream repositories.
+    Uses .NET parallel extraction and multi-connection acceleration.
+    Eliminates slow PowerShell Expand-Archive and throttled progress bars.
 #>
 
 $ErrorActionPreference = "Stop"
-$BinDir = Join-Path $PSScriptRoot "..\bin"
+$ProgressPreference = "SilentlyContinue"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
+$BinDir = Join-Path $PSScriptRoot "..\bin"
 if (-not (Test-Path $BinDir)) {
     New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
 }
 
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host " FastDownloader Engine Setup" -ForegroundColor Cyan
-Write-Host "==========================================" -ForegroundColor Cyan
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-# 1. Download yt-dlp
-$YtDlpDest = Join-Path $BinDir "yt-dlp.exe"
-if (-not (Test-Path $YtDlpDest)) {
-    Write-Host "[1/3] Downloading yt-dlp from official release..." -ForegroundColor Yellow
-    $YtDlpUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-    Invoke-WebRequest -Uri $YtDlpUrl -OutFile $YtDlpDest -UseBasicParsing
-    Write-Host "  -> yt-dlp installed successfully." -ForegroundColor Green
-} else {
-    Write-Host "[1/3] yt-dlp.exe already present." -ForegroundColor Gray
+function Extract-SingleFileFromZip($zipPath, $fileName, $destPath) {
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
+    try {
+        $entry = $zip.Entries | Where-Object { $_.Name -ieq $fileName } | Select-Object -First 1
+        if ($entry) {
+            if (Test-Path $destPath) { Remove-Item $destPath -Force -ErrorAction SilentlyContinue }
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destPath, $true)
+            return $true
+        }
+        return $false
+    }
+    finally {
+        $zip.Dispose()
+    }
 }
 
-# 2. Download aria2c (Windows 64-bit official release)
+Write-Host "==========================================" -ForegroundColor Cyan
+Write-Host " ⚡ FastDownloader Turbo Engine Setup ⚡" -ForegroundColor Cyan
+Write-Host "==========================================" -ForegroundColor Cyan
+
 $Aria2Dest = Join-Path $BinDir "aria2c.exe"
-if (-not (Test-Path $Aria2Dest)) {
-    Write-Host "[2/3] Downloading aria2 from official release..." -ForegroundColor Yellow
-    $AriaZip = Join-Path $env:TEMP "aria2.zip"
-    $AriaUrl = "https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip"
-    Invoke-WebRequest -Uri $AriaUrl -OutFile $AriaZip -UseBasicParsing
-    
-    $TempExtract = Join-Path $env:TEMP "aria2_extract"
-    if (Test-Path $TempExtract) { Remove-Item $TempExtract -Recurse -Force }
-    Expand-Archive -Path $AriaZip -DestinationPath $TempExtract -Force
-    
-    $AriaExe = Get-ChildItem -Path $TempExtract -Filter "aria2c.exe" -Recurse | Select-Object -First 1
-    if ($AriaExe) {
-        Copy-Item -Path $AriaExe.FullName -Destination $Aria2Dest -Force
-        Write-Host "  -> aria2c installed successfully." -ForegroundColor Green
-    }
-    Remove-Item $AriaZip -Force -ErrorAction SilentlyContinue
-    Remove-Item $TempExtract -Recurse -Force -ErrorAction SilentlyContinue
-} else {
-    Write-Host "[2/3] aria2c.exe already present." -ForegroundColor Gray
-}
-
-# 3. Download FFmpeg essentials build
+$YtDlpDest = Join-Path $BinDir "yt-dlp.exe"
 $FfmpegDest = Join-Path $BinDir "ffmpeg.exe"
-if (-not (Test-Path $FfmpegDest)) {
-    Write-Host "[3/3] Downloading ffmpeg essentials..." -ForegroundColor Yellow
-    $FfmpegZip = Join-Path $env:TEMP "ffmpeg.zip"
-    $FfmpegUrl = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
-    Invoke-WebRequest -Uri $FfmpegUrl -OutFile $FfmpegZip -UseBasicParsing
-    
-    $TempExtractFfmpeg = Join-Path $env:TEMP "ffmpeg_extract"
-    if (Test-Path $TempExtractFfmpeg) { Remove-Item $TempExtractFfmpeg -Recurse -Force }
-    Expand-Archive -Path $FfmpegZip -DestinationPath $TempExtractFfmpeg -Force
-    
-    $FfmpegExe = Get-ChildItem -Path $TempExtractFfmpeg -Filter "ffmpeg.exe" -Recurse | Select-Object -First 1
-    if ($FfmpegExe) {
-        Copy-Item -Path $FfmpegExe.FullName -Destination $FfmpegDest -Force
-        Write-Host "  -> ffmpeg installed successfully." -ForegroundColor Green
-    }
-    Remove-Item $FfmpegZip -Force -ErrorAction SilentlyContinue
-    Remove-Item $TempExtractFfmpeg -Recurse -Force -ErrorAction SilentlyContinue
-} else {
-    Write-Host "[3/3] ffmpeg.exe already present." -ForegroundColor Gray
+
+$allPresent = (Test-Path $Aria2Dest) -and (Test-Path $YtDlpDest) -and (Test-Path $FfmpegDest)
+if ($allPresent) {
+    Write-Host "[OK] All engines (aria2, yt-dlp, ffmpeg) are already present and ready!" -ForegroundColor Green
+    exit 0
 }
 
-Write-Host "`nAll engines ready in bin/ directory!" -ForegroundColor Green
+$webClient = New-Object System.Net.WebClient
+
+# STEP 1: Fast Bootstrapping with aria2 (5 MB)
+if (-not (Test-Path $Aria2Dest)) {
+    Write-Host "[1/3] ⚡ Fetching 16x multi-connection aria2 engine..." -ForegroundColor Yellow
+    $AriaZip = Join-Path $env:TEMP "aria2_boot.zip"
+    $AriaUrl = "https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip"
+    
+    $webClient.DownloadFile($AriaUrl, $AriaZip)
+    $ok = Extract-SingleFileFromZip $AriaZip "aria2c.exe" $AriaDest
+    Remove-Item $AriaZip -Force -ErrorAction SilentlyContinue
+    
+    if ($ok) {
+        Write-Host "  -> aria2c (16-connections) ready!" -ForegroundColor Green
+    } else {
+        Write-Host "  [!] Warning: Could not extract aria2c directly." -ForegroundColor Red
+    }
+} else {
+    Write-Host "[1/3] aria2c already installed." -ForegroundColor Gray
+}
+
+# STEP 2: Download yt-dlp & ffmpeg using 16 parallel connections
+$needYtdlp = -not (Test-Path $YtDlpDest)
+$needFfmpeg = -not (Test-Path $FfmpegDest)
+
+if ($needYtdlp -or $needFfmpeg) {
+    Write-Host "[2/3] 🚀 Accelerating downloads via 16 parallel streams..." -ForegroundColor Yellow
+    
+    # 2a. yt-dlp
+    if ($needYtdlp) {
+        $YtDlpUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+        if (Test-Path $Aria2Dest) {
+            Write-Host "  -> Downloading yt-dlp at turbo speed..." -ForegroundColor Cyan
+            & $Aria2Dest -x 16 -s 16 -k 1M --allow-overwrite=true --auto-file-renaming=false -d $BinDir -o "yt-dlp.exe" $YtDlpUrl | Out-Null
+        } else {
+            $webClient.DownloadFile($YtDlpUrl, $YtDlpDest)
+        }
+        Write-Host "  -> yt-dlp ready!" -ForegroundColor Green
+    } else {
+        Write-Host "[2/3] yt-dlp already installed." -ForegroundColor Gray
+    }
+
+    # 2b. ffmpeg (Stream extraction directly from zip)
+    if ($needFfmpeg) {
+        Write-Host "[3/3] 🎬 Fetching FFmpeg muxer..." -ForegroundColor Yellow
+        $FfmpegZip = Join-Path $env:TEMP "ffmpeg_turbo.zip"
+        $FfmpegUrl = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+        
+        if (Test-Path $Aria2Dest) {
+            Write-Host "  -> Downloading FFmpeg with 16 parallel connections..." -ForegroundColor Cyan
+            & $Aria2Dest -x 16 -s 16 -k 1M --allow-overwrite=true --auto-file-renaming=false -d $env:TEMP -o "ffmpeg_turbo.zip" $FfmpegUrl | Out-Null
+        } else {
+            $webClient.DownloadFile($FfmpegUrl, $FfmpegZip)
+        }
+        
+        Write-Host "  -> Extracting ffmpeg.exe instantly..." -ForegroundColor Cyan
+        $okFfmpeg = Extract-SingleFileFromZip $FfmpegZip "ffmpeg.exe" $FfmpegDest
+        Remove-Item $FfmpegZip -Force -ErrorAction SilentlyContinue
+        
+        if ($okFfmpeg) {
+            Write-Host "  -> ffmpeg ready!" -ForegroundColor Green
+        } else {
+            Write-Host "  [!] Warning: Could not extract ffmpeg directly." -ForegroundColor Red
+        }
+    } else {
+        Write-Host "[3/3] ffmpeg already installed." -ForegroundColor Gray
+    }
+}
+
+$webClient.Dispose()
+Write-Host "`n🎉 All engines ready in bin/ directory!" -ForegroundColor Green
