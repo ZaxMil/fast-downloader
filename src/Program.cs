@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -9,6 +10,7 @@ using System.Net.Sockets;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -18,7 +20,7 @@ namespace FastDownloader
 {
     public static class JsonHelper
     {
-        private static JavaScriptSerializer serializer = new JavaScriptSerializer();
+        private static JavaScriptSerializer serializer = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         public static string Serialize(object obj) { return serializer.Serialize(obj); }
         public static Dictionary<string, object> ParseDict(string json) { return serializer.Deserialize<Dictionary<string, object>>(json); }
     }
@@ -165,6 +167,305 @@ namespace FastDownloader
             }
             catch { }
             return filePath;
+        }
+    }
+
+
+    public class ProbeResult
+    {
+        public bool ok { get; set; }
+        public string type { get; set; }
+        public string filename { get; set; }
+        public long size { get; set; }
+        public string sizeFormatted { get; set; }
+        public string category { get; set; }
+        public bool resumable { get; set; }
+        public string finalUrl { get; set; }
+        public string error { get; set; }
+    }
+
+    public static class UrlProbeHelper
+    {
+        public static ProbeResult Probe(string url, string appDir, string cookies, string userAgent, Dictionary<string, object> customHeaders)
+        {
+            var res = new ProbeResult
+            {
+                ok = false,
+                type = "unknown",
+                filename = "",
+                size = 0,
+                sizeFormatted = "Unknown size",
+                category = "General",
+                resumable = false,
+                finalUrl = url,
+                error = ""
+            };
+
+            if (string.IsNullOrEmpty(url))
+            {
+                res.error = "Empty URL";
+                return res;
+            }
+
+            url = url.Trim();
+
+            if (url.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
+            {
+                res.ok = true;
+                res.type = "magnet";
+                res.category = "Compressed";
+                res.resumable = true;
+                res.size = 0;
+                res.sizeFormatted = "Torrent / Magnet";
+                res.filename = "Torrent_Download";
+
+                try
+                {
+                    var match = Regex.Match(url, @"dn=([^&]+)");
+                    if (match.Success)
+                    {
+                        res.filename = Uri.UnescapeDataString(match.Groups[1].Value).Replace("+", " ");
+                    }
+                }
+                catch { }
+
+                return res;
+            }
+
+            if (MediaUrlHelper.IsMediaPlatformUrl(url))
+            {
+                res.type = "video";
+                res.category = "Video";
+                res.resumable = true;
+
+                string ytExe = Path.Combine(appDir, "bin", "yt-dlp.exe");
+                if (!File.Exists(ytExe)) ytExe = Path.Combine(appDir, "yt-dlp.exe");
+
+                if (File.Exists(ytExe))
+                {
+                    try
+                    {
+                        string extraArgs = "--print \"%(title)s---FD---%(ext)s---FD---%(filesize,filesize_approx)s\" --no-playlist --skip-download --no-warnings";
+                        if (url.Contains("youtube.com") || url.Contains("youtu.be"))
+                        {
+                            extraArgs += " --extractor-args \"youtube:player_client=android,web\"";
+                        }
+                        if (!string.IsNullOrEmpty(cookies))
+                        {
+                            extraArgs += " --add-header \"Cookie:" + cookies.Replace("\"", "\\\"") + "\"";
+                        }
+                        if (!string.IsNullOrEmpty(userAgent))
+                        {
+                            extraArgs += " --user-agent \"" + userAgent.Replace("\"", "\\\"") + "\"";
+                        }
+
+                        ProcessStartInfo psi = new ProcessStartInfo
+                        {
+                            FileName = ytExe,
+                            Arguments = string.Format("{0} \"{1}\"", extraArgs, url),
+                            CreateNoWindow = true,
+                            UseShellExecute = false,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            WindowStyle = ProcessWindowStyle.Hidden
+                        };
+
+                        using (Process proc = Process.Start(psi))
+                        {
+                            string lastLine = "";
+                            proc.OutputDataReceived += (s, e) =>
+                            {
+                                if (!string.IsNullOrEmpty(e.Data))
+                                {
+                                    lastLine = e.Data.Trim();
+                                }
+                            };
+                            proc.ErrorDataReceived += (s, e) => { };
+                            proc.BeginOutputReadLine();
+                            proc.BeginErrorReadLine();
+                            proc.WaitForExit(15000);
+
+                            if (!string.IsNullOrEmpty(lastLine))
+                            {
+                                string[] parts = lastLine.Split(new string[] { "---FD---" }, StringSplitOptions.None);
+                                string title = parts.Length > 0 && !string.IsNullOrEmpty(parts[0]) ? parts[0] : "Online Video";
+                                string ext = parts.Length > 1 && !string.IsNullOrEmpty(parts[1]) && parts[1] != "NA" ? parts[1] : "mp4";
+                                long fSize = 0;
+                                if (parts.Length > 2 && !string.IsNullOrEmpty(parts[2]) && parts[2] != "NA")
+                                {
+                                    long.TryParse(parts[2], out fSize);
+                                }
+
+                                foreach (char c in Path.GetInvalidFileNameChars())
+                                {
+                                    title = title.Replace(c, '_');
+                                }
+
+                                res.ok = true;
+                                res.filename = title + "." + ext;
+                                res.size = fSize;
+                                res.sizeFormatted = fSize > 0 ? FormatBytes(fSize) : "Dynamic Video Stream";
+                                return res;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        res.error = ex.Message;
+                    }
+                }
+
+                res.ok = true;
+                res.filename = "Online_Video.mp4";
+                res.sizeFormatted = "Video Stream (yt-dlp)";
+                return res;
+            }
+
+            try
+            {
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
+                req.Method = "HEAD";
+                req.Timeout = 6000;
+                req.AllowAutoRedirect = true;
+                req.MaximumAutomaticRedirections = 5;
+
+                if (!string.IsNullOrEmpty(userAgent))
+                {
+                    req.UserAgent = userAgent;
+                }
+                else
+                {
+                    req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+                }
+
+                if (!string.IsNullOrEmpty(cookies))
+                {
+                    req.Headers[HttpRequestHeader.Cookie] = cookies;
+                }
+
+                if (customHeaders != null)
+                {
+                    foreach (var kvp in customHeaders)
+                    {
+                        try
+                        {
+                            if (kvp.Value != null)
+                            {
+                                string k = kvp.Key;
+                                string v = kvp.Value.ToString();
+                                if (string.Equals(k, "referer", StringComparison.OrdinalIgnoreCase)) req.Referer = v;
+                                else if (!string.Equals(k, "cookie", StringComparison.OrdinalIgnoreCase) &&
+                                         !string.Equals(k, "user-agent", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    req.Headers[k] = v;
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+
+                using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+                {
+                    res.ok = true;
+                    res.finalUrl = resp.ResponseUri.ToString();
+                    res.size = resp.ContentLength > 0 ? resp.ContentLength : 0;
+                    res.sizeFormatted = res.size > 0 ? FormatBytes(res.size) : "Unknown size";
+
+                    string acceptRanges = resp.Headers["Accept-Ranges"];
+                    res.resumable = !string.IsNullOrEmpty(acceptRanges) && acceptRanges.IndexOf("bytes", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                    string disposition = resp.Headers["Content-Disposition"];
+                    string fname = "";
+                    if (!string.IsNullOrEmpty(disposition))
+                    {
+                        var match = Regex.Match(disposition, @"filename\*?=(?:UTF-8'')?[""']?([^"";
+
+]+)[""']?");
+                        if (match.Success)
+                        {
+                            fname = Uri.UnescapeDataString(match.Groups[1].Value.Trim());
+                        }
+                    }
+
+                    if (string.IsNullOrEmpty(fname))
+                    {
+                        try
+                        {
+                            fname = Path.GetFileName(resp.ResponseUri.LocalPath);
+                        }
+                        catch { }
+                    }
+
+                    if (string.IsNullOrEmpty(fname) || fname.Trim() == "/" || fname.Trim() == "")
+                    {
+                        fname = "download";
+                    }
+
+                    res.filename = fname;
+                    res.category = DetermineCategory(fname, resp.ContentType);
+                    res.type = "direct";
+                    return res;
+                }
+            }
+            catch
+            {
+                try
+                {
+                    Uri uri = new Uri(url);
+                    string fname = Path.GetFileName(uri.LocalPath);
+                    if (!string.IsNullOrEmpty(fname))
+                    {
+                        res.ok = true;
+                        res.type = "direct";
+                        res.filename = fname;
+                        res.category = DetermineCategory(fname, "");
+                        res.sizeFormatted = "Direct Stream";
+                        return res;
+                    }
+                }
+                catch { }
+
+                res.ok = true;
+                res.type = "direct";
+                res.filename = "download";
+                res.category = "General";
+                return res;
+            }
+        }
+
+        public static string DetermineCategory(string filename, string contentType)
+        {
+            string ext = "";
+            try { ext = Path.GetExtension(filename).ToLowerInvariant(); } catch { }
+            string ct = contentType != null ? contentType.ToLowerInvariant() : "";
+
+            if (ext == ".mp4" || ext == ".mkv" || ext == ".webm" || ext == ".avi" || ext == ".mov" || ext == ".flv" || ext == ".wmv" || ct.Contains("video/"))
+                return "Video";
+            if (ext == ".mp3" || ext == ".wav" || ext == ".flac" || ext == ".m4a" || ext == ".aac" || ext == ".ogg" || ct.Contains("audio/"))
+                return "Music";
+            if (ext == ".zip" || ext == ".rar" || ext == ".7z" || ext == ".tar" || ext == ".gz" || ext == ".iso" || ext == ".bz2" || ext == ".xz")
+                return "Compressed";
+            if (ext == ".exe" || ext == ".msi" || ext == ".apk" || ext == ".dmg" || ext == ".bin" || ext == ".bat" || ext == ".cmd")
+                return "Programs";
+            if (ext == ".pdf" || ext == ".doc" || ext == ".docx" || ext == ".xls" || ext == ".xlsx" || ext == ".ppt" || ext == ".pptx" || ext == ".txt" || ext == ".epub" || ct.Contains("pdf") || ct.Contains("word") || ct.Contains("text/"))
+                return "Documents";
+
+            return "General";
+        }
+
+        public static string FormatBytes(long bytes)
+        {
+            if (bytes <= 0) return "0 B";
+            string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+            double len = (double)bytes;
+            int order = 0;
+            while (len >= 1024 && order < sizes.Length - 1)
+            {
+                order++;
+                len /= 1024;
+            }
+            return string.Format("{0:0.##} {1}", len, sizes[order]);
         }
     }
 
@@ -344,6 +645,49 @@ namespace FastDownloader
                 return false;
             }
         }
+
+        public static void RegisterNativeMessagingHost(string appDir)
+        {
+            try
+            {
+                string exePath = Path.Combine(appDir, "FastDownloader.exe");
+                string manifestPath = Path.Combine(appDir, "com.fastdownloader.app.json");
+
+                string manifestContent = "{\n" +
+                    "  \"name\": \"com.fastdownloader.app\",\n" +
+                    "  \"description\": \"FastDownloader Native Messaging Host\",\n" +
+                    "  \"path\": \"" + exePath.Replace("\\", "\\\\") + "\",\n" +
+                    "  \"type\": \"stdio\",\n" +
+                    "  \"allowed_origins\": [\n" +
+                    "    \"chrome-extension://" + ExtensionId + "/\"\n" +
+                    "  ]\n" +
+                    "}";
+
+                File.WriteAllText(manifestPath, manifestContent, Encoding.UTF8);
+
+                string[] keys = new string[]
+                {
+                    @"Software\Google\Chrome\NativeMessagingHosts\com.fastdownloader.app",
+                    @"Software\Microsoft\Edge\NativeMessagingHosts\com.fastdownloader.app"
+                };
+
+                foreach (string keyPath in keys)
+                {
+                    try
+                    {
+                        using (RegistryKey key = Registry.CurrentUser.CreateSubKey(keyPath))
+                        {
+                            if (key != null)
+                            {
+                                key.SetValue("", manifestPath);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+        }
     }
 
     public class YtTaskInfo
@@ -360,6 +704,12 @@ namespace FastDownloader
         public long CompletedLength { get; set; }
         public long Eta { get; set; }
         public Process Process { get; set; }
+        public string YtExe { get; set; }
+        public string FfmpegDir { get; set; }
+        public string FormatArg { get; set; }
+        public string ExtraHeaders { get; set; }
+        public string SaveDir { get; set; }
+        public bool IsYouTube { get; set; }
     }
 
     public class QueueConfig
@@ -378,6 +728,26 @@ namespace FastDownloader
         }
     }
 
+    public class PendingDownloadInfo
+    {
+        public string pendingId { get; set; }
+        public string url { get; set; }
+        public string title { get; set; }
+        public string filename { get; set; }
+        public long size { get; set; }
+        public string sizeFormatted { get; set; }
+        public string type { get; set; }
+        public string category { get; set; }
+        public bool resumable { get; set; }
+        public string quality { get; set; }
+        public string cookies { get; set; }
+        public string userAgent { get; set; }
+        public string referer { get; set; }
+        public Dictionary<string, object> headers { get; set; }
+        public string thumbnail { get; set; }
+        public string createdAt { get; set; }
+    }
+
     public class EngineManager
     {
         private Process ariaProcess;
@@ -388,9 +758,12 @@ namespace FastDownloader
         public Dictionary<string, QueueConfig> Queues { get; private set; }
         public bool AutoCaptureEnabled { get; set; }
         private string settingsFilePath;
+        private readonly object pendingLock = new object();
+        public Dictionary<string, PendingDownloadInfo> PendingDownloads { get; private set; }
 
         public EngineManager()
         {
+            PendingDownloads = new Dictionary<string, PendingDownloadInfo>();
             AppDir = AppDomain.CurrentDomain.BaseDirectory;
             DownloadsFolder = Path.Combine(AppDir, "downloads");
             if (!Directory.Exists(DownloadsFolder))
@@ -402,6 +775,7 @@ namespace FastDownloader
             LoadSettings();
 
             YtTasks = new List<YtTaskInfo>();
+            PendingDownloads = new Dictionary<string, PendingDownloadInfo>();
             Queues = new Dictionary<string, QueueConfig>();
             Queues["MainQueue"] = new QueueConfig { Enabled = false, StartTime = "02:00", StopTime = "07:00", MaxConcurrent = 3, Shutdown = false, Active = true };
             Queues["NightQueue"] = new QueueConfig { Enabled = true, StartTime = "02:00", StopTime = "07:00", MaxConcurrent = 1, Shutdown = true, Active = false };
@@ -505,7 +879,93 @@ namespace FastDownloader
             }
         }
 
-        public string AddAriaUri(string url, bool startNow, string cookies = null, string userAgent = null, string referer = null, string filename = null)
+
+        public PendingDownloadInfo AddPending(string url, string title, string filename, string category, string quality, string cookies, string userAgent, string referer, Dictionary<string, object> headers)
+        {
+            string pid = "pen_" + Guid.NewGuid().ToString().Substring(0, 8);
+            ProbeResult probe = null;
+            try
+            {
+                probe = UrlProbeHelper.Probe(url, AppDir, cookies, userAgent, headers);
+            }
+            catch { }
+
+            string probeFilename = (probe != null && !string.IsNullOrEmpty(probe.filename)) ? probe.filename : "";
+            string probeCategory = (probe != null && !string.IsNullOrEmpty(probe.category)) ? probe.category : "General";
+            string probeType = (probe != null && !string.IsNullOrEmpty(probe.type)) ? probe.type : "direct";
+            long probeSize = probe != null ? probe.size : 0;
+            string probeSizeFormatted = (probe != null && !string.IsNullOrEmpty(probe.sizeFormatted)) ? probe.sizeFormatted : "Unknown size";
+            bool probeResumable = probe != null && probe.resumable;
+
+            string resolvedFilename = !string.IsNullOrEmpty(filename) ? filename : probeFilename;
+            if (string.IsNullOrEmpty(resolvedFilename)) resolvedFilename = !string.IsNullOrEmpty(title) ? title : "download";
+
+            string resolvedCat = !string.IsNullOrEmpty(category) ? category : probeCategory;
+            if (string.IsNullOrEmpty(resolvedCat)) resolvedCat = "General";
+
+            string thumb = "";
+            if (url.Contains("youtube.com") || url.Contains("youtu.be"))
+            {
+                var match = Regex.Match(url, @"(?:v=|\/embed\/|\/17\/|youtu\.be\/|\/v\/|watch\?v=)([^#&?]{11})");
+                if (match.Success)
+                {
+                    thumb = "https://i.ytimg.com/vi/" + match.Groups[1].Value + "/mqdefault.jpg";
+                }
+            }
+
+            var item = new PendingDownloadInfo
+            {
+                pendingId = pid,
+                url = url,
+                title = !string.IsNullOrEmpty(title) ? title : resolvedFilename,
+                filename = resolvedFilename,
+                size = probeSize,
+                sizeFormatted = probeSizeFormatted,
+                type = probeType,
+                category = resolvedCat,
+                resumable = probeResumable,
+                quality = !string.IsNullOrEmpty(quality) ? quality : "best",
+                cookies = cookies,
+                userAgent = userAgent,
+                referer = referer,
+                headers = headers,
+                thumbnail = thumb,
+                createdAt = DateTime.UtcNow.ToString("s")
+            };
+
+            lock (pendingLock)
+            {
+                if (PendingDownloads == null) PendingDownloads = new Dictionary<string, PendingDownloadInfo>();
+                PendingDownloads[pid] = item;
+            }
+            return item;
+        }
+
+        public List<PendingDownloadInfo> GetPendingDownloads()
+        {
+            lock (pendingLock)
+            {
+                if (PendingDownloads == null) PendingDownloads = new Dictionary<string, PendingDownloadInfo>();
+                return new List<PendingDownloadInfo>(PendingDownloads.Values);
+            }
+        }
+
+        public bool RemovePending(string pendingId, out PendingDownloadInfo info)
+        {
+            lock (pendingLock)
+            {
+                if (PendingDownloads == null) PendingDownloads = new Dictionary<string, PendingDownloadInfo>();
+                if (PendingDownloads.TryGetValue(pendingId, out info))
+                {
+                    PendingDownloads.Remove(pendingId);
+                    return true;
+                }
+                info = null;
+                return false;
+            }
+        }
+
+        public string AddAriaUri(string url, bool startNow, string cookies = null, string userAgent = null, string referer = null, string filename = null, string category = null)
         {
             try
             {
@@ -520,6 +980,12 @@ namespace FastDownloader
                 if (!string.IsNullOrEmpty(filename))
                 {
                     options["out"] = filename;
+                }
+                if (!string.IsNullOrEmpty(category) && category != "General" && category != "Default")
+                {
+                    string catDir = Path.Combine(DownloadsFolder, category);
+                    try { if (!Directory.Exists(catDir)) Directory.CreateDirectory(catDir); } catch { }
+                    options["dir"] = catDir;
                 }
                 var headers = new List<string>();
                 if (!string.IsNullOrEmpty(cookies)) headers.Add("Cookie: " + cookies);
@@ -584,8 +1050,47 @@ namespace FastDownloader
             return tasks;
         }
 
-        public void PauseTask(string gid) { SendAriaAction("aria2.pause", gid); }
-        public void ResumeTask(string gid) { SendAriaAction("aria2.unpause", gid); }
+        public void PauseTask(string gid)
+        {
+            if (!string.IsNullOrEmpty(gid) && gid.StartsWith("yt_"))
+            {
+                lock (ytLock)
+                {
+                    var yt = YtTasks.Find(t => t.Gid == gid);
+                    if (yt != null && (yt.Status == "downloading" || yt.Status == "processing"))
+                    {
+                        try { if (yt.Process != null && !yt.Process.HasExited) yt.Process.Kill(); } catch { }
+                        yt.Status = "paused";
+                        yt.DownloadSpeed = 0;
+                        yt.Eta = 0;
+                    }
+                }
+                return;
+            }
+            SendAriaAction("aria2.pause", gid);
+        }
+        public void ResumeTask(string gid)
+        {
+            if (!string.IsNullOrEmpty(gid) && gid.StartsWith("yt_"))
+            {
+                lock (ytLock)
+                {
+                    var yt = YtTasks.Find(t => t.Gid == gid);
+                    if (yt != null && (yt.Status == "paused" || yt.Status == "error"))
+                    {
+                        yt.Status = "downloading";
+                        Thread t = new Thread(() =>
+                        {
+                            RunYtDlpProcess(yt, yt.YtExe, yt.FfmpegDir, yt.FormatArg, yt.ExtraHeaders, yt.SaveDir, yt.Url, yt.IsYouTube, true);
+                        });
+                        t.IsBackground = true;
+                        t.Start();
+                    }
+                }
+                return;
+            }
+            SendAriaAction("aria2.unpause", gid);
+        }
         public void RemoveTask(string gid)
         {
             SendAriaAction("aria2.remove", gid);
@@ -669,31 +1174,51 @@ namespace FastDownloader
             catch { }
         }
 
-        public string StartYtDlp(string url, string quality, string queue, string cookies = null, string userAgent = null, string referer = null)
+        public string StartYtDlp(string url, string quality, string queue, string cookies = null, string userAgent = null, string referer = null, string customName = null, string category = null, bool startNow = true)
         {
             string gid = "yt_" + Guid.NewGuid().ToString().Substring(0, 8);
             string ytExe = Path.Combine(AppDir, "bin", "yt-dlp.exe");
             if (!File.Exists(ytExe)) ytExe = Path.Combine(AppDir, "yt-dlp.exe");
             string ffmpegDir = Path.Combine(AppDir, "bin");
 
-            string formatArg = "-f \"bv*[vcodec^=avc1]+ba[acodec^=mp4a]/bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b\" --merge-output-format mp4";
+            string formatArg = "-f \"bv*[vcodec^=avc1]+ba[acodec^=mp4a]/bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/18/b\" --merge-output-format mp4";
             if (quality == "720p") formatArg = "-f \"bv*[height<=720][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720]/bv*[height<=720]+ba/b\" --merge-output-format mp4";
             if (quality == "audio") formatArg = "-x --audio-format mp3";
 
             string extraHeaders = "";
+            bool isYouTube = url.Contains("youtube.com") || url.Contains("youtu.be");
+            if (isYouTube)
+            {
+                extraHeaders += " --extractor-args \"youtube:player_client=android,web\"";
+            }
             if (!string.IsNullOrEmpty(cookies)) extraHeaders += " --add-header \"Cookie:" + cookies.Replace("\"", "\\\"") + "\"";
             if (!string.IsNullOrEmpty(referer)) extraHeaders += " --referer \"" + referer.Replace("\"", "\\\"") + "\"";
             if (!string.IsNullOrEmpty(userAgent)) extraHeaders += " --user-agent \"" + userAgent.Replace("\"", "\\\"") + "\"";
+
+            string initialName = !string.IsNullOrEmpty(customName) ? customName : ("Online Video: " + (url.Length > 45 ? url.Substring(0, 45) + "..." : url));
+
+            string targetSaveDir = DownloadsFolder;
+            if (!string.IsNullOrEmpty(category) && category != "General" && category != "Default")
+            {
+                targetSaveDir = Path.Combine(DownloadsFolder, category);
+                try { if (!Directory.Exists(targetSaveDir)) Directory.CreateDirectory(targetSaveDir); } catch { }
+            }
 
             YtTaskInfo taskInfo = new YtTaskInfo
             {
                 Gid = gid,
                 Url = url,
-                Name = "Online Video: " + (url.Length > 45 ? url.Substring(0, 45) + "..." : url),
+                Name = initialName,
                 Quality = quality,
                 Queue = queue,
                 Progress = 0,
-                Status = "downloading"
+                Status = startNow ? "downloading" : "paused",
+                YtExe = ytExe,
+                FfmpegDir = ffmpegDir,
+                FormatArg = formatArg,
+                ExtraHeaders = extraHeaders,
+                SaveDir = targetSaveDir,
+                IsYouTube = isYouTube
             };
 
             lock (ytLock)
@@ -701,79 +1226,302 @@ namespace FastDownloader
                 YtTasks.Insert(0, taskInfo);
             }
 
-            Thread t = new Thread(() =>
+            if (startNow)
+            {
+                Thread t = new Thread(() =>
+                {
+                    RunYtDlpProcess(taskInfo, ytExe, ffmpegDir, formatArg, extraHeaders, targetSaveDir, url, isYouTube, true);
+                });
+                t.IsBackground = true;
+                t.Start();
+            }
+
+            return gid;
+        }
+
+        private static readonly Regex Aria2ProgressRegex = new Regex(
+            @"\[#[0-9a-fA-F]+\s+([0-9\.]+[a-zA-Z]+)/([0-9\.]+[a-zA-Z]+)(?:\s*\(\s*(\d+)%\s*\))?.*?DL:([0-9\.]+[a-zA-Z]+)(?:.*?ETA:([^\s\]]+))?",
+            RegexOptions.Compiled);
+
+        private static readonly Regex YtDlpProgressRegex = new Regex(
+            @"\[download\]\s+([0-9\.]+)%\s+of\s+(?:~\s*)?([0-9\.]+[a-zA-Z]+)(?:\s+at\s+([0-9\.]+[a-zA-Z]+(?:/s)?))?(?:\s+ETA\s+([^\s\]]+))?",
+            RegexOptions.Compiled);
+
+        public static long ParseByteString(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return 0;
+            s = s.Trim();
+            var match = Regex.Match(s, @"^([0-9\.]+)\s*([a-zA-Z]+)?$");
+            if (!match.Success) return 0;
+            double val;
+            if (!double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out val)) return 0;
+            string unit = match.Groups[2].Value.ToUpperInvariant();
+            long mult = 1;
+            if (unit.Contains("K")) mult = 1024L;
+            else if (unit.Contains("M")) mult = 1024L * 1024L;
+            else if (unit.Contains("G")) mult = 1024L * 1024L * 1024L;
+            else if (unit.Contains("T")) mult = 1024L * 1024L * 1024L * 1024L;
+            return (long)(val * mult);
+        }
+
+        public static long ParseEtaString(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return 0;
+            s = s.Trim();
+            if (s.Contains(":"))
+            {
+                string[] parts = s.Split(':');
+                long total = 0;
+                for (int i = 0; i < parts.Length; i++)
+                {
+                    long p;
+                    if (long.TryParse(parts[i], out p)) total = total * 60 + p;
+                }
+                return total;
+            }
+            var matches = Regex.Matches(s.ToLowerInvariant(), @"(\d+)\s*([hms])");
+            long secTotal = 0;
+            foreach (Match m in matches)
+            {
+                long val;
+                if (long.TryParse(m.Groups[1].Value, out val))
+                {
+                    string u = m.Groups[2].Value;
+                    if (u == "h") secTotal += val * 3600;
+                    else if (u == "m") secTotal += val * 60;
+                    else if (u == "s") secTotal += val;
+                }
+            }
+            return secTotal;
+        }
+
+        private void ParseYtOutputLine(YtTaskInfo taskInfo, string line, ref long previousStreamBytes, ref long currentStreamTotal, ref long currentStreamCompleted)
+        {
+            if (string.IsNullOrEmpty(line)) return;
+
+            if (line.Contains("Destination: "))
             {
                 try
                 {
-                    ProcessStartInfo psi = new ProcessStartInfo
+                    int dIdx = line.IndexOf("Destination: ");
+                    string dest = line.Substring(dIdx + 13).Trim(' ', '"');
+                    if (!string.IsNullOrEmpty(dest))
                     {
-                        FileName = ytExe,
-                        Arguments = string.Format("--ffmpeg-location \"{0}\" {1}{2} -o \"%(title).60s [%(id)s].%(ext)s\" --windows-filenames --external-downloader aria2c --downloader-args \"aria2c:-x 16 -s 16 -k 1M --disable-ipv6=true --async-dns-server=8.8.8.8,1.1.1.1\" -P \"{3}\" --newline \"{4}\"",
-                            ffmpegDir, formatArg, extraHeaders, DownloadsFolder, url),
-                        CreateNoWindow = true,
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        WindowStyle = ProcessWindowStyle.Hidden
-                    };
-
-                    using (Process p = Process.Start(psi))
-                    {
-                        taskInfo.Process = p;
-                        string line;
-                        while ((line = p.StandardOutput.ReadLine()) != null)
+                        string fname = Path.GetFileName(dest);
+                        if (!fname.Contains(".f") && !fname.EndsWith(".part"))
                         {
-                            if (line.Contains("Destination: "))
-                            {
-                                try
-                                {
-                                    int dIdx = line.IndexOf("Destination: ");
-                                    string dest = line.Substring(dIdx + 13).Trim(' ', '"');
-                                    if (!string.IsNullOrEmpty(dest))
-                                    {
-                                        taskInfo.Name = Path.GetFileName(dest);
-                                    }
-                                }
-                                catch { }
-                            }
-                            else if (line.Contains("[download]") && line.Contains("%"))
-                            {
-                                int idx = line.IndexOf('%');
-                                if (idx > 0)
-                                {
-                                    string part = line.Substring(0, idx);
-                                    int spaceIdx = part.LastIndexOf(' ');
-                                    if (spaceIdx >= 0)
-                                    {
-                                        int pct;
-                                        if (int.TryParse(part.Substring(spaceIdx + 1).Trim().Split('.')[0], out pct))
-                                        {
-                                            taskInfo.Progress = pct;
-                                        }
-                                    }
-                                }
-                                taskInfo.Status = "downloading";
-                            }
-                            else if (line.Contains("[Merger]") || line.Contains("[ExtractAudio]"))
-                            {
-                                taskInfo.Progress = 99;
-                                taskInfo.Status = "processing";
-                            }
+                            taskInfo.Name = fname;
                         }
-                        p.WaitForExit();
-                        taskInfo.Progress = 100;
-                        taskInfo.Status = p.ExitCode == 0 ? "completed" : "error";
+                        else if (string.IsNullOrEmpty(taskInfo.Name) || taskInfo.Name.StartsWith("Online Video:"))
+                        {
+                            taskInfo.Name = fname;
+                        }
                     }
                 }
-                catch
-                {
-                    taskInfo.Status = "error";
-                }
-            });
-            t.IsBackground = true;
-            t.Start();
+                catch { }
+                return;
+            }
 
-            return gid;
+            if (line.Contains("[#"))
+            {
+                var m = Aria2ProgressRegex.Match(line);
+                if (m.Success)
+                {
+                    long comp = ParseByteString(m.Groups[1].Value);
+                    long tot = ParseByteString(m.Groups[2].Value);
+                    long spd = ParseByteString(m.Groups[4].Value);
+                    long eta = ParseEtaString(m.Groups[5].Value);
+
+                    if (tot > 0 && currentStreamTotal > 0 && tot < currentStreamTotal && comp < currentStreamCompleted)
+                    {
+                        previousStreamBytes += currentStreamCompleted;
+                    }
+                    currentStreamTotal = tot;
+                    currentStreamCompleted = comp;
+
+                    long overallCompleted = previousStreamBytes + comp;
+                    long overallTotal = previousStreamBytes + tot;
+
+                    taskInfo.CompletedLength = overallCompleted;
+                    taskInfo.TotalLength = overallTotal;
+                    taskInfo.DownloadSpeed = spd;
+                    taskInfo.Eta = eta;
+
+                    int pct = 0;
+                    if (!string.IsNullOrEmpty(m.Groups[3].Value))
+                    {
+                        int.TryParse(m.Groups[3].Value, out pct);
+                        if (previousStreamBytes > 0 && overallTotal > 0)
+                        {
+                            pct = (int)((overallCompleted * 100) / overallTotal);
+                        }
+                    }
+                    else if (overallTotal > 0)
+                    {
+                        pct = (int)((overallCompleted * 100) / overallTotal);
+                    }
+                    if (pct > taskInfo.Progress && pct < 100) taskInfo.Progress = pct;
+                    taskInfo.Status = "downloading";
+                    return;
+                }
+            }
+
+            if (line.Contains("[download]"))
+            {
+                var m = YtDlpProgressRegex.Match(line);
+                if (m.Success)
+                {
+                    float pctVal;
+                    if (float.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out pctVal))
+                    {
+                        int pct = (int)pctVal;
+                        if (pct > taskInfo.Progress && pct < 100) taskInfo.Progress = pct;
+                    }
+                    long tot = ParseByteString(m.Groups[2].Value);
+                    if (tot > 0)
+                    {
+                        taskInfo.TotalLength = tot;
+                        taskInfo.CompletedLength = (long)(tot * (taskInfo.Progress / 100.0));
+                    }
+                    if (m.Groups[3].Success)
+                    {
+                        taskInfo.DownloadSpeed = ParseByteString(m.Groups[3].Value.Replace("/s", ""));
+                    }
+                    if (m.Groups[4].Success)
+                    {
+                        taskInfo.Eta = ParseEtaString(m.Groups[4].Value);
+                    }
+                    taskInfo.Status = "downloading";
+                    return;
+                }
+            }
+
+            if (line.Contains("[Merger]") || line.Contains("[ExtractAudio]") || line.Contains("Fixing headers"))
+            {
+                taskInfo.Progress = 99;
+                taskInfo.Status = "processing";
+                taskInfo.DownloadSpeed = 0;
+                taskInfo.Eta = 0;
+            }
+        }
+
+        private void RunYtDlpProcess(YtTaskInfo taskInfo, string ytExe, string ffmpegDir, string formatArg, string extraHeaders, string saveDir, string url, bool isYouTube, bool allowRetry)
+        {
+            StringBuilder errLog = new StringBuilder();
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo
+                {
+                    FileName = ytExe,
+                    Arguments = string.Format("--ffmpeg-location \"{0}\" {1}{2} -o \"%(title).60s [%(id)s].%(ext)s\" --windows-filenames --external-downloader aria2c --downloader-args \"aria2c:-x 16 -s 16 -k 1M --disable-ipv6=true --async-dns-server=8.8.8.8,1.1.1.1 --summary-interval=1\" -P \"{3}\" \"{4}\"",
+                        ffmpegDir, formatArg, extraHeaders, saveDir, url),
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8,
+                    WindowStyle = ProcessWindowStyle.Hidden
+                };
+
+                using (Process p = Process.Start(psi))
+                {
+                    taskInfo.Process = p;
+                    p.ErrorDataReceived += (s, e) =>
+                    {
+                        if (!string.IsNullOrEmpty(e.Data))
+                        {
+                            errLog.AppendLine(e.Data);
+                        }
+                    };
+                    p.BeginErrorReadLine();
+
+                    char[] buffer = new char[512];
+                    StringBuilder sb = new StringBuilder();
+                    int read;
+                    long previousStreamBytes = 0;
+                    long currentStreamTotal = 0;
+                    long currentStreamCompleted = 0;
+
+                    while ((read = p.StandardOutput.Read(buffer, 0, buffer.Length)) > 0)
+                    {
+                        for (int i = 0; i < read; i++)
+                        {
+                            char ch = buffer[i];
+                            if (ch == '\r' || ch == '\n')
+                            {
+                                if (sb.Length > 0)
+                                {
+                                    string line = sb.ToString();
+                                    sb.Length = 0;
+                                    ParseYtOutputLine(taskInfo, line, ref previousStreamBytes, ref currentStreamTotal, ref currentStreamCompleted);
+                                }
+                            }
+                            else
+                            {
+                                sb.Append(ch);
+                            }
+                        }
+                    }
+                    if (sb.Length > 0)
+                    {
+                        ParseYtOutputLine(taskInfo, sb.ToString(), ref previousStreamBytes, ref currentStreamTotal, ref currentStreamCompleted);
+                    }
+
+                    p.WaitForExit();
+
+                    string allErrors = errLog.ToString();
+                    if (!string.IsNullOrEmpty(allErrors))
+                    {
+                        try { File.WriteAllText(Path.Combine(AppDir, "ytdlp_last_error.log"), allErrors); } catch { }
+                    }
+
+                    if (taskInfo.Status == "paused") return;
+
+                    if (p.ExitCode != 0 && allowRetry && isYouTube)
+                    {
+                        if (allErrors.Contains("The page needs to be reloaded") ||
+                            allErrors.Contains("challenge solving failed") ||
+                            allErrors.Contains("Sign in to confirm"))
+                        {
+                            string retryHeaders = " --extractor-args \"youtube:player_client=android,web\"";
+                            RunYtDlpProcess(taskInfo, ytExe, ffmpegDir, formatArg, retryHeaders, saveDir, url, isYouTube, false);
+                            return;
+                        }
+                    }
+
+                    taskInfo.Progress = 100;
+                    taskInfo.Status = p.ExitCode == 0 ? "completed" : "error";
+                    taskInfo.DownloadSpeed = 0;
+                    taskInfo.Eta = 0;
+                    if (p.ExitCode == 0)
+                    {
+                        if (taskInfo.TotalLength > 0 && taskInfo.CompletedLength < taskInfo.TotalLength)
+                        {
+                            taskInfo.CompletedLength = taskInfo.TotalLength;
+                        }
+                        try
+                        {
+                            if (!string.IsNullOrEmpty(taskInfo.Name))
+                            {
+                                string candidate = Path.Combine(saveDir, taskInfo.Name);
+                                if (File.Exists(candidate))
+                                {
+                                    long diskLen = new FileInfo(candidate).Length;
+                                    taskInfo.TotalLength = diskLen;
+                                    taskInfo.CompletedLength = diskLen;
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                try { File.WriteAllText(Path.Combine(AppDir, "ytdlp_last_error.log"), ex.ToString() + "\n" + errLog.ToString()); } catch { }
+                taskInfo.Status = "error";
+            }
         }
     }
 
@@ -978,6 +1726,8 @@ namespace FastDownloader
                             long eta = (downloadSpeed > 0 && totalLength > completedLength) ? (totalLength - completedLength) / downloadSpeed : 0;
 
                             string filename = "";
+                            string resolvedPath = "";
+                            string resolvedUrl = "";
                             if (t.ContainsKey("bittorrent"))
                             {
                                 var bt = t["bittorrent"] as Dictionary<string, object>;
@@ -987,7 +1737,7 @@ namespace FastDownloader
                                     if (info != null && info.ContainsKey("name")) filename = info["name"].ToString();
                                 }
                             }
-                            if (string.IsNullOrEmpty(filename) && t.ContainsKey("files"))
+                            if (t.ContainsKey("files"))
                             {
                                 var files = t["files"] as ArrayList;
                                 if (files != null && files.Count > 0)
@@ -1004,10 +1754,11 @@ namespace FastDownloader
                                                 {
                                                     p = MagicBytesDetector.FixExtension(p);
                                                 }
+                                                resolvedPath = p;
                                                 filename = Path.GetFileName(p);
                                             }
                                         }
-                                        if (string.IsNullOrEmpty(filename) && firstFile.ContainsKey("uris"))
+                                        if (firstFile.ContainsKey("uris"))
                                         {
                                             var uris = firstFile["uris"] as ArrayList;
                                             if (uris != null && uris.Count > 0)
@@ -1015,14 +1766,17 @@ namespace FastDownloader
                                                 var uObj = uris[0] as Dictionary<string, object>;
                                                 if (uObj != null && uObj.ContainsKey("uri"))
                                                 {
-                                                    string uriStr = uObj["uri"].ToString();
-                                                    try
+                                                    resolvedUrl = uObj["uri"].ToString();
+                                                    if (string.IsNullOrEmpty(filename))
                                                     {
-                                                        Uri u = new Uri(uriStr);
-                                                        filename = Path.GetFileName(u.LocalPath);
-                                                        if (string.IsNullOrEmpty(filename)) filename = u.Host;
+                                                        try
+                                                        {
+                                                            Uri u = new Uri(resolvedUrl);
+                                                            filename = Path.GetFileName(u.LocalPath);
+                                                            if (string.IsNullOrEmpty(filename)) filename = u.Host;
+                                                        }
+                                                        catch { filename = resolvedUrl; }
                                                     }
-                                                    catch { filename = uriStr; }
                                                 }
                                             }
                                         }
@@ -1030,6 +1784,7 @@ namespace FastDownloader
                                 }
                             }
                             if (string.IsNullOrEmpty(filename)) filename = "Direct Download (" + gid + ")";
+                            if (string.IsNullOrEmpty(resolvedPath)) resolvedPath = Path.Combine(engine.DownloadsFolder, filename);
 
                             var item = new Dictionary<string, object>();
                             item["gid"] = gid;
@@ -1041,6 +1796,8 @@ namespace FastDownloader
                             item["eta"] = eta;
                             item["status"] = status;
                             item["engine"] = "aria2";
+                            item["filePath"] = resolvedPath;
+                            item["url"] = resolvedUrl;
                             unifiedList.Add(item);
                         }
 
@@ -1060,11 +1817,16 @@ namespace FastDownloader
                                 item["status"] = yt.Status;
                                 item["engine"] = "yt-dlp";
                                 item["url"] = yt.Url;
+                                item["filePath"] = Path.Combine(engine.DownloadsFolder, yt.Name);
                                 unifiedList.Insert(0, item);
                             }
                         }
 
-                        var result = new Dictionary<string, object> { { "tasks", unifiedList } };
+                        var result = new Dictionary<string, object>
+                        {
+                            { "tasks", unifiedList },
+                            { "pending", engine.GetPendingDownloads() }
+                        };
                         string json = JsonHelper.Serialize(result);
                         byte[] bytes = Encoding.UTF8.GetBytes(json);
                         SendHeaders(writer, 200, "OK", "application/json", bytes.Length);
@@ -1083,7 +1845,7 @@ namespace FastDownloader
                         string cookies = data.ContainsKey("cookies") ? data["cookies"].ToString() : "";
                         string userAgent = data.ContainsKey("userAgent") ? data["userAgent"].ToString() : "";
                         string referer = data.ContainsKey("referer") ? data["referer"].ToString() : "";
-                        string filename = data.ContainsKey("filename") ? data["filename"].ToString() : "";
+                        string filename = data.ContainsKey("filename") && !string.IsNullOrEmpty(data["filename"].ToString()) ? data["filename"].ToString() : (data.ContainsKey("title") ? data["title"].ToString() : "");
                         string type = data.ContainsKey("type") ? data["type"].ToString().ToLowerInvariant() : "";
                         bool startNow = true;
                         if (data.ContainsKey("startNow")) bool.TryParse(data["startNow"].ToString(), out startNow);
@@ -1095,7 +1857,7 @@ namespace FastDownloader
                             string assignedGid;
                             if (isVideo)
                             {
-                                assignedGid = engine.StartYtDlp(dlUrl, quality, queue, cookies, userAgent, referer);
+                                assignedGid = engine.StartYtDlp(dlUrl, quality, queue, cookies, userAgent, referer, filename);
                             }
                             else
                             {
@@ -1185,17 +1947,60 @@ namespace FastDownloader
                         return;
                     }
 
-                    // 8. OPEN FOLDER API
+                    // 8. OPEN FOLDER API (Supports highlighting file with /select)
                     if (urlPath.StartsWith("/api/openfolder") && method == "POST")
                     {
-                        string targetFolder = engine.DownloadsFolder;
-                        if (urlPath.Contains("target=extension"))
+                        var data = JsonHelper.ParseDict(requestBody);
+                        string filePath = data != null && data.ContainsKey("path") ? data["path"].ToString() : "";
+                        if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
                         {
-                            targetFolder = Path.Combine(engine.AppDir, "extension");
+                            try { Process.Start("explorer.exe", "/select,\"" + filePath + "\""); }
+                            catch { Process.Start("explorer.exe", engine.DownloadsFolder); }
                         }
-                        Process.Start("explorer.exe", targetFolder);
+                        else if (!string.IsNullOrEmpty(filePath) && Directory.Exists(filePath))
+                        {
+                            try { Process.Start("explorer.exe", filePath); }
+                            catch { Process.Start("explorer.exe", engine.DownloadsFolder); }
+                        }
+                        else
+                        {
+                            string targetFolder = engine.DownloadsFolder;
+                            if (urlPath.Contains("target=extension"))
+                            {
+                                targetFolder = Path.Combine(engine.AppDir, "extension");
+                            }
+                            Process.Start("explorer.exe", targetFolder);
+                        }
 
                         string ok = "{\"ok\":true}";
+                        byte[] okBytes = Encoding.UTF8.GetBytes(ok);
+                        SendHeaders(writer, 200, "OK", "application/json", okBytes.Length);
+                        writer.Write(ok);
+                        writer.Flush();
+                        return;
+                    }
+
+                    // 8.5 OPEN FILE API (Direct shell execution of finished download)
+                    if (urlPath == "/api/openfile" && method == "POST")
+                    {
+                        var data = JsonHelper.ParseDict(requestBody);
+                        string filePath = data != null && data.ContainsKey("path") ? data["path"].ToString() : "";
+                        bool launched = false;
+                        if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
+                        {
+                            try
+                            {
+                                Process.Start(new ProcessStartInfo
+                                {
+                                    FileName = filePath,
+                                    UseShellExecute = true
+                                });
+                                launched = true;
+                            }
+                            catch { }
+                        }
+
+                        string ok = "{\"ok\":" + (launched ? "true" : "false") + "}";
                         byte[] okBytes = Encoding.UTF8.GetBytes(ok);
                         SendHeaders(writer, 200, "OK", "application/json", okBytes.Length);
                         writer.Write(ok);
@@ -1295,10 +2100,179 @@ namespace FastDownloader
                         return;
                     }
 
+                    // 13. PROBE URL API
+                    if (urlPath == "/api/probe" && method == "POST")
+                    {
+                        var data = JsonHelper.ParseDict(requestBody);
+                        string pUrl = data != null && data.ContainsKey("url") ? data["url"].ToString().Trim() : "";
+                        string cookies = data != null && data.ContainsKey("cookies") ? data["cookies"].ToString() : "";
+                        string userAgent = data != null && data.ContainsKey("userAgent") ? data["userAgent"].ToString() : "";
+                        Dictionary<string, object> headers = null;
+                        if (data != null && data.ContainsKey("headers") && data["headers"] is Dictionary<string, object>)
+                        {
+                            headers = (Dictionary<string, object>)data["headers"];
+                        }
+
+                        var probeRes = UrlProbeHelper.Probe(pUrl, engine.AppDir, cookies, userAgent, headers);
+                        string json = JsonHelper.Serialize(probeRes);
+                        byte[] bytes = Encoding.UTF8.GetBytes(json);
+                        SendHeaders(writer, 200, "OK", "application/json; charset=utf-8", bytes.Length);
+                        writer.Write(json);
+                        writer.Flush();
+                        return;
+                    }
+
+                    // 14. OPEN APP WINDOW API
+                    if (urlPath == "/api/openapp" && method == "POST")
+                    {
+                        ThreadPool.QueueUserWorkItem(delegate
+                        {
+                            try
+                            {
+                                if (!WindowManager.FocusExistingWindow())
+                                {
+                                    DownloaderAppContext.LaunchDashboard(engine.AppDir);
+                                }
+                            }
+                            catch { }
+                        });
+
+                        string ok = "{\"ok\":true}";
+                        byte[] okBytes = Encoding.UTF8.GetBytes(ok);
+                        SendHeaders(writer, 200, "OK", "application/json", okBytes.Length);
+                        writer.Write(ok);
+                        writer.Flush();
+                        return;
+                    }
+
+                    // 15. INTERCEPT DOWNLOAD API (Pre-flight Confirmation)
+                    if (urlPath == "/api/intercept" && method == "POST")
+                    {
+                        var data = JsonHelper.ParseDict(requestBody);
+                        string url = data != null && data.ContainsKey("url") ? data["url"].ToString().Trim() : "";
+                        string title = data != null && data.ContainsKey("title") ? data["title"].ToString() : "";
+                        string filename = data != null && data.ContainsKey("filename") ? data["filename"].ToString() : "";
+                        string category = data != null && data.ContainsKey("category") ? data["category"].ToString() : (data != null && data.ContainsKey("subfolder") ? data["subfolder"].ToString() : "");
+                        string quality = data != null && data.ContainsKey("quality") ? data["quality"].ToString() : "best";
+                        string cookies = data != null && data.ContainsKey("cookies") ? data["cookies"].ToString() : "";
+                        string userAgent = data != null && data.ContainsKey("userAgent") ? data["userAgent"].ToString() : "";
+                        string referer = data != null && data.ContainsKey("referer") ? data["referer"].ToString() : "";
+                        Dictionary<string, object> headers = null;
+                        if (data != null && data.ContainsKey("headers") && data["headers"] is Dictionary<string, object>)
+                        {
+                            headers = (Dictionary<string, object>)data["headers"];
+                        }
+
+                        var pending = engine.AddPending(url, title, filename, category, quality, cookies, userAgent, referer, headers);
+
+                        // Bring app window to front
+                        ThreadPool.QueueUserWorkItem(delegate
+                        {
+                            try
+                            {
+                                if (!WindowManager.FocusExistingWindow())
+                                {
+                                    DownloaderAppContext.LaunchDashboard(engine.AppDir);
+                                }
+                            }
+                            catch { }
+                        });
+
+                        if (onNotification != null)
+                        {
+                            onNotification("Download intercepted: " + pending.filename);
+                        }
+
+                        var respObj = new { ok = true, pending = pending };
+                        string json = JsonHelper.Serialize(respObj);
+                        byte[] bytes = Encoding.UTF8.GetBytes(json);
+                        SendHeaders(writer, 200, "OK", "application/json; charset=utf-8", bytes.Length);
+                        writer.Write(json);
+                        writer.Flush();
+                        return;
+                    }
+
+                    // 16. GET PENDING INTERCEPTIONS API
+                    if (urlPath == "/api/intercept/pending" && method == "GET")
+                    {
+                        var list = engine.GetPendingDownloads();
+                        var respObj = new { ok = true, pending = list };
+                        string json = JsonHelper.Serialize(respObj);
+                        byte[] bytes = Encoding.UTF8.GetBytes(json);
+                        SendHeaders(writer, 200, "OK", "application/json; charset=utf-8", bytes.Length);
+                        writer.Write(json);
+                        writer.Flush();
+                        return;
+                    }
+
+                    // 17. CONFIRM PENDING DOWNLOAD API
+                    if (urlPath == "/api/intercept/confirm" && method == "POST")
+                    {
+                        var data = JsonHelper.ParseDict(requestBody);
+                        string pendingId = data != null && data.ContainsKey("pendingId") ? data["pendingId"].ToString() : "";
+                        string action = data != null && data.ContainsKey("action") ? data["action"].ToString() : "start";
+                        string customName = data != null && data.ContainsKey("filename") ? data["filename"].ToString() : "";
+                        string category = data != null && data.ContainsKey("category") ? data["category"].ToString() : "";
+                        string queue = data != null && data.ContainsKey("queue") ? data["queue"].ToString() : "MainQueue";
+                        string quality = data != null && data.ContainsKey("quality") ? data["quality"].ToString() : "best";
+
+                        PendingDownloadInfo pending;
+                        if (engine.RemovePending(pendingId, out pending))
+                        {
+                            string finalName = !string.IsNullOrEmpty(customName) ? customName : pending.filename;
+                            string finalCat = !string.IsNullOrEmpty(category) ? category : pending.category;
+                            string finalQuality = !string.IsNullOrEmpty(quality) ? quality : pending.quality;
+                            bool startNow = (action == "start");
+
+                            bool isVideo = MediaUrlHelper.IsMediaPlatformUrl(pending.url) || (pending.type == "video" && !MediaUrlHelper.HasDirectFileExtension(pending.url));
+                            string assignedGid;
+                            if (isVideo)
+                            {
+                                assignedGid = engine.StartYtDlp(pending.url, finalQuality, queue, pending.cookies, pending.userAgent, pending.referer, finalName, finalCat, startNow);
+                            }
+                            else
+                            {
+                                assignedGid = engine.AddAriaUri(pending.url, startNow, pending.cookies, pending.userAgent, pending.referer, finalName, finalCat);
+                            }
+
+                            if (onNotification != null) onNotification(startNow ? "Download started: " + finalName : "Saved to queue: " + finalName);
+
+                            var respObj = new { ok = true, gid = assignedGid, action = action };
+                            string json = JsonHelper.Serialize(respObj);
+                            byte[] bytes = Encoding.UTF8.GetBytes(json);
+                            SendHeaders(writer, 200, "OK", "application/json; charset=utf-8", bytes.Length);
+                            writer.Write(json);
+                            writer.Flush();
+                            return;
+                        }
+
+                        SendHeaders(writer, 404, "Not Found", "application/json", 0);
+                        return;
+                    }
+
+                    // 18. CANCEL PENDING DOWNLOAD API
+                    if (urlPath == "/api/intercept/cancel" && method == "POST")
+                    {
+                        var data = JsonHelper.ParseDict(requestBody);
+                        string pendingId = data != null && data.ContainsKey("pendingId") ? data["pendingId"].ToString() : "";
+                        PendingDownloadInfo pending;
+                        bool removed = engine.RemovePending(pendingId, out pending);
+                        var respObj = new { ok = removed };
+                        string json = JsonHelper.Serialize(respObj);
+                        byte[] bytes = Encoding.UTF8.GetBytes(json);
+                        SendHeaders(writer, 200, "OK", "application/json; charset=utf-8", bytes.Length);
+                        writer.Write(json);
+                        writer.Flush();
+                        return;
+                    }
+
                     SendHeaders(writer, 404, "Not Found", "text/plain", 0);
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                try { File.AppendAllText(Path.Combine(engine.AppDir, "http_error.log"), DateTime.Now.ToString("s") + " [HTTP Error] " + ex.ToString() + "\r\n"); } catch { }
+            }
             finally
             {
                 try { client.Close(); } catch { }
@@ -1507,9 +2481,30 @@ namespace FastDownloader
             };
 
             ContextMenu trayMenu = new ContextMenu();
-            trayMenu.MenuItems.Add("⚡ Open FastDownloader Dashboard", (s, e) => LaunchEdgeApp());
-            trayMenu.MenuItems.Add("📁 Open Downloads Folder", (s, e) => Process.Start("explorer.exe", engine.DownloadsFolder));
+            trayMenu.MenuItems.Add("⚡ Open Dashboard", (s, e) => LaunchEdgeApp());
+            trayMenu.MenuItems.Add("➕ Add Download...", (s, e) => LaunchEdgeApp());
+            trayMenu.MenuItems.Add("-");
+            trayMenu.MenuItems.Add("▶ Resume All Downloads", (s, e) =>
+            {
+                engine.ResumeAll();
+                if (trayIcon != null) trayIcon.ShowBalloonTip(1500, "⚡ FastDownloader", "All downloads resumed", ToolTipIcon.Info);
+            });
+            trayMenu.MenuItems.Add("⏸ Pause All Downloads", (s, e) =>
+            {
+                engine.PauseAll();
+                if (trayIcon != null) trayIcon.ShowBalloonTip(1500, "⚡ FastDownloader", "All downloads paused", ToolTipIcon.Info);
+            });
+            trayMenu.MenuItems.Add("-");
+
+            MenuItem speedMenu = new MenuItem("🚀 Speed Limit");
+            speedMenu.MenuItems.Add("Unlimited", (s, e) => { engine.SetSpeedLimit("0"); if (trayIcon != null) trayIcon.ShowBalloonTip(1500, "Speed Limit", "Unlimited speed set", ToolTipIcon.Info); });
+            speedMenu.MenuItems.Add("1 MB/s", (s, e) => { engine.SetSpeedLimit("1M"); if (trayIcon != null) trayIcon.ShowBalloonTip(1500, "Speed Limit", "Speed limited to 1 MB/s", ToolTipIcon.Info); });
+            speedMenu.MenuItems.Add("5 MB/s", (s, e) => { engine.SetSpeedLimit("5M"); if (trayIcon != null) trayIcon.ShowBalloonTip(1500, "Speed Limit", "Speed limited to 5 MB/s", ToolTipIcon.Info); });
+            speedMenu.MenuItems.Add("10 MB/s", (s, e) => { engine.SetSpeedLimit("10M"); if (trayIcon != null) trayIcon.ShowBalloonTip(1500, "Speed Limit", "Speed limited to 10 MB/s", ToolTipIcon.Info); });
+            trayMenu.MenuItems.Add(speedMenu);
+
             trayMenu.MenuItems.Add(autoCaptureMenuItem);
+            trayMenu.MenuItems.Add("📁 Open Downloads Folder", (s, e) => Process.Start("explorer.exe", engine.DownloadsFolder));
             trayMenu.MenuItems.Add("-");
             trayMenu.MenuItems.Add("Exit FastDownloader", (s, e) =>
             {
@@ -1637,7 +2632,7 @@ namespace FastDownloader
                     {
                         FileName = edgePath,
                         Arguments = string.Format("--app=http://127.0.0.1:6801/ --user-data-dir=\"{0}\" --window-size=1180,760 --no-first-run --no-default-browser-check", profileDir),
-                        UseShellExecute = false
+                        UseShellExecute = true
                     };
                     Process.Start(psi);
                     return;
@@ -1703,14 +2698,211 @@ namespace FastDownloader
         }
     }
 
+    public static class NativeMessagingHost
+    {
+        public static void Run()
+        {
+            string appDir = AppDomain.CurrentDomain.BaseDirectory;
+            using (Stream stdin = Console.OpenStandardInput())
+            using (Stream stdout = Console.OpenStandardOutput())
+            {
+                byte[] lenBytes = new byte[4];
+                while (true)
+                {
+                    int totalRead = 0;
+                    while (totalRead < 4)
+                    {
+                        int r = stdin.Read(lenBytes, totalRead, 4 - totalRead);
+                        if (r <= 0) return;
+                        totalRead += r;
+                    }
+
+                    int msgLen = BitConverter.ToInt32(lenBytes, 0);
+                    if (msgLen <= 0 || msgLen > 10 * 1024 * 1024) return;
+
+                    byte[] msgBytes = new byte[msgLen];
+                    totalRead = 0;
+                    while (totalRead < msgLen)
+                    {
+                        int r = stdin.Read(msgBytes, totalRead, msgLen - totalRead);
+                        if (r <= 0) return;
+                        totalRead += r;
+                    }
+
+                    string json = Encoding.UTF8.GetString(msgBytes);
+                    string respJson = ProcessMessage(json, appDir);
+
+                    byte[] respBytes = Encoding.UTF8.GetBytes(respJson);
+                    byte[] respLenBytes = BitConverter.GetBytes(respBytes.Length);
+
+                    stdout.Write(respLenBytes, 0, 4);
+                    stdout.Write(respBytes, 0, respBytes.Length);
+                    stdout.Flush();
+                }
+            }
+        }
+
+        private static string ProcessMessage(string json, string appDir)
+        {
+            try
+            {
+                var dict = JsonHelper.ParseDict(json);
+                string action = dict.ContainsKey("action") ? dict["action"].ToString() : "";
+
+                if (action == "ping")
+                {
+                    return "{\"ok\":true,\"message\":\"pong\"}";
+                }
+
+                if (action == "openApp")
+                {
+                    EnsureAppRunning(appDir);
+                    ThreadPool.QueueUserWorkItem(delegate
+                    {
+                        try
+                        {
+                            if (!WindowManager.FocusExistingWindow())
+                            {
+                                DownloaderAppContext.LaunchDashboard(appDir);
+                            }
+                        }
+                        catch { }
+                    });
+                    return "{\"ok\":true,\"message\":\"App opened\"}";
+                }
+
+                if (action == "probe")
+                {
+                    string pUrl = dict.ContainsKey("url") ? dict["url"].ToString() : "";
+                    string cookies = dict.ContainsKey("cookies") ? dict["cookies"].ToString() : "";
+                    string userAgent = dict.ContainsKey("userAgent") ? dict["userAgent"].ToString() : "";
+                    Dictionary<string, object> headers = null;
+                    if (dict.ContainsKey("headers") && dict["headers"] is Dictionary<string, object>)
+                    {
+                        headers = (Dictionary<string, object>)dict["headers"];
+                    }
+                    var probeRes = UrlProbeHelper.Probe(pUrl, appDir, cookies, userAgent, headers);
+                    return JsonHelper.Serialize(probeRes);
+                }
+
+                if (action == "intercept")
+                {
+                    EnsureAppRunning(appDir);
+                    try
+                    {
+                        HttpWebRequest req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:6801/api/intercept");
+                        req.Method = "POST";
+                        req.ContentType = "application/json";
+                        req.Timeout = 10000;
+                        byte[] postData = Encoding.UTF8.GetBytes(json);
+                        req.ContentLength = postData.Length;
+                        using (Stream reqStream = req.GetRequestStream())
+                        {
+                            reqStream.Write(postData, 0, postData.Length);
+                        }
+                        using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+                        using (StreamReader sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
+                        {
+                            return sr.ReadToEnd();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        return "{\"ok\":false,\"error\":\"" + ex.Message.Replace("\"", "\\\"") + "\"}";
+                    }
+                }
+
+                if (action == "download")
+                {
+                    EnsureAppRunning(appDir);
+                    try
+                    {
+                        HttpWebRequest req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:6801/api/download");
+                        req.Method = "POST";
+                        req.ContentType = "application/json";
+                        req.Timeout = 5000;
+                        byte[] postData = Encoding.UTF8.GetBytes(json);
+                        req.ContentLength = postData.Length;
+                        using (Stream reqStream = req.GetRequestStream())
+                        {
+                            reqStream.Write(postData, 0, postData.Length);
+                        }
+                        using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+                        using (StreamReader sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
+                        {
+                            return sr.ReadToEnd();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        return "{\"ok\":false,\"error\":\"" + ex.Message.Replace("\"", "\\\"") + "\"}";
+                    }
+                }
+
+                return "{\"ok\":true}";
+            }
+            catch (Exception ex)
+            {
+                return "{\"ok\":false,\"error\":\"" + ex.Message.Replace("\"", "\\\"") + "\"}";
+            }
+        }
+
+        private static void EnsureAppRunning(string appDir)
+        {
+            try
+            {
+                Process[] existing = Process.GetProcessesByName("FastDownloader");
+                int currentPid = Process.GetCurrentProcess().Id;
+                bool isRunning = false;
+                foreach (Process p in existing)
+                {
+                    if (p.Id != currentPid)
+                    {
+                        isRunning = true;
+                        break;
+                    }
+                }
+
+                if (!isRunning)
+                {
+                    string exePath = Path.Combine(appDir, "FastDownloader.exe");
+                    ProcessStartInfo psi = new ProcessStartInfo
+                    {
+                        FileName = exePath,
+                        WorkingDirectory = appDir,
+                        UseShellExecute = true
+                    };
+                    Process.Start(psi);
+                    Thread.Sleep(800);
+                }
+            }
+            catch { }
+        }
+    }
+
     static class Program
     {
         private static Mutex appMutex;
 
         [STAThread]
-        static void Main()
+        static void Main(string[] args)
         {
+            string appDir = AppDomain.CurrentDomain.BaseDirectory;
+
+            if (args != null && args.Length > 0)
+            {
+                for (int i = 0; i < args.Length; i++)
+                {
+                    if (args[i].StartsWith("chrome-extension://") || args[i] == "--native")
+                    {
+                        NativeMessagingHost.Run();
+                        return;
+                    }
+                }
+            }
+
             bool createdNew = false;
+            try { File.AppendAllText(Path.Combine(appDir, "startup.log"), DateTime.Now.ToString() + " Main entered.\r\n"); } catch {}
             try
             {
                 appMutex = new Mutex(true, "FastDownloader_SingleInstance_Mutex_98a72b", out createdNew);
@@ -1720,25 +2912,42 @@ namespace FastDownloader
                 createdNew = false;
             }
 
+            try { File.AppendAllText(Path.Combine(appDir, "startup.log"), DateTime.Now.ToString() + " createdNew=" + createdNew + "\r\n"); } catch {}
             if (!createdNew)
             {
                 if (!WindowManager.FocusExistingWindow())
                 {
-                    DownloaderAppContext.LaunchDashboard(AppDomain.CurrentDomain.BaseDirectory);
+                    DownloaderAppContext.LaunchDashboard(appDir);
                 }
                 return;
             }
 
+            AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+            {
+                try { File.AppendAllText(Path.Combine(appDir, "startup.log"), DateTime.Now.ToString() + " [CRASH UnhandledException] " + e.ExceptionObject + "\r\n"); } catch {}
+            };
+            Application.ThreadException += (s, e) =>
+            {
+                try { File.AppendAllText(Path.Combine(appDir, "startup.log"), DateTime.Now.ToString() + " [CRASH ThreadException] " + e.Exception + "\r\n"); } catch {}
+            };
+            AppDomain.CurrentDomain.ProcessExit += (s, e) =>
+            {
+                try { File.AppendAllText(Path.Combine(appDir, "startup.log"), DateTime.Now.ToString() + " ProcessExit triggered.\r\n"); } catch {}
+            };
+
             try
             {
+                BrowserInstaller.RegisterNativeMessagingHost(appDir);
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 var ctx = new DownloaderAppContext();
+                try { File.AppendAllText(Path.Combine(appDir, "startup.log"), DateTime.Now.ToString() + " Entering Application.Run\r\n"); } catch {}
                 Application.Run(ctx);
+                try { File.AppendAllText(Path.Combine(appDir, "startup.log"), DateTime.Now.ToString() + " Application.Run exited cleanly\r\n"); } catch {}
             }
             catch (Exception ex)
             {
-                try { File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "crash.log"), ex.ToString()); } catch { }
+                try { File.AppendAllText(Path.Combine(appDir, "startup.log"), DateTime.Now.ToString() + " [CRASH Main Catch] " + ex + "\r\n"); } catch {}
             }
             finally
             {

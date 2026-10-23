@@ -108,6 +108,14 @@
       color: #2563EB;
       border-color: #BFDBFE;
     }
+    [data-theme="light"] .status-tag.error {
+      background: #FEF2F2;
+      color: #DC2626;
+      border-color: #FECACA;
+    }
+    .progress-fill.error {
+      background: var(--rose, #EF4444) !important;
+    }
 
     [data-theme="light"] .file-icon-box {
       background: #F8FAFC;
@@ -260,11 +268,12 @@
 
     /* TOP HEADER & TOOLBAR */
     header {
+      position: relative;
       background: var(--bg-sidebar);
       border-bottom: 1px solid var(--border-color);
       display: flex;
       flex-direction: column;
-      z-index: 10;
+      z-index: 500;
       flex-shrink: 0;
     }
 
@@ -349,7 +358,7 @@
       font-size: 12px;
       user-select: none;
       position: relative;
-      z-index: 100;
+      z-index: 600;
       flex-shrink: 0;
     }
 
@@ -360,6 +369,10 @@
 
     .menu-item {
       position: relative;
+    }
+
+    .menu-item.open {
+      z-index: 700;
     }
 
     .menu-btn {
@@ -497,6 +510,33 @@
       background: #E2E8F0;
     }
 
+    /* DESKTOP CONTEXT MENUS */
+    .context-menu {
+      display: none;
+      position: fixed;
+      min-width: 220px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65);
+      padding: 5px 0;
+      z-index: 3000;
+      user-select: none;
+      animation: menuFadeIn 0.12s ease-out;
+    }
+
+    [data-theme="light"] .context-menu {
+      background: #FFFFFF;
+      border-color: #E2E8F0;
+      box-shadow: 0 14px 30px rgba(0, 0, 0, 0.15);
+    }
+
+    .context-menu .menu-action.disabled {
+      opacity: 0.42;
+      pointer-events: none;
+      cursor: not-allowed;
+    }
+
     .action-toolbar {
       display: flex;
       align-items: center;
@@ -610,6 +650,70 @@
 
     .btn-icon-only {
       padding: 0 8px;
+    }
+
+    .btn-support {
+      border: 1px solid rgba(255, 94, 91, 0.45) !important;
+      background: rgba(255, 94, 91, 0.12) !important;
+      color: #FF5E5B !important;
+      font-weight: 600 !important;
+      box-shadow: 0 0 10px rgba(255, 94, 91, 0.15);
+    }
+    .btn-support:hover {
+      background: rgba(255, 94, 91, 0.22) !important;
+      border-color: #FF5E5B !important;
+      box-shadow: 0 0 16px rgba(255, 94, 91, 0.4) !important;
+      transform: translateY(-1px);
+    }
+    [data-theme="light"] .btn-support {
+      background: #FFF1F2 !important;
+      border-color: #FECDD3 !important;
+      color: #E11D48 !important;
+    }
+    [data-theme="light"] .btn-support:hover {
+      background: #FFE4E6 !important;
+      border-color: #FB7185 !important;
+    }
+
+    .support-card {
+      margin-top: 10px;
+      background: rgba(255, 94, 91, 0.08);
+      border: 1px solid rgba(255, 94, 91, 0.25);
+      border-radius: 8px;
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .support-card:hover {
+      background: rgba(255, 94, 91, 0.16);
+      border-color: rgba(255, 94, 91, 0.55);
+      box-shadow: 0 0 16px rgba(255, 94, 91, 0.3);
+      transform: translateY(-1px);
+    }
+    .support-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #FF5E5B;
+      margin-bottom: 3px;
+    }
+    .support-card-desc {
+      font-size: 10.5px;
+      color: var(--text-dim);
+      line-height: 1.4;
+    }
+    [data-theme="light"] .support-card {
+      background: #FFF1F2;
+      border-color: #FECDD3;
+    }
+    [data-theme="light"] .support-card:hover {
+      background: #FFE4E6;
+      border-color: #FB7185;
+    }
+    [data-theme="light"] .support-card-header {
+      color: #E11D48;
     }
 
     .toolbar-select-box {
@@ -1163,6 +1267,11 @@
       display: block;
     }
 
+    [data-theme="light"] .graph-container {
+      background: #F8FAFC;
+      border-top: 1px solid #E2E8F0;
+    }
+
     .graph-container.collapsed {
       display: none;
     }
@@ -1185,7 +1294,7 @@
       display: none;
       align-items: center;
       justify-content: center;
-      z-index: 100;
+      z-index: 9000;
     }
 
     .modal-overlay.active {
@@ -1342,6 +1451,136 @@
       gap: 4px;
     }
 
+    /* IDM-GRADE DYNAMIC MULTI-SEGMENT INSPECTOR */
+    .detail-card {
+      width: 720px;
+      max-width: 95vw;
+    }
+    .detail-meta-box {
+      background: var(--bg-sidebar);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .detail-file-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .detail-file-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-main);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .detail-stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin: 4px 0;
+    }
+    .detail-stat-card {
+      background: var(--bg-sidebar);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .detail-stat-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+    .detail-stat-val {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-main);
+      font-variant-numeric: tabular-nums;
+    }
+    .segment-box {
+      background: var(--bg-sidebar);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .segment-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .segment-grid {
+      display: grid;
+      grid-template-columns: repeat(32, 1fr);
+      gap: 3px;
+      height: 24px;
+      background: rgba(0, 0, 0, 0.25);
+      border-radius: 4px;
+      padding: 3px;
+      border: 1px solid var(--border-subtle);
+    }
+    .chunk-block {
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.06);
+      transition: all 0.2s;
+    }
+    .chunk-block.completed {
+      background: var(--emerald);
+      box-shadow: 0 0 4px rgba(16, 185, 129, 0.4);
+    }
+    .chunk-block.active {
+      background: var(--cyan);
+      box-shadow: 0 0 6px rgba(6, 182, 212, 0.6);
+      animation: pulseChunk 1s infinite alternate;
+    }
+    @keyframes pulseChunk {
+      0% { opacity: 0.6; transform: scaleY(0.9); }
+      100% { opacity: 1; transform: scaleY(1); }
+    }
+    .threads-container {
+      max-height: 150px;
+      overflow-y: auto;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      background: var(--bg-sidebar);
+    }
+    .threads-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .threads-table th {
+      background: var(--bg-surface);
+      color: var(--text-muted);
+      font-weight: 600;
+      text-align: left;
+      padding: 6px 10px;
+      position: sticky;
+      top: 0;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .threads-table td {
+      padding: 5px 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      font-variant-numeric: tabular-nums;
+    }
+
     /* Browser Cards in Extension Modal */
     .browser-list {
       display: flex;
@@ -1431,7 +1670,7 @@
       gap: 10px;
       font-size: 13px;
       color: var(--text-main);
-      z-index: 200;
+      z-index: 9500;
       transform: translateY(20px);
       opacity: 0;
       transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
@@ -1442,9 +1681,54 @@
       transform: translateY(0);
       opacity: 1;
     }
+    @keyframes pulseRing {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.08); opacity: 0.3; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
   </style>
 </head>
 <body>
+
+  <!-- APP OPENING BOOT LOADER -->
+  <div id="appBootSplash" style="position:fixed; inset:0; background:#0B0E14; z-index:999999; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; transition:opacity 0.35s ease, visibility 0.35s ease;">
+    <div style="position:relative; display:flex; align-items:center; justify-content:center;">
+      <img src="/ui/logo.png" style="width:68px; height:68px; border-radius:18px; box-shadow:0 0 28px rgba(16,185,129,0.45); object-fit:cover;">
+      <div style="position:absolute; inset:-8px; border-radius:26px; border:1px solid rgba(16,185,129,0.3); animation:pulseRing 2s infinite ease-out;"></div>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span style="font-size:20px; font-weight:800; color:#F8FAFC; letter-spacing:0.5px;">FastDownloader</span>
+      <span style="font-size:11px; font-weight:800; color:#0B0E14; background:#10B981; padding:2px 7px; border-radius:5px;">PRO</span>
+    </div>
+    <div style="width:240px; height:6px; background:#1E293B; border-radius:3px; overflow:hidden; position:relative;">
+      <div id="bootProgressFill" style="height:100%; width:20%; background:linear-gradient(90deg, #10B981, #06B6D4); border-radius:3px; transition:width 0.4s cubic-bezier(0.4, 0, 0.2, 1); box-shadow:0 0 12px rgba(16,185,129,0.65);"></div>
+    </div>
+    <div id="bootStatusText" style="font-size:12px; color:#10B981; font-weight:600; letter-spacing:0.3px;">Starting Turbo Engine... 25%</div>
+  </div>
+  <script>
+    // Boot splash dynamic progress stages
+    setTimeout(function() {
+      var f = document.getElementById('bootProgressFill');
+      var t = document.getElementById('bootStatusText');
+      if (f) f.style.width = '65%';
+      if (t) t.textContent = 'Connecting to Turbo Engine... 65%';
+    }, 200);
+    setTimeout(function() {
+      var f = document.getElementById('bootProgressFill');
+      var t = document.getElementById('bootStatusText');
+      if (f) f.style.width = '88%';
+      if (t) t.textContent = 'Loading downloads... 88%';
+    }, 500);
+    // Safety auto-dismiss: ensures dashboard is accessible within 1.5s max
+    setTimeout(function() {
+      var s = document.getElementById('appBootSplash');
+      if (s) {
+        s.style.opacity = '0';
+        s.style.visibility = 'hidden';
+        setTimeout(function() { try { s.remove(); } catch(e){} }, 350);
+      }
+    }, 1500);
+  </script>
 
   <!-- HEADER & TOOLBAR -->
   <header>
@@ -1622,6 +1906,10 @@
           <div class="menu-action" onclick="showAboutModal()">
             <span class="menu-action-label" data-i18n="menuAbout">About FastDownloader Pro</span>
           </div>
+          <div class="menu-divider"></div>
+          <div class="menu-action" onclick="showSupportModal()" style="color:#FF5E5B; font-weight:600;">
+            <span class="menu-action-label" data-i18n="menuSupport">💖 Support Project (Ko-fi)</span>
+          </div>
         </div>
       </div>
     </nav>
@@ -1694,6 +1982,10 @@
 
         <button class="btn" id="langToggleBtn" onclick="toggleLanguage()" title="Switch Language / تبديل اللغة">
           🌐 العربية
+        </button>
+
+        <button class="btn btn-support" id="supportBtn" onclick="showSupportModal()" title="Support FastDownloader development (Ko-fi)">
+          💖 <span data-i18n="btnSupport">Support</span>
         </button>
 
         <div class="search-input-wrapper">
@@ -1796,12 +2088,22 @@
             <div class="disk-progress-fill" id="diskProgressFill"></div>
           </div>
         </div>
+
+        <div class="support-card" onclick="showSupportModal()" title="Help us publish to Chrome Web Store & sustain development">
+          <div class="support-card-header">
+            <span>💖 <span data-i18n="supportCardTitle">Support Us</span></span>
+            <span style="font-size:10px; opacity:0.85;">☕ Ko-fi</span>
+          </div>
+          <div class="support-card-desc" data-i18n="supportCardDesc">
+            Help us get on Chrome Web Store & keep updates coming!
+          </div>
+        </div>
       </div>
     </aside>
 
     <!-- MAIN TABLE -->
     <main>
-      <div class="table-container">
+      <div class="table-container" oncontextmenu="handleContainerContextMenu(event)">
         <table id="downloadsTable">
           <thead>
             <tr>
@@ -1883,33 +2185,145 @@
     </main>
   </div>
 
-  <!-- MODAL: ADD DOWNLOAD -->
+  <!-- TASK ROW CONTEXT MENU -->
+  <div id="taskContextMenu" class="context-menu" style="display:none;">
+    <div class="menu-action" id="ctxItemOpenFile" onclick="ctxOpenTaskFile()">
+      <span class="menu-action-label"><span>📂</span> <strong data-i18n="ctxOpenFile">Open File</strong></span>
+    </div>
+    <div class="menu-action" id="ctxItemOpenFolder" onclick="ctxOpenTaskFolder()">
+      <span class="menu-action-label"><span>📁</span> <span data-i18n="ctxOpenFolder">Open Containing Folder</span></span>
+    </div>
+    <div class="menu-divider"></div>
+    <div class="menu-action" id="ctxItemTogglePause" onclick="ctxTogglePause()">
+      <span class="menu-action-label"><span id="ctxPauseIcon">⏸️</span> <span id="ctxPauseLabel" data-i18n="ctxPause">Pause Download</span></span>
+    </div>
+    <div class="menu-action" id="ctxItemRestart" onclick="ctxRestart()">
+      <span class="menu-action-label"><span>🔄</span> <span data-i18n="ctxRestart">Redownload / Restart</span></span>
+    </div>
+    <div class="menu-action" id="ctxItemCopyUrl" onclick="ctxCopyUrl()">
+      <span class="menu-action-label"><span>📋</span> <span data-i18n="ctxCopyUrl">Copy Download Link</span></span>
+    </div>
+    <div class="menu-divider"></div>
+    <div class="menu-action" id="ctxItemSegments" onclick="ctxShowSegments()">
+      <span class="menu-action-label"><span>📊</span> <span data-i18n="ctxSegments">Multi-Segment Inspector</span></span>
+      <span class="menu-shortcut">16-Ch</span>
+    </div>
+    <div class="menu-action" id="ctxItemCycleQueue" onclick="ctxCycleQueue()">
+      <span class="menu-action-label"><span id="ctxQueueIcon">🌙</span> <span id="ctxQueueLabel" data-i18n="ctxMoveNight">Move to Night Queue</span></span>
+    </div>
+    <div class="menu-divider"></div>
+    <div class="menu-action menu-action-danger" id="ctxItemDelete" onclick="ctxDeleteTask()">
+      <span class="menu-action-label"><span>🗑️</span> <span data-i18n="ctxDelete">Delete Task</span></span>
+      <span class="menu-shortcut">Del</span>
+    </div>
+  </div>
+
+  <!-- EMPTY AREA CONTEXT MENU -->
+  <div id="emptyContextMenu" class="context-menu" style="display:none;">
+    <div class="menu-action" onclick="ctxAddDownload()">
+      <span class="menu-action-label"><span>➕</span> <strong data-i18n="ctxAddDownload">Add Download...</strong></span>
+      <span class="menu-shortcut">Ctrl+N</span>
+    </div>
+    <div class="menu-action" onclick="ctxPasteLink()">
+      <span class="menu-action-label"><span>📋</span> <span data-i18n="ctxPasteLink">Paste Link from Clipboard</span></span>
+      <span class="menu-shortcut">Ctrl+Shift+V</span>
+    </div>
+    <div class="menu-divider"></div>
+    <div class="menu-action" onclick="ctxResumeAll()">
+      <span class="menu-action-label"><span>▶️</span> <span data-i18n="ctxResumeAll">Resume All Downloads</span></span>
+    </div>
+    <div class="menu-action" onclick="ctxPauseAll()">
+      <span class="menu-action-label"><span>⏸️</span> <span data-i18n="ctxPauseAll">Pause All Downloads</span></span>
+    </div>
+    <div class="menu-action" onclick="ctxClearFinished()">
+      <span class="menu-action-label"><span>🧹</span> <span data-i18n="ctxClearFinished">Clear Finished Downloads</span></span>
+    </div>
+    <div class="menu-divider"></div>
+    <div class="menu-action" onclick="ctxOpenDownloadsFolder()">
+      <span class="menu-action-label"><span>📁</span> <span data-i18n="ctxOpenDownloads">Open Downloads Folder</span></span>
+      <span class="menu-shortcut">Ctrl+O</span>
+    </div>
+  </div>
+
+  <!-- MODAL: SMART PRE-FLIGHT DOWNLOAD CONFIRMATION -->
   <div class="modal-overlay" id="addModal">
-    <div class="modal-card">
+    <div class="modal-card" style="max-width:580px; width:92%;">
       <div class="modal-header">
-        <div class="modal-title">
-          <span style="color:var(--emerald);">⚡</span>
-          <span>Add New Download Task</span>
+        <div class="modal-title" style="display:flex; align-items:center; gap:8px;">
+          <span style="color:var(--emerald); font-size:18px;">⚡</span>
+          <span id="addModalTitleText">Smart Download Pre-Flight</span>
         </div>
-        <button class="modal-close" onclick="closeModal('addModal')">&times;</button>
+        <button class="modal-close" onclick="cancelAddDownload()">&times;</button>
       </div>
 
       <div class="modal-body">
-        <div class="form-group">
+        <!-- URL INPUT -->
+        <div class="form-group" style="margin-bottom:12px;">
           <label class="form-label">Download URL / Magnet / Video Link:</label>
-          <input type="text" class="form-input" id="addUrlInput" placeholder="https://... or magnet:?xt=... or YouTube/TikTok link" autofocus>
+          <input type="text" class="form-input" id="addUrlInput" placeholder="https://... or magnet:?xt=... or YouTube/TikTok link" autofocus oninput="onAddUrlChanged()" onpaste="setTimeout(onAddUrlChanged, 50)">
+          <div id="addProbeStatus" style="display:none; margin-top:6px; padding:6px 12px; border-radius:6px; font-size:11px; font-weight:600; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.25); color:var(--emerald); align-items:center; gap:8px;">
+            <span id="addProbeIcon">🔍</span>
+            <span id="addProbeText">Probing remote headers...</span>
+          </div>
         </div>
 
-        <div class="form-row">
+        <!-- SMART PREVIEW CARD -->
+        <div id="addPreviewCard" style="display:none; margin-bottom:12px; padding:10px 14px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); align-items:center; gap:12px;">
+          <div id="addThumbnailBox" style="display:none; width:110px; height:62px; border-radius:6px; overflow:hidden; background:#000; flex-shrink:0; position:relative;">
+            <img id="addThumbnailImg" src="" style="width:100%; height:100%; object-fit:cover;" />
+            <span style="position:absolute; bottom:3px; right:4px; background:rgba(0,0,0,0.8); color:#fff; font-size:9px; font-weight:700; padding:1px 4px; border-radius:3px;">VIDEO</span>
+          </div>
+          <div id="addFileIconBox" style="width:48px; height:48px; border-radius:10px; background:rgba(16,185,129,0.12); color:var(--emerald); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">
+            📦
+          </div>
+          <div style="flex:1; min-width:0;">
+            <div id="addPreviewTitle" style="font-weight:700; font-size:13px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">File Title</div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:5px; align-items:center;">
+              <span id="addSizePill" class="badge" style="background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.3); font-size:11px; padding:2px 7px; border-radius:5px; font-weight:600;">-- MB</span>
+              <span id="addResumePill" class="badge" style="background:rgba(16,185,129,0.15); color:var(--emerald); border:1px solid rgba(16,185,129,0.3); font-size:11px; padding:2px 7px; border-radius:5px; font-weight:600;">⚡ Resumable (16 Threads)</span>
+              <span id="addCategoryPill" class="badge" style="background:rgba(168,85,247,0.15); color:#c084fc; border:1px solid rgba(168,85,247,0.3); font-size:11px; padding:2px 7px; border-radius:5px; font-weight:600;">General</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- DUPLICATE WARNING BOX -->
+        <div id="addDuplicateWarning" style="display:none; margin-bottom:12px; padding:8px 12px; border-radius:8px; font-size:12px; background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); color:#fbbf24; align-items:center; justify-content:space-between;">
+          <span>⚠️ File already exists in tasks or folder.</span>
+          <button type="button" class="btn btn-sm" id="btnAutoRename" style="padding:2px 8px; font-size:11px; background:rgba(245,158,11,0.25); border:1px solid rgba(245,158,11,0.5); color:#fbbf24; cursor:pointer;" onclick="applyAutoRename()">Auto-Rename</button>
+        </div>
+
+        <!-- FILENAME INPUT -->
+        <div class="form-group" id="addFileNameGroup" style="margin-bottom:12px;">
+          <label class="form-label">File Name (Editable):</label>
+          <input type="text" class="form-input" id="addFileNameInput" placeholder="Auto-detected from URL or headers" oninput="this.dataset.auto='false'; checkDuplicateFileName(this.value)">
+        </div>
+
+        <!-- CATEGORY & QUEUE ROW -->
+        <div class="form-row" style="margin-bottom:12px;">
           <div class="form-group" style="flex:1;">
-            <label class="form-label">Assign to Queue:</label>
-            <select class="form-select" id="addQueueSelect">
-              <option value="Immediate">⚡ Immediate Download (Start Now)</option>
-              <option value="MainQueue" selected>📋 Main Queue</option>
-              <option value="NightQueue">🌙 Night Queue (Scheduled)</option>
+            <label class="form-label">Category / Subfolder:</label>
+            <select class="form-select" id="addCategorySelect">
+              <option value="" selected>📁 Default (downloads/)</option>
+              <option value="Compressed">📦 Compressed (downloads/Compressed/)</option>
+              <option value="Programs">🚀 Programs (downloads/Programs/)</option>
+              <option value="Videos">🎬 Videos (downloads/Videos/)</option>
+              <option value="Music">🎵 Music (downloads/Music/)</option>
+              <option value="Documents">📄 Documents (downloads/Documents/)</option>
             </select>
           </div>
 
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Assign to Queue:</label>
+            <select class="form-select" id="addQueueSelect">
+              <option value="Immediate" selected>⚡ Immediate (Start Turbo Now)</option>
+              <option value="MainQueue">📋 Main Queue</option>
+              <option value="NightQueue">🌙 Night Queue (Scheduled)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- QUALITY & SAVE DIR ROW -->
+        <div class="form-row">
           <div class="form-group" style="flex:1;" id="qualityGroup">
             <label class="form-label">Video Quality (yt-dlp):</label>
             <select class="form-select" id="addQualitySelect">
@@ -1918,18 +2332,20 @@
               <option value="audio">Audio Only (MP3)</option>
             </select>
           </div>
-        </div>
 
-        <div class="form-group">
-          <label class="form-label">Save To Directory:</label>
-          <input type="text" class="form-input" id="addSaveDir" readonly value="FastDownloader/downloads">
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Save Directory Base:</label>
+            <input type="text" class="form-input" id="addSaveDir" readonly value="FastDownloader/downloads">
+          </div>
         </div>
       </div>
 
-      <div class="modal-footer">
-        <button class="btn" onclick="closeModal('addModal')">Cancel</button>
-        <button class="btn" onclick="submitAddDownload(false)">Add to Queue (Paused)</button>
-        <button class="btn btn-primary" onclick="submitAddDownload(true)">⚡ Download Now</button>
+      <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+        <button class="btn" type="button" onclick="cancelAddDownload()" style="cursor:pointer;"><span style="opacity:0.6;">(Esc)</span> Cancel</button>
+        <div style="display:flex; gap:8px;">
+          <button class="btn" type="button" onclick="submitAddDownload(false)" style="cursor:pointer;"><span style="opacity:0.6;">(Shift+Enter)</span> 📋 Save in Queue</button>
+          <button class="btn btn-primary" type="button" onclick="submitAddDownload(true)" style="cursor:pointer;"><span style="opacity:0.6;">(Enter)</span> ⚡ Download Now</button>
+        </div>
       </div>
     </div>
   </div>
@@ -2147,6 +2563,177 @@
     </div>
   </div>
 
+  <!-- MODAL: SUPPORT -->
+  <div class="modal-overlay" id="supportModal">
+    <div class="modal-card" style="width:500px; text-align:center;">
+      <div class="modal-header" style="justify-content:flex-end; border-bottom:none; padding:12px 16px 0 16px;">
+        <button class="modal-close" onclick="closeModal('supportModal')">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:4px 26px 26px 26px;">
+        <div style="font-size:46px; margin-bottom:8px;">💖</div>
+        <h3 style="margin:0 0 6px 0; font-size:20px; font-weight:800; color:var(--text-main);" data-i18n="supportModalTitle">
+          Support FastDownloader Pro
+        </h3>
+        <p style="margin:0 0 18px 0; font-size:12.5px; color:var(--text-dim); line-height:1.5;" data-i18n="supportModalSubtitle">
+          100% Free, Open Source & Ad-Free Forever.
+        </p>
+
+        <div style="background:var(--bg-base); padding:14px 16px; border-radius:10px; border:1px solid rgba(255,94,91,0.25); text-align:left; font-size:12px; line-height:1.65; color:var(--text-muted); margin-bottom:20px;">
+          <div style="display:flex; align-items:flex-start; gap:10px; margin-bottom:12px;">
+            <span style="font-size:20px; line-height:1;">🛒</span>
+            <div>
+              <strong style="color:var(--text-main);" data-i18n="supportGoalStoreTitle">Publish to Chrome Web Store & Edge Add-ons</strong>
+              <div style="font-size:11.5px; color:var(--text-dim);" data-i18n="supportGoalStoreDesc">We are raising funds to cover developer registration fees to list FastDownloader in the official browser stores, enabling 1-click install without Developer Mode!</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:flex-start; gap:10px;">
+            <span style="font-size:20px; line-height:1;">🚀</span>
+            <div>
+              <strong style="color:var(--text-main);" data-i18n="supportGoalDevTitle">Sustain Continuous Development</strong>
+              <div style="font-size:11.5px; color:var(--text-dim);" data-i18n="supportGoalDevDesc">Your coffee donations fund regular feature updates, video extractor fixes, and keep FastDownloader completely ad-free.</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <a href="https://ko-fi.com/zaxmi" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="background:#FF5E5B !important; border-color:#FF5E5B !important; padding:12px 20px; font-size:13.5px; font-weight:700; box-shadow:0 4px 16px rgba(255,94,91,0.35); display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none; color:#FFFFFF;" onclick="closeModal('supportModal')">
+            <span>☕</span>
+            <span data-i18n="supportBtnDonate">Buy us a Coffee on Ko-fi (ko-fi.com/zaxmi)</span>
+          </a>
+          <button class="btn" onclick="closeModal('supportModal')" style="font-size:12px; color:var(--text-dim);" data-i18n="supportBtnLater">
+            Maybe Later
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: TASK DETAIL & MULTI-SEGMENT INSPECTOR -->
+  <div class="modal-overlay" id="taskDetailModal">
+    <div class="modal-card detail-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span style="color:var(--emerald);">⚡</span>
+          <span id="detailTitleText">Download Status & Segment Inspector</span>
+          <span class="status-tag" id="detailEngineBadge" style="margin-left:8px; font-size:11px;">aria2 16x Turbo</span>
+        </div>
+        <button class="modal-close" onclick="closeDetailModal()">&times;</button>
+      </div>
+
+      <div class="modal-body" style="gap:12px; max-height:80vh; overflow-y:auto;">
+        <!-- File Meta Box -->
+        <div class="detail-meta-box">
+          <div class="detail-file-row">
+            <div style="display:flex; align-items:center; gap:8px; overflow:hidden;">
+              <span id="detailFileIcon" style="font-size:18px;">📄</span>
+              <span class="detail-file-title" id="detailFileName">File Name</span>
+            </div>
+            <div style="display:flex; gap:6px; flex-shrink:0;">
+              <button class="btn btn-sm btn-secondary" onclick="revealCurrentFile()" title="Reveal in Windows Explorer">📂 Reveal</button>
+              <button class="btn btn-sm btn-primary" onclick="openCurrentFile()" title="Open downloaded file">▶ Open</button>
+            </div>
+          </div>
+          <div style="font-size:11px; color:var(--text-muted); display:flex; gap:6px; align-items:center;">
+            <span>URL:</span>
+            <span id="detailUrlText" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:480px; color:var(--text-main);">https://...</span>
+          </div>
+        </div>
+
+        <!-- 4-Card Telemetry Grid -->
+        <div class="detail-stats-grid">
+          <div class="detail-stat-card">
+            <span class="detail-stat-label">File Size</span>
+            <span class="detail-stat-val" id="detailSizeVal">0 MB / 0 MB</span>
+          </div>
+          <div class="detail-stat-card">
+            <span class="detail-stat-label">Transfer Rate</span>
+            <span class="detail-stat-val" id="detailSpeedVal" style="color:var(--cyan);">0 KB/s</span>
+          </div>
+          <div class="detail-stat-card">
+            <span class="detail-stat-label">Time Remaining</span>
+            <span class="detail-stat-val" id="detailEtaVal">--:--</span>
+          </div>
+          <div class="detail-stat-card">
+            <span class="detail-stat-label">Resume Support</span>
+            <span class="detail-stat-val" id="detailResumeVal" style="color:var(--emerald); font-size:12px;">✅ Supported</span>
+          </div>
+        </div>
+
+        <!-- Main Progress Bar -->
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:700;">
+            <span id="detailStatusLabel">Downloading...</span>
+            <span id="detailPercentLabel">0%</span>
+          </div>
+          <div class="progress-track" style="height:10px;">
+            <div class="progress-fill" id="detailProgressFill" style="width:0%;"></div>
+          </div>
+        </div>
+
+        <!-- IDM-Grade Chunk Segment Visualizer -->
+        <div class="segment-box">
+          <div class="segment-header">
+            <span>Dynamic Multi-Segment Visualization</span>
+            <span id="detailChunkCountLabel">32 Pieces • 16 Connections</span>
+          </div>
+          <div class="segment-grid" id="detailChunkGrid">
+            <!-- 32 dynamic chunk blocks -->
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-muted); padding:0 2px;">
+            <span>Byte 0</span>
+            <span style="color:var(--emerald);">■ Completed</span>
+            <span style="color:var(--cyan);">■ Active Receiving</span>
+            <span style="opacity:0.4;">■ Pending</span>
+            <span id="detailByteEndLabel">End of File</span>
+          </div>
+        </div>
+
+        <!-- Live Thread Matrix Table -->
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; font-weight:600; color:var(--text-muted);">
+            <span>Active Connection Streams</span>
+            <span style="font-size:11px;" id="detailThreadSummary">16 Threads Active</span>
+          </div>
+          <div class="threads-container">
+            <table class="threads-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Status</th>
+                  <th>Segment Range</th>
+                  <th>Current Rate</th>
+                </tr>
+              </thead>
+              <tbody id="detailThreadsBody">
+                <!-- Dynamically populated rows for 16 threads -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Per-Task Controls & Speed Limiter -->
+        <div style="display:flex; align-items:center; justify-content:space-between; padding-top:6px; border-top:1px solid var(--border-subtle); gap:12px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:12px; color:var(--text-muted);">Task Speed Limit:</span>
+            <select class="form-select" id="detailSpeedLimitSelect" style="width:130px; padding:4px 8px; font-size:12px;" onchange="applyTaskSpeedLimit(this.value)">
+              <option value="0">🚀 Unlimited</option>
+              <option value="500K">500 KB/s</option>
+              <option value="1M">1.0 MB/s</option>
+              <option value="2M">2.0 MB/s</option>
+              <option value="5M">5.0 MB/s</option>
+              <option value="10M">10.0 MB/s</option>
+            </select>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-secondary btn-sm" id="detailPauseResumeBtn" onclick="toggleDetailTaskPause()">⏸ Pause</button>
+            <button class="btn btn-secondary btn-sm" onclick="restartDetailTask()" style="color:var(--cyan);">🔄 Restart</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteDetailTask()">🗑 Remove</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- TOAST NOTIFICATION -->
   <div class="toast" id="toast">
     <span id="toastIcon">⚡</span>
@@ -2247,6 +2834,7 @@
         statusPaused: "Paused",
         statusFinished: "Finished",
         statusQueued: "Queued",
+        statusError: "Failed / Error",
         
         emptyTitle: "No downloads in this view",
         emptySub: "Click \"+ Add URL\" or copy any download link to start downloading at maximum 16-chunk speed!",
@@ -2294,13 +2882,41 @@
         menuDiagnostics: "Engine Diagnostics",
         menuShortcuts: "Keyboard Shortcuts Guide",
         menuAbout: "About FastDownloader Pro",
+        menuSupport: "💖 Support Project (Ko-fi)",
+        btnSupport: "Support",
+        supportCardTitle: "Support Us",
+        supportCardDesc: "Help us reach the Chrome Web Store & fund development!",
+        supportModalTitle: "Support FastDownloader Pro",
+        supportModalSubtitle: "100% Free, Open Source & Ad-Free Forever.",
+        supportGoalStoreTitle: "Publish to Chrome Web Store & Edge Add-ons",
+        supportGoalStoreDesc: "We are raising funds to cover developer registration fees to list FastDownloader in the official browser stores, enabling 1-click install without Developer Mode!",
+        supportGoalDevTitle: "Sustain Continuous Development",
+        supportGoalDevDesc: "Your coffee donations fund regular feature updates, video extractor fixes, and keep FastDownloader completely ad-free.",
+        supportBtnDonate: "Buy us a Coffee on Ko-fi (ko-fi.com/zaxmi)",
+        supportBtnLater: "Maybe Later",
         batchModalTitle: "Batch Downloads Importer",
         batchInputLabel: "Paste URLs (one URL per line):",
         startBatchBtn: "Start Batch Download",
         cancel: "Cancel",
         ok: "OK",
         shortcutsTitle: "Keyboard Shortcuts Guide",
-        closeModals: "Close Menus & Dialogs"
+        closeModals: "Close Menus & Dialogs",
+        ctxOpenFile: "Open File",
+        ctxOpenFolder: "Open Containing Folder",
+        ctxPause: "Pause Download",
+        ctxResume: "Resume Download",
+        ctxRestart: "Redownload / Restart",
+        ctxCopyUrl: "Copy Download Link",
+        ctxSegments: "Multi-Segment Inspector",
+        ctxMoveNight: "Move to Night Queue",
+        ctxMoveMain: "Move to Main Queue",
+        ctxDelete: "Delete Task",
+        ctxAddDownload: "Add Download...",
+        ctxPasteLink: "Paste Link from Clipboard",
+        ctxResumeAll: "Resume All Downloads",
+        ctxPauseAll: "Pause All Downloads",
+        ctxClearFinished: "Clear Finished Downloads",
+        ctxOpenDownloads: "Open Downloads Folder"
       },
       ar: {
         addUrl: "إضافة رابط",
@@ -2347,6 +2963,7 @@
         statusPaused: "متوقف مؤقتاً",
         statusFinished: "مكتمل",
         statusQueued: "في الانتظار",
+        statusError: "فشل التحميل",
         
         emptyTitle: "لا توجد تنزيلات في هذا القسم",
         emptySub: "انقر على \"+ إضافة رابط\" أو انسخ أي رابط لبدء التحميل فوراً بأقصى سرعة!",
@@ -2394,13 +3011,41 @@
         menuDiagnostics: "فحص صحة المحركات",
         menuShortcuts: "دليل اختصارات لوحة المفاتيح",
         menuAbout: "عن FastDownloader Pro",
+        menuSupport: "💖 ادعم المشروع (Ko-fi)",
+        btnSupport: "ادعمنا",
+        supportCardTitle: "ادعم المشروع",
+        supportCardDesc: "ساعدنا لنشر الإضافة في متجر كروم ومواصلة التطوير!",
+        supportModalTitle: "ادعم مشروع FastDownloader Pro",
+        supportModalSubtitle: "مجاني ومفتوح المصدر 100% وبدون أي إعلانات للأبد.",
+        supportGoalStoreTitle: "نشر الإضافة في متجر Chrome Web Store و Edge",
+        supportGoalStoreDesc: "نجمع تبرعات لتغطية رسوم تسجيل المطورين لنشر الإضافة الرسمية في متجر كروم ومايكروسوفت إيدج، ليتسنى للجميع تثبيتها بضغطة زر واحدة دون وضع المطورين!",
+        supportGoalDevTitle: "استمرار وتطوير البرنامج",
+        supportGoalDevDesc: "دعمك بفنجان قهوة يساهم في إضافة مزايا جديدة، تحديث محركات التنزيل، وضمان بقاء البرنامج مجانياً وخالياً من الإعلانات.",
+        supportBtnDonate: "ادعمنا بفنجان قهوة عبر Ko-fi (ko-fi.com/zaxmi)",
+        supportBtnLater: "ربما لاحقاً",
         batchModalTitle: "مستورد التنزيلات المجمعة",
         batchInputLabel: "الصق الروابط هنا (رابط واحد في كل سطر):",
         startBatchBtn: "بدء التنزيل الجماعي",
         cancel: "إلغاء",
         ok: "حسناً",
         shortcutsTitle: "دليل اختصارات لوحة المفاتيح",
-        closeModals: "إغلاق القوائم والنوافذ"
+        closeModals: "إغلاق القوائم والنوافذ",
+        ctxOpenFile: "فتح الملف",
+        ctxOpenFolder: "فتح المجلد الحاوي للملف",
+        ctxPause: "إيقاف مؤقت",
+        ctxResume: "استئناف التحميل",
+        ctxRestart: "إعادة التحميل من البداية",
+        ctxCopyUrl: "نسخ رابط التحميل",
+        ctxSegments: "مستكشف المسارات الـ 16 والاتصال",
+        ctxMoveNight: "نقل إلى القائمة الليلية",
+        ctxMoveMain: "نقل إلى القائمة الرئيسية",
+        ctxDelete: "حذف التحميل",
+        ctxAddDownload: "إضافة تحميل جديد...",
+        ctxPasteLink: "لصق الرابط من الحافظة",
+        ctxResumeAll: "استئناف جميع التنزيلات",
+        ctxPauseAll: "إيقاف جميع التنزيلات مؤقتاً",
+        ctxClearFinished: "مسح التنزيلات المكتملة",
+        ctxOpenDownloads: "فتح مجلد التنزيلات"
       }
     };
 
@@ -2422,6 +3067,7 @@
           text.textContent = currentLang === 'ar' ? 'فاتح' : 'Light';
         }
       }
+      if (isGraphVisible) drawSpeedGraph();
     }
 
     function toggleTheme() {
@@ -2450,6 +3096,11 @@
       const grabText = document.getElementById('autoGrabText');
       if (grabText) {
         grabText.textContent = isAutoGrabEnabled ? I18N[lang].autoGrabOn : I18N[lang].autoGrabOff;
+      }
+
+      const graphText = document.getElementById('graphToggleText');
+      if (graphText) {
+        graphText.textContent = isGraphVisible ? I18N[lang].hideGraph : I18N[lang].showGraph;
       }
 
       document.querySelectorAll('[data-i18n]').forEach(el => {
@@ -2617,8 +3268,27 @@
       try {
         const resp = await fetch(`${API_BASE}/api/tasks`);
         if (resp.ok) {
+          const bootSplash = document.getElementById('appBootSplash');
+          if (bootSplash) {
+            const fill = document.getElementById('bootProgressFill');
+            const txt = document.getElementById('bootStatusText');
+            if (fill) fill.style.width = '100%';
+            if (txt) txt.textContent = 'Ready! 100%';
+            setTimeout(() => {
+              bootSplash.style.opacity = '0';
+              bootSplash.style.visibility = 'hidden';
+              setTimeout(() => { try { bootSplash.remove(); } catch(e){} }, 350);
+            }, 180);
+          }
           const data = await resp.json();
           processIncomingTasks(data.tasks || []);
+          if (data.pending && data.pending.length > 0) {
+            handlePendingInterceptions(data.pending);
+          }
+          if (currentDetailGid) {
+            const curTask = tasks.find(x => x.gid === currentDetailGid);
+            if (curTask) updateDetailModal(curTask);
+          }
         }
       } catch (err) {
         // Retry silently
@@ -2726,6 +3396,7 @@
         const percent = Math.min(100, Math.max(0, t.progress || 0));
         const isPaused = t.status === 'paused' || t.status === 'waiting';
         const isDone = t.status === 'complete' || t.status === 'completed';
+        const isError = t.status === 'error';
 
         // File icon
         let icon = '📦';
@@ -2746,6 +3417,9 @@
         } else if (isDone) {
           statusClass = 'completed';
           statusText = I18N[currentLang] ? I18N[currentLang].statusFinished : 'Finished';
+        } else if (isError) {
+          statusClass = 'error';
+          statusText = I18N[currentLang] ? I18N[currentLang].statusError : 'Failed';
         }
 
         const queueClass = t.queue === 'NightQueue' ? 'night-queue' : 'main-queue';
@@ -2754,7 +3428,7 @@
           (currentLang === 'ar' ? '📋 الرئيسية' : '📋 Main');
 
         html += `
-          <tr class="${isSelected ? 'selected' : ''}" onclick="toggleSelect('${t.gid}', event)">
+          <tr class="${isSelected ? 'selected' : ''}" onclick="toggleSelect('${t.gid}', event)" ondblclick="showSegmentModal('${t.gid}')" oncontextmenu="handleRowContextMenu(event, '${t.gid}')" title="Right-click for options | Double click for Multi-Segment Inspector">
             <td style="text-align:center;" onclick="event.stopPropagation()">
               <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleSelect('${t.gid}', null, this.checked)">
             </td>
@@ -2779,7 +3453,7 @@
               <div class="progress-cell">
                 <div class="progress-container">
                   <div class="progress-track">
-                    <div class="progress-fill ${isPaused ? 'paused' : ''}" style="width: ${percent}%;"></div>
+                    <div class="progress-fill ${isPaused ? 'paused' : ''} ${isError ? 'error' : ''}" style="width: ${percent}%;"></div>
                   </div>
                   <div class="progress-labels">
                     <span>${percent}%</span>
@@ -2799,11 +3473,12 @@
             </td>
             <td style="text-align:center;" onclick="event.stopPropagation()">
               <div class="row-actions" style="justify-content:center;">
-                ${isPaused ? 
-                  `<button class="icon-action-btn" onclick="taskAction('${t.gid}', 'resume')" title="Resume">▶</button>` :
+                <button class="icon-action-btn" onclick="showSegmentModal('${t.gid}')" title="Multi-Segment & Connection Inspector">📊</button>
+                ${isPaused || isError ? 
+                  `<button class="icon-action-btn" onclick="taskAction('${t.gid}', 'resume')" title="Resume / Retry">▶</button>` :
                   `<button class="icon-action-btn" onclick="taskAction('${t.gid}', 'pause')" title="Pause">⏸</button>`
                 }
-                <button class="icon-action-btn" onclick="openDownloadsFolder()" title="Open Folder">📁</button>
+                <button class="icon-action-btn" onclick="revealFile('${t.gid}')" title="Reveal in Folder">📁</button>
                 <button class="icon-action-btn" onclick="taskAction('${t.gid}', 'remove')" title="Delete" style="color:var(--rose)">🗑</button>
               </div>
             </td>
@@ -2813,6 +3488,187 @@
 
       tbody.innerHTML = html;
     }
+
+    // ==========================================
+    // CONTEXT MENU SYSTEM
+    // ==========================================
+    let contextMenuGid = null;
+
+    function closeAllContextMenus() {
+      const tm = document.getElementById('taskContextMenu');
+      const em = document.getElementById('emptyContextMenu');
+      if (tm) tm.style.display = 'none';
+      if (em) em.style.display = 'none';
+      contextMenuGid = null;
+    }
+
+    function positionContextMenu(menu, x, y) {
+      menu.style.display = 'block';
+      menu.style.visibility = 'hidden';
+      menu.style.left = '0px';
+      menu.style.top = '0px';
+
+      const rect = menu.getBoundingClientRect();
+      const pad = 8;
+      let posX = x;
+      let posY = y;
+
+      if (posX + rect.width > window.innerWidth - pad) {
+        posX = window.innerWidth - rect.width - pad;
+      }
+      if (posY + rect.height > window.innerHeight - pad) {
+        posY = window.innerHeight - rect.height - pad;
+      }
+      if (posX < pad) posX = pad;
+      if (posY < pad) posY = pad;
+
+      menu.style.left = posX + 'px';
+      menu.style.top = posY + 'px';
+      menu.style.visibility = 'visible';
+    }
+
+    function handleRowContextMenu(e, gid) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeAllMenus();
+      closeAllContextMenus();
+
+      contextMenuGid = gid;
+      const t = tasks.find(x => x.gid === gid);
+      if (!t) return;
+
+      // Select this row if not selected
+      if (!selectedGids.has(gid)) {
+        selectedGids.clear();
+        selectedGids.add(gid);
+        renderTable();
+      }
+
+      const isDone = t.status === 'complete' || t.status === 'completed';
+      const isPaused = t.status === 'paused' || t.status === 'waiting' || t.status === 'error';
+
+      // Open file active state
+      const openFileItem = document.getElementById('ctxItemOpenFile');
+      if (openFileItem) {
+        if (isDone && t.filePath) {
+          openFileItem.classList.remove('disabled');
+        } else {
+          openFileItem.classList.add('disabled');
+        }
+      }
+
+      // Pause / resume toggle
+      const pauseIcon = document.getElementById('ctxPauseIcon');
+      const pauseLabel = document.getElementById('ctxPauseLabel');
+      const togglePauseItem = document.getElementById('ctxItemTogglePause');
+      if (togglePauseItem) {
+        if (isDone) {
+          togglePauseItem.style.display = 'none';
+        } else {
+          togglePauseItem.style.display = 'flex';
+          if (isPaused) {
+            if (pauseIcon) pauseIcon.textContent = '▶️';
+            if (pauseLabel) pauseLabel.textContent = I18N[currentLang] ? I18N[currentLang].ctxResume : 'Resume Download';
+          } else {
+            if (pauseIcon) pauseIcon.textContent = '⏸️';
+            if (pauseLabel) pauseLabel.textContent = I18N[currentLang] ? I18N[currentLang].ctxPause : 'Pause Download';
+          }
+        }
+      }
+
+      // Queue label
+      const queueIcon = document.getElementById('ctxQueueIcon');
+      const queueLabel = document.getElementById('ctxQueueLabel');
+      if (t.queue === 'NightQueue') {
+        if (queueIcon) queueIcon.textContent = '📋';
+        if (queueLabel) queueLabel.textContent = I18N[currentLang] ? I18N[currentLang].ctxMoveMain : 'Move to Main Queue';
+      } else {
+        if (queueIcon) queueIcon.textContent = '🌙';
+        if (queueLabel) queueLabel.textContent = I18N[currentLang] ? I18N[currentLang].ctxMoveNight : 'Move to Night Queue';
+      }
+
+      const menu = document.getElementById('taskContextMenu');
+      if (menu) positionContextMenu(menu, e.clientX, e.clientY);
+    }
+
+    function handleContainerContextMenu(e) {
+      if (e.target.closest('tr')) return;
+      e.preventDefault();
+      closeAllMenus();
+      closeAllContextMenus();
+      const menu = document.getElementById('emptyContextMenu');
+      if (menu) positionContextMenu(menu, e.clientX, e.clientY);
+    }
+
+    async function openTaskFile(gid) {
+      closeAllContextMenus();
+      const t = tasks.find(x => x.gid === gid);
+      if (!t || !t.filePath) return showToast('File path not available', true);
+      fetch(`${API_BASE}/api/openfile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: t.filePath })
+      }).then(() => showToast('Opening file...')).catch(() => showToast('Could not launch file', true));
+    }
+
+    async function copyTaskUrl(gid) {
+      closeAllContextMenus();
+      const t = tasks.find(x => x.gid === gid);
+      if (!t || !t.url) return showToast('No URL available for this task', true);
+      try {
+        await navigator.clipboard.writeText(t.url);
+        showToast('📋 Copied download link to clipboard!');
+      } catch (err) {
+        const ta = document.createElement('textarea');
+        ta.value = t.url;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast('📋 Copied download link to clipboard!');
+      }
+    }
+
+    async function restartTask(gid) {
+      closeAllContextMenus();
+      const t = tasks.find(x => x.gid === gid);
+      if (!t || !t.url) return showToast('Source URL not stored for this task', true);
+      fetch(`${API_BASE}/api/download`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: t.url, filename: t.name, type: t.engine === 'yt-dlp' ? 'video' : 'auto' })
+      }).then(() => {
+        showToast('🔄 Restarted download task!');
+      }).catch(() => showToast('Failed to restart task', true));
+    }
+
+    function toggleTaskPause(gid) {
+      closeAllContextMenus();
+      const t = tasks.find(x => x.gid === gid);
+      if (!t) return;
+      const isPaused = t.status === 'paused' || t.status === 'waiting' || t.status === 'error';
+      taskAction(gid, isPaused ? 'resume' : 'pause');
+    }
+
+    function ctxOpenTaskFile() { if (contextMenuGid) openTaskFile(contextMenuGid); }
+    function ctxOpenTaskFolder() { if (contextMenuGid) revealFile(contextMenuGid); }
+    function ctxTogglePause() { if (contextMenuGid) toggleTaskPause(contextMenuGid); }
+    function ctxRestart() { if (contextMenuGid) restartTask(contextMenuGid); }
+    function ctxCopyUrl() { if (contextMenuGid) copyTaskUrl(contextMenuGid); }
+    function ctxShowSegments() { if (contextMenuGid) { const g = contextMenuGid; closeAllContextMenus(); showSegmentModal(g); } }
+    function ctxCycleQueue() { if (contextMenuGid) { const g = contextMenuGid; closeAllContextMenus(); cycleQueue(g); } }
+    function ctxDeleteTask() { if (contextMenuGid) { const g = contextMenuGid; closeAllContextMenus(); taskAction(g, 'remove'); } }
+
+    function ctxAddDownload() { closeAllContextMenus(); showAddModal(); }
+    function ctxPasteLink() { closeAllContextMenus(); addFromClipboardDirect(); }
+    function ctxResumeAll() { closeAllContextMenus(); resumeAll(); }
+    function ctxPauseAll() { closeAllContextMenus(); pauseAll(); }
+    function ctxClearFinished() { closeAllContextMenus(); clearCompletedTasks(); }
+    function ctxOpenDownloadsFolder() { closeAllContextMenus(); openDownloadsFolder(); }
+
+    document.addEventListener('click', () => closeAllContextMenus());
+    window.addEventListener('resize', () => closeAllContextMenus());
+
 
     // Toggle Selection
     function toggleSelect(gid, event, forcedVal) {
@@ -2859,7 +3715,7 @@
 
     // Cycle task queue assignment
     function cycleQueue(gid, e) {
-      e.stopPropagation();
+      if (e && e.stopPropagation) e.stopPropagation();
       const current = taskQueueMap[gid] || 'MainQueue';
       const next = current === 'MainQueue' ? 'NightQueue' : 'MainQueue';
       taskQueueMap[gid] = next;
@@ -2943,40 +3799,331 @@
       document.getElementById(id).classList.remove('active');
     }
 
-    async function showAddModal() {
+    let probeDebounceTimer = null;
+
+    async function probeAddUrl(url) {
+      const probeBox = document.getElementById('addProbeStatus');
+      const probeIcon = document.getElementById('addProbeIcon');
+      const probeText = document.getElementById('addProbeText');
+      const nameInput = document.getElementById('addFileNameInput');
+      const catSelect = document.getElementById('addCategorySelect');
+
+      if (!url || (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('magnet:'))) {
+        if (probeBox) probeBox.style.display = 'none';
+        return;
+      }
+
+      if (probeBox) {
+        probeBox.style.display = 'flex';
+        probeBox.style.background = 'rgba(59,130,246,0.1)';
+        probeBox.style.borderColor = 'rgba(59,130,246,0.3)';
+        probeBox.style.color = '#3b82f6';
+      }
+      if (probeIcon) probeIcon.textContent = '⏳';
+      if (probeText) probeText.textContent = 'Probing remote headers & file size...';
+
+      try {
+        const resp = await fetch(`${API_BASE}/api/probe`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+        const data = await resp.json();
+        if (data && data.ok) {
+          if (data.filename && nameInput && (!nameInput.value || nameInput.dataset.auto === 'true')) {
+            nameInput.value = data.filename;
+            nameInput.dataset.auto = 'true';
+          }
+          if (data.category && catSelect) {
+            catSelect.value = data.category;
+          }
+
+          let thumb = '';
+          if (url.includes('youtube.com') || url.includes('youtu.be')) {
+            const m = url.match(/(?:v=|\/embed\/|\/17\/|youtu\.be\/|\/v\/|watch\?v=)([^#&?]{11})/);
+            if (m) thumb = 'https://i.ytimg.com/vi/' + m[1] + '/mqdefault.jpg';
+          }
+
+          updatePreFlightCard({
+            title: data.filename,
+            sizeFormatted: data.sizeFormatted,
+            type: data.type,
+            category: data.category,
+            resumable: data.resumable,
+            thumbnail: thumb
+          });
+          checkDuplicateFileName(data.filename);
+          if (probeBox) {
+            probeBox.style.background = 'rgba(16,185,129,0.1)';
+            probeBox.style.borderColor = 'rgba(16,185,129,0.3)';
+            probeBox.style.color = 'var(--emerald, #10b981)';
+          }
+          if (probeIcon) probeIcon.textContent = data.type === 'video' ? '🎬' : (data.type === 'magnet' ? '🧲' : '📦');
+          const resumableText = data.resumable ? '✅ Resumable (16-thread turbo)' : '⚠️ Single-stream';
+          const sizeText = data.sizeFormatted || 'Unknown size';
+          if (probeText) probeText.textContent = `${sizeText} • ${resumableText} • [${data.category || 'General'}]`;
+        } else {
+          if (probeBox) {
+            probeBox.style.background = 'rgba(239,68,68,0.1)';
+            probeBox.style.borderColor = 'rgba(239,68,68,0.3)';
+            probeBox.style.color = 'var(--rose, #ef4444)';
+          }
+          if (probeIcon) probeIcon.textContent = '⚠️';
+          if (probeText) probeText.textContent = (data && data.error) ? data.error : 'Could not probe URL metadata';
+        }
+      } catch (err) {
+        if (probeBox) probeBox.style.display = 'none';
+      }
+    }
+
+    function onAddUrlChanged() {
+      clearTimeout(probeDebounceTimer);
+      const url = (document.getElementById('addUrlInput') ? document.getElementById('addUrlInput').value.trim() : '');
+      probeDebounceTimer = setTimeout(() => {
+        probeAddUrl(url);
+      }, 350);
+    }
+
+
+    // --- SMART PRE-FLIGHT & INTERCEPT CONFIRMATION LOGIC ---
+    let currentPendingId = null;
+    let lastHandledPendingId = null;
+    let suggestedRename = null;
+
+    function handlePendingInterceptions(pendingList) {
+      if (!pendingList || !pendingList.length) return;
+      if (currentPendingId) return; // Modal already active
+
+      const item = pendingList[0];
+      if (item.pendingId === lastHandledPendingId) return;
+
+      openPendingConfirmation(item);
+    }
+
+    function openPendingConfirmation(item) {
+      currentPendingId = item.pendingId;
+      lastHandledPendingId = item.pendingId;
+
+      const titleEl = document.getElementById('addModalTitleText');
+      if (titleEl) titleEl.textContent = "⚡ Download Intercepted (Confirm)";
+
       const input = document.getElementById('addUrlInput');
-      input.value = '';
+      const nameInput = document.getElementById('addFileNameInput');
+      const catSelect = document.getElementById('addCategorySelect');
+      const qualitySelect = document.getElementById('addQualitySelect');
+      const queueSelect = document.getElementById('addQueueSelect');
+
+      if (input) input.value = item.url || '';
+      if (nameInput) {
+        nameInput.value = item.filename || '';
+        nameInput.dataset.auto = 'false';
+      }
+      if (catSelect && item.category) catSelect.value = item.category;
+      if (qualitySelect && item.quality) qualitySelect.value = item.quality;
+      if (queueSelect) queueSelect.value = "Immediate";
+
+      updatePreFlightCard({
+        title: item.title || item.filename,
+        sizeFormatted: item.sizeFormatted,
+        type: item.type,
+        category: item.category,
+        resumable: item.resumable,
+        thumbnail: item.thumbnail
+      });
+
+      checkDuplicateFileName(item.filename);
+      playChime(true);
       showModal('addModal');
-      // Auto check clipboard
+    }
+
+    function updatePreFlightCard(info) {
+      const card = document.getElementById('addPreviewCard');
+      if (!card) return;
+      card.style.display = 'flex';
+
+      const titleEl = document.getElementById('addPreviewTitle');
+      if (titleEl) titleEl.textContent = info.title || 'Download Item';
+
+      const sizeEl = document.getElementById('addSizePill');
+      if (sizeEl) sizeEl.textContent = info.sizeFormatted || 'Unknown size';
+
+      const resEl = document.getElementById('addResumePill');
+      if (resEl) {
+        if (info.resumable) {
+          resEl.textContent = '⚡ Resumable (16 Threads Turbo)';
+          resEl.style.color = 'var(--emerald, #10b981)';
+          resEl.style.borderColor = 'rgba(16,185,129,0.3)';
+          resEl.style.background = 'rgba(16,185,129,0.12)';
+        } else {
+          resEl.textContent = '⚠️ Non-Resumable (Single Stream)';
+          resEl.style.color = '#fbbf24';
+          resEl.style.borderColor = 'rgba(245,158,11,0.3)';
+          resEl.style.background = 'rgba(245,158,11,0.12)';
+        }
+      }
+
+      const catEl = document.getElementById('addCategoryPill');
+      if (catEl) catEl.textContent = info.category || 'General';
+
+      const thumbBox = document.getElementById('addThumbnailBox');
+      const thumbImg = document.getElementById('addThumbnailImg');
+      const fileIcon = document.getElementById('addFileIconBox');
+
+      if (info.thumbnail) {
+        if (thumbBox) thumbBox.style.display = 'block';
+        if (thumbImg) thumbImg.src = info.thumbnail;
+        if (fileIcon) fileIcon.style.display = 'none';
+      } else {
+        if (thumbBox) thumbBox.style.display = 'none';
+        if (fileIcon) {
+          fileIcon.style.display = 'flex';
+          let icon = '📦';
+          if (info.type === 'video') icon = '🎬';
+          else if (info.type === 'magnet') icon = '🧲';
+          else if (info.category === 'Music') icon = '🎵';
+          else if (info.category === 'Documents') icon = '📄';
+          else if (info.category === 'Programs') icon = '🚀';
+          fileIcon.textContent = icon;
+        }
+      }
+
+      const qGroup = document.getElementById('qualityGroup');
+      if (qGroup) {
+        qGroup.style.display = (info.type === 'video' || info.category === 'Videos') ? 'block' : 'none';
+      }
+    }
+
+    function checkDuplicateFileName(name) {
+      const dupWarning = document.getElementById('addDuplicateWarning');
+      if (!dupWarning || !name) {
+        if (dupWarning) dupWarning.style.display = 'none';
+        return;
+      }
+
+      const clean = name.trim().toLowerCase();
+      const exists = (tasks || []).some(t => t.name && t.name.toLowerCase() === clean);
+      if (exists) {
+        dupWarning.style.display = 'flex';
+        const dot = name.lastIndexOf('.');
+        let base = dot !== -1 ? name.substring(0, dot) : name;
+        let ext = dot !== -1 ? name.substring(dot) : '';
+        suggestedRename = `${base} (1)${ext}`;
+        const btn = document.getElementById('btnAutoRename');
+        if (btn) btn.textContent = `Auto-Rename: ${suggestedRename}`;
+      } else {
+        dupWarning.style.display = 'none';
+      }
+    }
+
+    function applyAutoRename() {
+      if (suggestedRename) {
+        const nameInput = document.getElementById('addFileNameInput');
+        if (nameInput) nameInput.value = suggestedRename;
+        const dupWarning = document.getElementById('addDuplicateWarning');
+        if (dupWarning) dupWarning.style.display = 'none';
+      }
+    }
+
+    async function cancelAddDownload() {
+      if (currentPendingId) {
+        try {
+          await fetch(`${API_BASE}/api/intercept/cancel`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pendingId: currentPendingId })
+          });
+        } catch(e) {}
+        currentPendingId = null;
+      }
+      closeModal('addModal');
+    }
+
+    // Modal Hotkey Handler (Enter = Start, Shift+Enter = Queue, Esc = Cancel)
+    document.addEventListener('keydown', (e) => {
+      const addModal = document.getElementById('addModal');
+      if (!addModal || !addModal.classList.contains('active')) return;
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelAddDownload();
+        return;
+      }
+      if (e.key === 'Enter') {
+        const target = e.target;
+        if (target && target.tagName === 'TEXTAREA') return;
+        e.preventDefault();
+        if (e.shiftKey) {
+          submitAddDownload(false);
+        } else {
+          submitAddDownload(true);
+        }
+      }
+    });
+
+    async function showAddModal() {
+      currentPendingId = null;
+      const titleEl = document.getElementById('addModalTitleText');
+      if (titleEl) titleEl.textContent = "Smart Download Pre-Flight";
+
+      const input = document.getElementById('addUrlInput');
+      const nameInput = document.getElementById('addFileNameInput');
+      const probeBox = document.getElementById('addProbeStatus');
+      const previewCard = document.getElementById('addPreviewCard');
+      const dupWarning = document.getElementById('addDuplicateWarning');
+
+      if (input) input.value = '';
+      if (nameInput) {
+        nameInput.value = '';
+        nameInput.dataset.auto = 'true';
+      }
+      if (probeBox) probeBox.style.display = 'none';
+      if (previewCard) previewCard.style.display = 'none';
+      if (dupWarning) dupWarning.style.display = 'none';
+
+      showModal('addModal');
       try {
         const text = await navigator.clipboard.readText();
         if (text && (text.startsWith('http://') || text.startsWith('https://') || text.startsWith('magnet:'))) {
-          input.value = text.trim();
+          if (input) input.value = text.trim();
+          onAddUrlChanged();
         }
       } catch(e) {}
-      input.focus();
+      if (input) input.focus();
     }
 
     async function submitAddDownload(startNow) {
       const url = document.getElementById('addUrlInput').value.trim();
       const queue = document.getElementById('addQueueSelect').value;
       const quality = document.getElementById('addQualitySelect').value;
+      const filename = (document.getElementById('addFileNameInput') ? document.getElementById('addFileNameInput').value.trim() : '');
+      const category = (document.getElementById('addCategorySelect') ? document.getElementById('addCategorySelect').value : '');
 
       if (!url) {
         alert("Please enter a valid URL!");
         return;
       }
 
+      const pendingId = currentPendingId;
+      currentPendingId = null;
       closeModal('addModal');
 
       try {
-        const resp = await fetch(`${API_BASE}/api/download`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, queue, quality, startNow })
-        });
+        let resp;
+        if (pendingId) {
+          resp = await fetch(`${API_BASE}/api/intercept/confirm`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pendingId, action: startNow ? 'start' : 'queue', filename, category, queue, quality })
+          });
+        } else {
+          resp = await fetch(`${API_BASE}/api/download`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, queue, quality, startNow, filename, subfolder: category, category })
+          });
+        }
 
-        if (resp.ok) {
+        if (resp && resp.ok) {
           playChime(true);
           showToast(startNow ? "⚡ Turbo Download Started!" : "📋 Added to Queue (Paused)");
           pollBackend();
@@ -3288,13 +4435,25 @@
       const container = document.getElementById('graphContainer');
       const toggleText = document.getElementById('graphToggleText');
       isGraphVisible = !isGraphVisible;
+      localStorage.setItem('fast_graph_visible', isGraphVisible ? '1' : '0');
       if (isGraphVisible) {
         container.classList.remove('collapsed');
-        toggleText.textContent = 'Hide Live Waveform';
+        if (toggleText) toggleText.textContent = I18N[currentLang] ? I18N[currentLang].hideGraph : 'Hide Live Waveform';
         drawSpeedGraph();
       } else {
         container.classList.add('collapsed');
-        toggleText.textContent = 'Show Live Waveform';
+        if (toggleText) toggleText.textContent = I18N[currentLang] ? I18N[currentLang].showGraph : 'Show Live Waveform';
+      }
+    }
+
+    function restoreGraphState() {
+      const saved = localStorage.getItem('fast_graph_visible');
+      if (saved === '0') {
+        isGraphVisible = false;
+        const container = document.getElementById('graphContainer');
+        const toggleText = document.getElementById('graphToggleText');
+        if (container) container.classList.add('collapsed');
+        if (toggleText && I18N[currentLang]) toggleText.textContent = I18N[currentLang].showGraph;
       }
     }
 
@@ -3313,13 +4472,20 @@
 
       ctx.clearRect(0, 0, width, height);
 
+      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+
       const maxVal = Math.max(...speedHistory, 1024 * 1024); // at least 1MB scale
       const step = width / (speedHistory.length - 1);
 
       // Gradient Fill
       const grad = ctx.createLinearGradient(0, 0, 0, height);
-      grad.addColorStop(0, 'rgba(16, 185, 129, 0.35)');
-      grad.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+      if (isLight) {
+        grad.addColorStop(0, 'rgba(5, 150, 105, 0.20)');
+        grad.addColorStop(1, 'rgba(5, 150, 105, 0.01)');
+      } else {
+        grad.addColorStop(0, 'rgba(16, 185, 129, 0.35)');
+        grad.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+      }
 
       ctx.beginPath();
       ctx.moveTo(0, height);
@@ -3356,12 +4522,12 @@
           ctx.bezierCurveTo(cpX, prevY, cpX, y, x, y);
         }
       }
-      ctx.strokeStyle = '#10B981';
+      ctx.strokeStyle = isLight ? '#059669' : '#10B981';
       ctx.lineWidth = 2;
       ctx.stroke();
 
       // Peak label
-      ctx.fillStyle = '#64748B';
+      ctx.fillStyle = isLight ? '#94A3B8' : '#64748B';
       ctx.font = '10px -apple-system, BlinkMacSystemFont, Segoe UI, Roboto';
       ctx.fillText(`Peak: ${formatBytes(maxVal)}/s`, width - 110, 14);
     }
@@ -3413,6 +4579,7 @@
     function closeAllMenus() {
       document.querySelectorAll('.app-menubar .menu-item').forEach(m => m.classList.remove('open'));
       isMenuNavigating = false;
+      closeAllContextMenus();
     }
 
     // BATCH ADD MODAL
@@ -3647,11 +4814,219 @@
       }
     }
 
+    // IDM-GRADE DYNAMIC MULTI-SEGMENT & THREAD INSPECTOR
+    let currentDetailGid = null;
+
+    function showSegmentModal(gid) {
+      closeAllMenus();
+      currentDetailGid = gid;
+      const t = tasks.find(x => x.gid === gid);
+      if (!t) return;
+      initDetailModal(t);
+      showModal('taskDetailModal');
+    }
+
+    function closeDetailModal() {
+      currentDetailGid = null;
+      closeModal('taskDetailModal');
+    }
+
+    function initDetailModal(t) {
+      document.getElementById('detailFileName').textContent = t.name;
+      document.getElementById('detailFileName').title = t.name;
+      document.getElementById('detailUrlText').textContent = t.url || 'Direct Stream / Local Task';
+      document.getElementById('detailUrlText').title = t.url || '';
+      document.getElementById('detailEngineBadge').textContent = t.engine === 'yt-dlp' ? 'yt-dlp + ffmpeg' : 'aria2 16x Turbo';
+      document.getElementById('detailEngineBadge').className = 'status-tag ' + (t.engine === 'yt-dlp' ? 'night-queue' : 'main-queue');
+
+      // Populate 32 chunk blocks once
+      const grid = document.getElementById('detailChunkGrid');
+      grid.innerHTML = '';
+      for (let i = 0; i < 32; i++) {
+        const div = document.createElement('div');
+        div.className = 'chunk-block';
+        div.id = `chunkBlock_${i}`;
+        div.title = `Segment #${i + 1}`;
+        grid.appendChild(div);
+      }
+
+      updateDetailModal(t);
+    }
+
+    function updateDetailModal(t) {
+      const isDone = t.status === 'complete' || t.status === 'completed';
+      const isPaused = t.status === 'paused' || t.status === 'waiting';
+      const isError = t.status === 'error';
+      const percent = Math.min(100, Math.max(0, t.progress || 0));
+
+      document.getElementById('detailSizeVal').textContent = `${formatBytes(t.completedLength)} / ${t.totalLength > 0 ? formatBytes(t.totalLength) : 'Unknown'}`;
+      document.getElementById('detailSpeedVal').textContent = t.downloadSpeed > 0 ? `${formatBytes(t.downloadSpeed)}/s` : (isDone ? 'Finished' : '0 KB/s');
+      document.getElementById('detailEtaVal').textContent = isDone ? 'Complete' : formatEta(t.eta);
+      document.getElementById('detailResumeVal').textContent = t.engine === 'yt-dlp' ? '✅ Supported (HLS/DASH)' : '✅ Supported (Byte-Ranges)';
+
+      let statusText = 'Downloading...';
+      if (isDone) statusText = 'Download Complete!';
+      else if (isPaused) statusText = 'Paused';
+      else if (isError) statusText = 'Error / Interrupted';
+      document.getElementById('detailStatusLabel').textContent = statusText;
+      document.getElementById('detailPercentLabel').textContent = `${percent}%`;
+      document.getElementById('detailProgressFill').style.width = `${percent}%`;
+
+      const pauseBtn = document.getElementById('detailPauseResumeBtn');
+      if (pauseBtn) {
+        pauseBtn.textContent = (isPaused || isError) ? '▶ Resume' : '⏸ Pause';
+      }
+
+      // Update 32 chunk blocks
+      const totalPieces = t.numPieces > 0 ? t.numPieces : 32;
+      const completedSegments = Math.round((percent / 100) * 32);
+      for (let i = 0; i < 32; i++) {
+        const block = document.getElementById(`chunkBlock_${i}`);
+        if (!block) continue;
+        if (i < completedSegments) {
+          block.className = 'chunk-block completed';
+        } else if (i === completedSegments && !isDone && !isPaused && t.downloadSpeed > 0) {
+          block.className = 'chunk-block active';
+        } else {
+          block.className = 'chunk-block';
+        }
+      }
+
+      // Update thread count label
+      const activeConnections = isDone ? 0 : (isPaused ? 0 : (t.engine === 'yt-dlp' ? 1 : (parseInt(t.connections) || 16)));
+      document.getElementById('detailChunkCountLabel').textContent = `${totalPieces} Chunks • ${activeConnections} Active Connections`;
+      document.getElementById('detailThreadSummary').textContent = `${activeConnections} Active Connection Streams`;
+      document.getElementById('detailByteEndLabel').textContent = t.totalLength > 0 ? formatBytes(t.totalLength) : 'EOF';
+
+      // Update Active Connection Streams table (16 threads)
+      const tbody = document.getElementById('detailThreadsBody');
+      let threadHtml = '';
+      const totalThreads = t.engine === 'yt-dlp' ? 1 : 16;
+      const partSize = t.totalLength > 0 ? Math.floor(t.totalLength / totalThreads) : 0;
+      const speedPerThread = activeConnections > 0 ? Math.floor(t.downloadSpeed / activeConnections) : 0;
+
+      for (let i = 1; i <= totalThreads; i++) {
+        let thStatus = 'Idle';
+        let thSpeed = '--';
+        let thRange = partSize > 0 ? `${formatBytes((i - 1) * partSize)} - ${formatBytes(i * partSize)}` : `Stream Chunk #${i}`;
+        let statusStyle = 'color:var(--text-muted);';
+
+        if (isDone) {
+          thStatus = 'Completed (100%)';
+          statusStyle = 'color:var(--emerald); font-weight:600;';
+        } else if (isPaused) {
+          thStatus = 'Paused';
+          statusStyle = 'color:var(--amber);';
+        } else if (i <= activeConnections && t.downloadSpeed > 0) {
+          thStatus = 'Receiving Data';
+          thSpeed = `${formatBytes(speedPerThread)}/s`;
+          statusStyle = 'color:var(--cyan); font-weight:600;';
+        } else if (percent >= (i / totalThreads) * 100) {
+          thStatus = 'Completed';
+          statusStyle = 'color:var(--emerald);';
+        }
+
+        threadHtml += `
+          <tr>
+            <td style="font-weight:700; color:var(--text-dim); width:32px;">#${i}</td>
+            <td style="${statusStyle}">${thStatus}</td>
+            <td style="font-size:11px; color:var(--text-dim);">${thRange}</td>
+            <td style="font-weight:600; color:var(--cyan);">${thSpeed}</td>
+          </tr>
+        `;
+      }
+      tbody.innerHTML = threadHtml;
+    }
+
+    async function revealCurrentFile() {
+      if (!currentDetailGid) return;
+      const t = tasks.find(x => x.gid === currentDetailGid);
+      if (!t || !t.filePath) return openDownloadsFolder();
+      fetch(`${API_BASE}/api/openfolder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: t.filePath })
+      }).catch(() => openDownloadsFolder());
+    }
+
+    async function openCurrentFile() {
+      if (!currentDetailGid) return;
+      const t = tasks.find(x => x.gid === currentDetailGid);
+      if (!t || !t.filePath) return showToast('File path not available', true);
+      fetch(`${API_BASE}/api/openfile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: t.filePath })
+      }).then(() => showToast('Opening file...')).catch(() => showToast('Could not launch file', true));
+    }
+
+    async function revealFile(gid) {
+      const t = tasks.find(x => x.gid === gid);
+      if (!t || !t.filePath) return openDownloadsFolder();
+      fetch(`${API_BASE}/api/openfolder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: t.filePath })
+      }).catch(() => openDownloadsFolder());
+    }
+
+    function toggleDetailTaskPause() {
+      if (!currentDetailGid) return;
+      const t = tasks.find(x => x.gid === currentDetailGid);
+      if (!t) return;
+      const isPaused = t.status === 'paused' || t.status === 'waiting';
+      taskAction(currentDetailGid, isPaused ? 'resume' : 'pause');
+    }
+
+    function restartDetailTask() {
+      if (!currentDetailGid) return;
+      const t = tasks.find(x => x.gid === currentDetailGid);
+      if (!t || !t.url) return showToast('Source URL not stored for this task', true);
+      fetch(`${API_BASE}/api/download`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: t.url, filename: t.name, type: t.engine === 'yt-dlp' ? 'video' : 'auto' })
+      }).then(() => {
+        showToast('Restarted download task!');
+        closeDetailModal();
+      });
+    }
+
+    function deleteDetailTask() {
+      if (!currentDetailGid) return;
+      const gid = currentDetailGid;
+      closeDetailModal();
+      taskAction(gid, 'remove');
+    }
+
+    function applyTaskSpeedLimit(limit) {
+      if (!currentDetailGid) return;
+      fetch(`${API_BASE}/api/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gid: currentDetailGid, action: 'limitTaskSpeed', limit: limit })
+      }).then(() => {
+        showToast(limit === '0' ? 'Speed limit removed' : `Task speed limited to ${limit}/s`);
+      });
+    }
+
     // MODAL HELPERS
     function showShortcutsModal() { closeAllMenus(); showModal('shortcutsModal'); }
     function closeShortcutsModal() { closeModal('shortcutsModal'); }
     function showAboutModal() { closeAllMenus(); showModal('aboutModal'); }
     function closeAboutModal() { closeModal('aboutModal'); }
+    function showSupportModal() { closeAllMenus(); showModal('supportModal'); }
+    function closeSupportModal() { closeModal('supportModal'); }
+
+    function openKofi() {
+      const url = "https://ko-fi.com/zaxmi";
+      fetch(`${API_BASE}/api/openurl`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url })
+      }).catch(() => {});
+      try { window.open(url, '_blank'); } catch(e) {}
+    }
 
     function exitApp() {
       closeAllMenus();
@@ -3706,6 +5081,7 @@
       }
       if (e.key === 'Escape') {
         closeAllMenus();
+        currentDetailGid = null;
         document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active'));
       }
     });
@@ -3715,6 +5091,7 @@
     applyTheme(currentTheme);
     applyLanguage(currentLang);
     restoreSidebarState();
+    restoreGraphState();
     initColumnResizers();
 
     // Start Polling Loop

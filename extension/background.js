@@ -25,13 +25,73 @@ async function getCookiesForUrl(url) {
   }
 }
 
-// 2. DISPATCH DOWNLOAD TO FASTDOWNLOADER APP
-async function sendDownloadToApp({ url, title, type = "auto", quality = "best", referer = "", filename = "" }) {
+// 2. SYNTHESIZE FULL BROWSER ANTI-BOT FINGERPRINT HEADERS
+function getBrowserClientHeaders(url, referer) {
+  const headers = {};
+
+  // Standard high-fidelity browser Accept headers
+  headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7";
+  headers["Accept-Language"] = (navigator.languages && navigator.languages.length) ? navigator.languages.join(",") : (navigator.language || "en-US,en;q=0.9");
+  headers["Upgrade-Insecure-Requests"] = "1";
+
+  // Modern Client Hints (Sec-CH-UA)
+  if (navigator.userAgentData && navigator.userAgentData.brands && navigator.userAgentData.brands.length) {
+    const brands = navigator.userAgentData.brands.map(b => `"${b.brand}";v="${b.version}"`).join(", ");
+    headers["Sec-Ch-Ua"] = brands;
+    headers["Sec-Ch-Ua-Mobile"] = navigator.userAgentData.mobile ? "?1" : "?0";
+    headers["Sec-Ch-Ua-Platform"] = `"${navigator.userAgentData.platform || "Windows"}"`;
+  } else {
+    const isEdge = navigator.userAgent.includes("Edg/");
+    const chromeVerMatch = navigator.userAgent.match(/Chrome\/(\d+)/);
+    const ver = chromeVerMatch ? chromeVerMatch[1] : "131";
+    if (isEdge) {
+      headers["Sec-Ch-Ua"] = `"Chromium";v="${ver}", "Not_A Brand";v="24", "Microsoft Edge";v="${ver}"`;
+    } else {
+      headers["Sec-Ch-Ua"] = `"Chromium";v="${ver}", "Not_A Brand";v="24", "Google Chrome";v="${ver}"`;
+    }
+    headers["Sec-Ch-Ua-Mobile"] = "?0";
+    headers["Sec-Ch-Ua-Platform"] = '"Windows"';
+  }
+
+  // Sec-Fetch-* metadata
+  headers["Sec-Fetch-Dest"] = "document";
+  headers["Sec-Fetch-Mode"] = "navigate";
+  headers["Sec-Fetch-Site"] = referer ? "cross-site" : "none";
+  headers["Sec-Fetch-User"] = "?1";
+
+  return headers;
+}
+
+// 3. DISPATCH DOWNLOAD TO FASTDOWNLOADER APP (Chrome Native Messaging + HTTP Bridge)
+async function sendViaNativeMessaging(payload) {
+  return new Promise((resolve) => {
+    if (!chrome.runtime || !chrome.runtime.sendNativeMessage) {
+      return resolve(null);
+    }
+    try {
+      chrome.runtime.sendNativeMessage("com.fastdownloader.app", payload, (response) => {
+        if (chrome.runtime.lastError) {
+          console.log("[FastDownloader] Native messaging note:", chrome.runtime.lastError.message);
+          resolve(null);
+        } else {
+          resolve(response || { ok: true });
+        }
+      });
+    } catch (e) {
+      console.warn("[FastDownloader] Native messaging exception:", e);
+      resolve(null);
+    }
+  });
+}
+
+async function sendDownloadToApp({ url, title, type = "auto", quality = "best", referer = "", filename = "", subfolder = "", category = "" }) {
   if (!url) return { ok: false, error: "Missing URL" };
 
   const cookies = await getCookiesForUrl(url);
+  const clientHeaders = getBrowserClientHeaders(url, referer);
 
   const payload = {
+    action: "download",
     url: url,
     title: title || "Download",
     type: type,
@@ -39,9 +99,23 @@ async function sendDownloadToApp({ url, title, type = "auto", quality = "best", 
     cookies: cookies,
     userAgent: navigator.userAgent,
     referer: referer || url,
-    filename: filename || ""
+    filename: filename || "",
+    subfolder: subfolder || category || "",
+    category: category || subfolder || "",
+    headers: clientHeaders
   };
 
+  // 1. First priority: IDM-grade Chrome Native Messaging (Auto-launches app, zero port conflict)
+  try {
+    const nativeRes = await sendViaNativeMessaging(payload);
+    if (nativeRes && (nativeRes.ok || nativeRes.gid)) {
+      return { ok: true, data: nativeRes, transport: "native" };
+    }
+  } catch (err) {
+    console.warn("[FastDownloader] Native messaging attempt error, falling back to HTTP:", err);
+  }
+
+  // 2. Fallback: Localhost HTTP Bridge (Port 6801)
   try {
     const resp = await fetch(`${FD_API_BASE}/api/download`, {
       method: "POST",
@@ -50,7 +124,7 @@ async function sendDownloadToApp({ url, title, type = "auto", quality = "best", 
     });
     if (resp.ok) {
       const data = await resp.json().catch(() => ({}));
-      return { ok: true, data: data };
+      return { ok: true, data: data, transport: "http" };
     }
     return { ok: false, error: "FastDownloader returned error" };
   } catch (err) {
@@ -59,9 +133,41 @@ async function sendDownloadToApp({ url, title, type = "auto", quality = "best", 
   }
 }
 
+// 2.5 OPEN FASTDOWNLOADER APP (Native Launch & Focus with HTTP Fallback)
+async function openFastDownloaderApp() {
+  // 1. Try Native Messaging first (launches process if stopped, restores and focuses window)
+  try {
+    const nativeRes = await sendViaNativeMessaging({ action: "openApp" });
+    if (nativeRes && (nativeRes.ok || nativeRes.message)) {
+      return { ok: true, source: "native" };
+    }
+  } catch (e) {}
+
+  // 2. Try HTTP daemon /api/openapp
+  try {
+    const resp = await fetch(`${FD_API_BASE}/api/openapp`, { method: "POST" });
+    if (resp.ok) return { ok: true, source: "http" };
+  } catch (e) {}
+
+  // 3. Fallback: Open web dashboard tab
+  try {
+    chrome.tabs.create({ url: `${FD_API_BASE}/` });
+    return { ok: true, source: "web" };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 // 3. CONTEXT MENUS SETUP (IDM-Grade Right-Click Menus)
 function setupContextMenus() {
   chrome.contextMenus.removeAll(() => {
+    // 0. Open App
+    chrome.contextMenus.create({
+      id: "fd-open-app",
+      title: "⚡ Open FastDownloader App",
+      contexts: ["action", "page", "video", "link"]
+    });
+
     // 1. Direct Link Download (16x Threads)
     chrome.contextMenus.create({
       id: "fd-download-link",
@@ -101,10 +207,13 @@ function setupContextMenus() {
     chrome.contextMenus.create({
       id: "fd-download-all",
       title: "⚡ Download All Links with FastDownloader...",
-      contexts: ["page"]
+      contexts: ["page", "frame"]
     });
   });
 }
+
+// Ensure menus are created immediately on script evaluation, install, and browser startup
+setupContextMenus();
 
 chrome.runtime.onInstalled.addListener(() => {
   setupContextMenus();
@@ -118,6 +227,12 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const referer = tab ? tab.url : "";
   const tabTitle = tab ? tab.title : "";
+
+  // 0. Open App
+  if (info.menuItemId === "fd-open-app") {
+    await openFastDownloaderApp();
+    return;
+  }
 
   // 1. Single Link Download
   if (info.menuItemId === "fd-download-link") {
@@ -272,6 +387,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
 // 4. CONTENT & POPUP MESSAGE BUS
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type === "FD_OPEN_APP") {
+    openFastDownloaderApp().then(res => sendResponse(res));
+    return true;
+  }
+
   if (request.type === "FD_DOWNLOAD_REQUEST") {
     const referer = request.referer || (sender.tab ? sender.tab.url : "");
     const title = request.title || (sender.tab ? sender.tab.title : "");
@@ -281,11 +401,54 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       type: request.mediaType || "auto",
       quality: request.quality || "best",
       referer: referer,
-      filename: request.filename || ""
+      filename: request.filename || "",
+      subfolder: request.subfolder || request.category || "",
+      category: request.category || request.subfolder || ""
     }).then(result => {
       sendResponse(result);
     });
     return true; // Keep channel open for async response
+  }
+
+  if (request.type === "FD_PROBE_REQUEST") {
+    (async () => {
+      const url = request.url;
+      if (!url) return sendResponse({ ok: false, error: "Missing URL" });
+
+      const cookies = await getCookiesForUrl(url);
+      const clientHeaders = getBrowserClientHeaders(url, request.referer || "");
+      const probePayload = {
+        action: "probe",
+        url: url,
+        cookies: cookies,
+        userAgent: navigator.userAgent,
+        headers: clientHeaders
+      };
+
+      // Try Native Messaging first
+      try {
+        const nativeRes = await sendViaNativeMessaging(probePayload);
+        if (nativeRes && nativeRes.ok) {
+          return sendResponse({ ok: true, data: nativeRes });
+        }
+      } catch (e) {}
+
+      // Fallback to HTTP API
+      try {
+        const resp = await fetch(`${FD_API_BASE}/api/probe`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(probePayload)
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          return sendResponse({ ok: true, data: data });
+        }
+      } catch (e) {}
+
+      sendResponse({ ok: false, error: "Probe unavailable" });
+    })();
+    return true;
   }
 
   if (request.type === "FD_GET_SETTINGS") {
@@ -354,13 +517,41 @@ chrome.downloads.onCreated.addListener(async (item) => {
       chrome.downloads.erase({ id: item.id }, () => {});
     });
 
-    // Forward to FastDownloader with complete cookies and referrer
-    await sendDownloadToApp({
+    // Forward to FastDownloader as an intercepted download (triggers Smart Pre-Flight confirmation dialog)
+    const cookies = await getCookiesForUrl(targetUrl);
+    const clientHeaders = getBrowserClientHeaders(targetUrl, item.referrer || "");
+    const cleanFilename = item.filename ? item.filename.split(/[\\/]/).pop() : "";
+
+    const payload = {
+      action: "intercept",
       url: targetUrl,
-      title: item.filename ? item.filename.split(/[\\/]/).pop() : "Browser Download",
+      title: cleanFilename || "Browser Download",
+      filename: cleanFilename,
       referer: item.referrer || "",
-      filename: item.filename ? item.filename.split(/[\\/]/).pop() : ""
-    });
+      cookies: cookies,
+      userAgent: navigator.userAgent,
+      headers: clientHeaders
+    };
+
+    let handled = false;
+    try {
+      const nativeRes = await sendViaNativeMessaging(payload);
+      if (nativeRes && nativeRes.ok) handled = true;
+    } catch (e) {}
+
+    if (!handled) {
+      try {
+        await fetch(`${FD_API_BASE}/api/intercept`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        handled = true;
+      } catch (e) {}
+    }
+
+    // Wake and focus the FastDownloader app window
+    await openFastDownloaderApp();
   } catch (e) {
     console.error("Failed to intercept download:", e);
   }

@@ -13,6 +13,7 @@
   [![Release](https://img.shields.io/github/v/release/ZaxMil/fast-downloader?style=for-the-badge&color=10B981&labelColor=0f172a&logo=github)](https://github.com/ZaxMil/fast-downloader/releases/latest)
   [![Platform](https://img.shields.io/badge/Platform-Windows_10_|_11-06B6D4?style=for-the-badge&logo=windows&logoColor=white&labelColor=0f172a)](https://microsoft.com/windows)
   [![License](https://img.shields.io/badge/License-MIT-38BDF8?style=for-the-badge&labelColor=0f172a)](LICENSE)
+  [![Ko-fi](https://img.shields.io/badge/Support_on_Ko--fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white&labelColor=0f172a)](https://ko-fi.com/zaxmi)
   [![Engine](https://img.shields.io/badge/Engine-aria2c_Turbo-10B981?style=for-the-badge&logo=speedtest&logoColor=white&labelColor=0f172a)](https://github.com/aria2/aria2)
   [![Footprint](https://img.shields.io/badge/RAM_Footprint-~30_MB-8B5CF6?style=for-the-badge&labelColor=0f172a)](README.md#architecture)
 
@@ -119,10 +120,8 @@ cd fast-downloader
 
 :: 2. Run 1-click installer & builder
 install.bat
-```
-</details>
 
-:: 4. Run
+:: 3. Launch
 FastDownloader.exe
 ```
 </details>
@@ -155,7 +154,11 @@ flowchart LR
 ```
 fast-downloader/
 ├── src/
-│   └── Program.cs             # C# .NET daemon (HTTP Bridge :6801, System Tray, Mutex & Scheduler)
+│   ├── AriaEngine.cs          # Turbo aria2 supervisor, yt-dlp cookie parser, queues
+│   ├── BrowserHost.cs         # 1-click extension installer & Native Messaging host
+│   ├── HttpBridge.cs          # Local HTTP Bridge API server (:6801) & JSON parser
+│   ├── SplashManager.cs       # 60fps GDI+ startup splash window & progress interpolation
+│   └── Program.cs             # Entry point, system tray, clipboard sniffer & window focus
 ├── ui/
 │   ├── index.html             # Obsidian glassmorphic dashboard (Single-page app, ~60fps Canvas)
 │   ├── favicon.ico            # Dashboard favicon
@@ -174,6 +177,25 @@ fast-downloader/
 ├── THIRD_PARTY_NOTICES.md     # Upstream licenses (GPL, LGPL, Unlicense)
 └── LICENSE                    # MIT License
 ```
+
+---
+
+## 💖 Support the Project & Fund Chrome Store Listing
+
+FastDownloader Pro is **100% free, open source, and privacy-respecting** — no ads, no trackers, and no paid feature gates.
+
+We are currently raising funds via **[Ko-fi](https://ko-fi.com/zaxmi)** to:
+1. **Cover Browser Store Developer Fees**: Publish the official companion extension to the **Chrome Web Store** ($5 registration) and **Microsoft Edge Add-ons** so users can install it with **1 single click** without enabling Developer Mode or manual unpacking.
+2. **Sustain Continuous Development**: Fund high-speed engine maintenance, video extractor fixes (Facebook, YouTube, TikTok, Instagram), and new feature additions.
+
+<div align="center">
+  <br />
+  <a href="https://ko-fi.com/zaxmi" target="_blank">
+    <img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support on Ko-fi" height="42" />
+  </a>
+  <br />
+  <p><b><a href="https://ko-fi.com/zaxmi">👉 Buy us a Coffee on Ko-fi (ko-fi.com/zaxmi)</a></b></p>
+</div>
 
 ---
 

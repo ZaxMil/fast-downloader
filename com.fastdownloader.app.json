@@ -1,0 +1,9 @@
+{
+  "name": "com.fastdownloader.app",
+  "description": "FastDownloader Native Messaging Host",
+  "path": "d:\\AI\\fast-downloader\\FastDownloader.exe",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://gofdohcbjeiggejfkdhbpgddoejjdafg/"
+  ]
+}

@@ -24,3 +24,8 @@ settings.json
 *.user
 *.userosscache
 *.sln.docstates
+
+# Local scratch scripts & reconstructions
+scratch/
+*.reconstructed
+

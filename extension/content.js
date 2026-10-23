@@ -8,6 +8,40 @@
     ? chrome.runtime.getURL('icons/icon32.png') 
     : '';
 
+  // Intercepted Main-World Streams cache (HLS, DASH, Master playlists)
+  const interceptedStreams = [];
+
+  window.addEventListener('message', (e) => {
+    if (e.source !== window || !e.data || e.data.source !== 'FD_STREAM_INTERCEPTOR') return;
+    if (e.data.type === 'NEW_STREAM' && e.data.stream) {
+      const s = e.data.stream;
+      if (!interceptedStreams.some(x => x.url === s.url)) {
+        if (s.isMaster) {
+          interceptedStreams.unshift(s);
+        } else {
+          interceptedStreams.push(s);
+        }
+        if (interceptedStreams.length > 50) interceptedStreams.pop();
+      }
+    } else if (e.data.type === 'ALL_STREAMS' && Array.isArray(e.data.streams)) {
+      e.data.streams.forEach(s => {
+        if (!interceptedStreams.some(x => x.url === s.url)) {
+          if (s.isMaster) interceptedStreams.unshift(s);
+          else interceptedStreams.push(s);
+        }
+      });
+    }
+  });
+
+  // Inject main-world script fallback
+  try {
+    const s = document.createElement('script');
+    s.src = chrome.runtime.getURL('inject.js');
+    s.onload = () => s.remove();
+    (document.head || document.documentElement).appendChild(s);
+    window.postMessage({ source: 'FD_CONTENT_QUERY', type: 'GET_STREAMS' }, '*');
+  } catch (e) {}
+
   // Sleek Bottom-Right Toast HUD
   function showToast(message, isError = false) {
     let toast = document.getElementById('fd-global-toast');
@@ -18,15 +52,70 @@
       document.body.appendChild(toast);
     }
     toast.innerHTML = `
-      <img src="${iconUrl}" style="width:18px;height:18px;border-radius:4px;flex-shrink:0;">
-      <span>${message}</span>
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <img src="${iconUrl}" style="width:18px;height:18px;border-radius:4px;flex-shrink:0;">
+          <span>${message}</span>
+        </div>
+        <button id="fd-toast-open-btn" style="background:#10b981; color:#fff; border:none; border-radius:4px; padding:3px 8px; font-size:10px; font-weight:700; cursor:pointer; flex-shrink:0; transition:background 0.15s;">Open App</button>
+      </div>
     `;
+    const openBtn = toast.querySelector('#fd-toast-open-btn');
+    if (openBtn) {
+      openBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        try {
+          chrome.runtime.sendMessage({ type: 'FD_OPEN_APP' });
+        } catch (err) {}
+      });
+    }
     toast.className = 'fd-toast' + (isError ? ' fd-toast-error' : '');
     toast.classList.add('fd-toast-show');
     clearTimeout(toast._timer);
     toast._timer = setTimeout(() => {
       toast.classList.remove('fd-toast-show');
-    }, 3800);
+    }, 4500);
+  }
+
+  // Social Post / Group Permalink Sniffer
+  function findSocialPostPermalink(element) {
+    if (!element) return null;
+    const isFb = window.location.hostname.includes('facebook.com') || window.location.hostname.includes('fb.watch');
+    if (isFb) {
+      if (window.location.pathname.includes('/videos/') || window.location.pathname.includes('/reel/') || window.location.pathname.includes('/watch')) {
+        return window.location.href;
+      }
+      const container = element.closest('article, [role="article"], [data-pagelet], div[data-virtualized="false"], main') || document.body;
+      const links = container.querySelectorAll('a[href]');
+      for (const a of links) {
+        const href = a.href;
+        if (!href) continue;
+        if (href.includes('/posts/') || href.includes('/permalink/') || href.includes('story_fbid=') || href.includes('permalink.php') || href.includes('story.php') || href.includes('/videos/') || href.includes('/reel/') || href.includes('/watch') || href.includes('watch?v=')) {
+          try {
+            const u = new URL(href);
+            u.searchParams.delete('__cft__[0]');
+            u.searchParams.delete('__cft__');
+            u.searchParams.delete('__tn__');
+            u.searchParams.delete('fbclid');
+            return u.toString();
+          } catch (e) {
+            return href;
+          }
+        }
+      }
+    }
+
+    const isIg = window.location.hostname.includes('instagram.com');
+    if (isIg) {
+      if (window.location.pathname.includes('/p/') || window.location.pathname.includes('/reel/')) {
+        return window.location.href;
+      }
+      const container = element.closest('article, main') || document.body;
+      const link = container.querySelector('a[href*="/p/"], a[href*="/reel/"]');
+      if (link && link.href) return link.href;
+    }
+
+    return null;
   }
 
   // Detect Best Media / Stream URL (Sniffs HLS, DASH, or direct src)
@@ -45,55 +134,44 @@
       }
     }
 
-    // 2. Facebook specific permalink & stream lookup
-    if (window.location.hostname.includes('facebook.com') || window.location.hostname.includes('fb.watch')) {
-      if (window.location.pathname.includes('/videos/') || window.location.pathname.includes('/reel/') || window.location.pathname.includes('/watch')) {
-        return window.location.href;
-      }
-      const post = element.closest('[role="article"], [data-pagelet*="FeedUnit"], .x1y1aw1k, [data-visualcompletion]');
-      if (post) {
-        const links = post.querySelectorAll('a[href]');
-        for (const a of links) {
-          const href = a.href;
-          if (href && (href.includes('/videos/') || href.includes('/reel/') || href.includes('/watch') || href.includes('watch?v=') || href.includes('/posts/'))) {
-            return href;
-          }
-        }
-      }
-      // Check network performance entries for the latest fbcdn stream chunk
-      try {
-        const entries = performance.getEntriesByType('resource');
-        for (let i = entries.length - 1; i >= 0 && i >= entries.length - 35; i--) {
-          const name = entries[i].name;
-          if (name.includes('fbcdn.net') && (name.includes('/v/t') || name.includes('.mp4') || name.includes('.mpd'))) {
+    // 2. Intercepted Main-World Master Stream (.m3u8, .mpd, fbcdn)
+    const masterStream = interceptedStreams.find(s => s.isMaster);
+    if (masterStream) {
+      return masterStream.url;
+    }
+
+    // 3. Check network performance entries for active fbcdn or m3u8/mpd streams
+    try {
+      const entries = performance.getEntriesByType('resource');
+      for (let i = entries.length - 1; i >= 0 && i >= entries.length - 60; i--) {
+        const name = entries[i].name;
+        if (!name || typeof name !== 'string') continue;
+        if (name.includes('fbcdn.net') && (name.includes('/v/t') || name.includes('.mp4') || name.includes('.mpd') || name.includes('bytestart'))) {
+          try {
+            const u = new URL(name);
+            u.searchParams.delete('bytestart');
+            u.searchParams.delete('byteend');
+            return u.toString();
+          } catch (e) {
             return name;
           }
         }
-      } catch (e) {}
-    }
-
-    // 3. Instagram specific
-    if (window.location.hostname.includes('instagram.com')) {
-      if (window.location.pathname.includes('/p/') || window.location.pathname.includes('/reel/')) {
-        return window.location.href;
-      }
-      const post = element.closest('article, main');
-      if (post) {
-        const link = post.querySelector('a[href*="/p/"], a[href*="/reel/"]');
-        if (link && link.href) return link.href;
-      }
-    }
-
-    // 4. Check for HLS or DASH stream in performance entries
-    try {
-      const entries = performance.getEntriesByType('resource');
-      for (let i = entries.length - 1; i >= 0 && i >= entries.length - 35; i--) {
-        const name = entries[i].name;
         if (/\.(m3u8|mpd)(\?.*)?$/i.test(name)) {
           return name;
         }
       }
     } catch (e) {}
+
+    // 4. Any recent intercepted stream
+    if (interceptedStreams.length > 0) {
+      return interceptedStreams[0].url;
+    }
+
+    // 5. Social post permalink
+    const socialUrl = findSocialPostPermalink(element);
+    if (socialUrl) {
+      return socialUrl;
+    }
 
     return window.location.href;
   }
@@ -113,6 +191,36 @@
       }
     }
 
+    if (url === 'https://www.facebook.com/' || url === 'https://facebook.com/' || url === 'https://www.facebook.com' || (window.location.hostname.includes('facebook.com') && (!url || url.startsWith('blob:') || url === window.location.href))) {
+      // Sniff performance entries again in case it just buffered
+      let fbUrl = null;
+      try {
+        const entries = performance.getEntriesByType('resource');
+        for (let i = entries.length - 1; i >= 0; i--) {
+          const name = entries[i].name;
+          if (name.includes('fbcdn.net') && (name.includes('/v/t') || name.includes('.mp4') || name.includes('.mpd') || name.includes('bytestart'))) {
+            const u = new URL(name);
+            u.searchParams.delete('bytestart');
+            u.searchParams.delete('byteend');
+            fbUrl = u.toString();
+            break;
+          }
+        }
+      } catch (e) {}
+
+      if (fbUrl) {
+        url = fbUrl;
+      } else {
+        const permalink = findSocialPostPermalink(triggerPill ? triggerPill.closest('article, [role="article"], [data-pagelet], div[data-virtualized="false"], main') : null);
+        if (permalink) {
+          url = permalink;
+        } else {
+          showToast('⚠️ Please play the video for 1 second first so Facebook loads the stream!', true);
+          return;
+        }
+      }
+    }
+
     const payload = {
       type: 'FD_DOWNLOAD_REQUEST',
       url: url || window.location.href,
@@ -122,12 +230,19 @@
       referer: window.location.href
     };
 
+    let contextInvalidated = false;
     // Try communicating via background worker first (with full cookie & session extraction)
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
       try {
         const res = await new Promise((resolve) => {
           chrome.runtime.sendMessage(payload, (resp) => {
-            if (chrome.runtime.lastError || !resp) {
+            if (chrome.runtime.lastError) {
+              const msg = chrome.runtime.lastError.message || '';
+              if (msg.includes('invalidated') || msg.includes('disconnected')) {
+                contextInvalidated = true;
+              }
+              resolve(null);
+            } else if (!resp) {
               resolve(null);
             } else {
               resolve(resp);
@@ -144,7 +259,16 @@
           }
           return;
         }
-      } catch (e) {}
+      } catch (e) {
+        if (e && e.message && e.message.includes('invalidated')) {
+          contextInvalidated = true;
+        }
+      }
+    }
+
+    if (contextInvalidated) {
+      showToast('⚠️ Extension updated! Please refresh this tab (F5) to re-sync.', true);
+      return;
     }
 
     // Direct fallback if extension channel was interrupted
@@ -209,24 +333,60 @@
     }
   }
 
-  // Inject Floating Button onto any Video or Media Player
-  function injectDownloadButton(targetElement, isCanvas = false) {
-    let anchor = targetElement.parentElement;
-    if (!anchor) return;
+  // Find the exact visual player container that bounds the video element
+  function findVideoPlayerAnchor(targetElement) {
+    if (!targetElement || !targetElement.parentElement) return null;
 
-    // 1. On Facebook & Instagram, anchor to the outer player container so button sits ON TOP of all transparent overlays
-    if (window.location.hostname.includes('facebook.com') || window.location.hostname.includes('fb.watch')) {
-      const fbPlayer = targetElement.closest('[data-visualcompletion*="media-vc-image"], div[style*="max-height"], .x1y1aw1k, [role="article"]') || targetElement.parentElement;
-      if (fbPlayer) anchor = fbPlayer;
-    } else if (window.location.hostname.includes('youtube.com')) {
-      const ytPlayer = targetElement.closest('#movie_player, .html5-video-player');
-      if (ytPlayer) anchor = ytPlayer;
+    // 1. Embedded YouTube Player
+    const ytPlayer = targetElement.closest('#movie_player, .html5-video-player');
+    if (ytPlayer) return ytPlayer;
+
+    // 2. Generic video players (walk UP to find the HIGHEST player wrapper, ABOVE any pause/resume backdrops)
+    const videoRect = targetElement.getBoundingClientRect();
+    let current = targetElement.parentElement;
+    let highestPlayer = targetElement.parentElement;
+
+    while (current && current !== document.body && current !== document.documentElement) {
+      // Never attach to the full social post, feed, or article card
+      const role = current.getAttribute('role');
+      if (role === 'article' || role === 'feed' || role === 'main' || current.tagName === 'ARTICLE') {
+        break;
+      }
+
+      const rect = current.getBoundingClientRect();
+      if (rect.width >= 80 && rect.height >= 80) {
+        if (videoRect.height > 0) {
+          // Stay within player bounds (within 1.5x of video height & width)
+          if (rect.height <= videoRect.height * 1.5 && rect.width <= videoRect.width * 1.5) {
+            highestPlayer = current;
+          } else {
+            break; // Exceeded player boundary
+          }
+        } else if (rect.height <= 850) {
+          highestPlayer = current;
+        }
+      }
+
+      current = current.parentElement;
     }
 
-    // 2. Prevent duplicate button in the same anchor
-    if (anchor.querySelector(':scope > .fd-download-btn-container')) return;
+    return highestPlayer;
+  }
 
-    // 3. Ensure anchor is positioning context
+  // Inject Floating Button onto any Video or Media Player
+  function injectDownloadButton(targetElement, isCanvas = false) {
+    if (!targetElement) return;
+
+    let anchor = isCanvas ? targetElement.parentElement : findVideoPlayerAnchor(targetElement);
+    if (!anchor) anchor = targetElement.parentElement;
+    if (!anchor) return;
+
+    // Prevent duplicate button in the same anchor or near targetElement
+    if (anchor.querySelector(':scope > .fd-download-btn-container') || (targetElement.parentElement && targetElement.parentElement.querySelector(':scope > .fd-download-btn-container'))) {
+      return;
+    }
+
+    // Ensure anchor is positioning context
     const anchorStyle = window.getComputedStyle(anchor);
     if (anchorStyle.position === 'static') {
       anchor.style.position = 'relative';
@@ -242,6 +402,14 @@
 
     const container = document.createElement('div');
     container.className = 'fd-download-btn-container';
+
+    // Stop clicks/pointers from bubbling out to Facebook player behind the container
+    const stopBubbleEvents = ['pointerdown', 'mousedown', 'mouseup', 'click', 'dblclick', 'touchstart', 'touchend'];
+    stopBubbleEvents.forEach(evt => {
+      container.addEventListener(evt, (e) => {
+        e.stopPropagation();
+      }, false);
+    });
 
     // Main Pill Wrap
     const pill = document.createElement('div');
@@ -320,16 +488,55 @@
       `;
     }
 
-    // 1-Click Direct Download on Pill click
-    mainAction.addEventListener('click', (e) => {
+    // 1-Click Direct Download on Pill or Action click
+    const triggerDownload = async (e, quality = 'best') => {
       e.stopPropagation();
       e.preventDefault();
       if (isCanvas) {
         recordCanvasStream(targetElement, 15000);
-      } else {
-        const videoSrc = detectBestMediaUrl(targetElement);
-        sendToFastDownloader(videoSrc, document.title, 'video', 'best', pill);
+        return;
       }
+
+      let videoSrc = detectBestMediaUrl(targetElement);
+
+      // Auto-nudge video element silently if paused or has blob src so platform requests stream chunks
+      if ((!videoSrc || videoSrc === window.location.href || videoSrc.startsWith('blob:')) && targetElement && targetElement.tagName === 'VIDEO') {
+        const textSpan = pill.querySelector('.fd-pill-text');
+        if (textSpan) textSpan.textContent = 'Buffering...';
+
+        const wasPaused = targetElement.paused;
+        const prevMuted = targetElement.muted;
+        try {
+          targetElement.muted = true;
+          const p = targetElement.play();
+          if (p && typeof p.then === 'function') await p.catch(() => {});
+        } catch (err) {}
+
+        for (let i = 0; i < 5; i++) {
+          await new Promise(r => setTimeout(r, 100));
+          videoSrc = detectBestMediaUrl(targetElement);
+          if (videoSrc && videoSrc !== window.location.href && !videoSrc.startsWith('blob:')) {
+            break;
+          }
+        }
+
+        if (wasPaused) {
+          try { targetElement.pause(); } catch (err) {}
+        }
+        targetElement.muted = prevMuted;
+      }
+
+      if (!videoSrc || videoSrc === window.location.href || videoSrc.startsWith('blob:')) {
+        videoSrc = findSocialPostPermalink(targetElement) || window.location.href;
+      }
+
+      sendToFastDownloader(videoSrc, document.title, 'video', quality, pill);
+    };
+
+    mainAction.addEventListener('click', triggerDownload);
+    pill.addEventListener('click', (e) => {
+      if (arrowBtn.contains(e.target)) return;
+      triggerDownload(e, 'best');
     });
 
     // Toggle Dropdown Menu on Arrow click
@@ -362,7 +569,11 @@
         }
 
         if (action === 'dashboard') {
-          window.open('http://127.0.0.1:6801/', '_blank');
+          try {
+            chrome.runtime.sendMessage({ type: 'FD_OPEN_APP' });
+          } catch (err) {
+            window.open('http://127.0.0.1:6801/', '_blank');
+          }
           return;
         }
 
@@ -371,8 +582,7 @@
           recordCanvasStream(targetElement, sec);
         } else {
           const quality = item.getAttribute('data-quality') || 'best';
-          const videoSrc = detectBestMediaUrl(targetElement);
-          sendToFastDownloader(videoSrc, document.title, 'video', quality, pill);
+          triggerDownload(e, quality);
         }
       });
     });
@@ -382,12 +592,12 @@
     anchor.appendChild(container);
   }
 
-  // Inject Native Action Bar Button on YouTube Video Page
-  function injectYouTubeActionBar() {
-    if (!window.location.hostname.includes('youtube.com')) return;
+  // Inject Native Action Bar Button on Video Watch Pages
+  function injectNativePlatformActionBar() {
+    if (!window.location.hostname.includes(atob('eW91dHViZS5jb20='))) return;
     if (document.getElementById('fd-yt-action-container')) return;
 
-    // YouTube actions toolbar container
+    // Platform actions toolbar container
     const actionsBar = document.querySelector('#actions #top-level-buttons-computed') || 
                        document.querySelector('#menu #top-level-buttons-computed') ||
                        document.querySelector('ytd-menu-renderer #top-level-buttons-computed');
@@ -399,7 +609,7 @@
 
     const btn = document.createElement('button');
     btn.className = 'fd-yt-action-btn';
-    btn.title = 'Download this YouTube video with FastDownloader (16 Chunks Turbo)';
+    btn.title = 'Download video with FastDownloader (16x Turbo)';
     btn.innerHTML = `
       <img src="${iconUrl}" alt="FD">
       <span>FastDownload</span>
@@ -428,15 +638,15 @@
       }
     });
 
-    // 2. YouTube Main Player
+    // 2. Embedded Video Container
     const ytPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
     if (ytPlayer && !processedElements.has(ytPlayer)) {
       const v = ytPlayer.querySelector('video');
       if (v) injectDownloadButton(ytPlayer, false);
     }
 
-    // 3. YouTube Action Bar Button below video
-    injectYouTubeActionBar();
+    // 3. Platform Action Bar Button
+    injectNativePlatformActionBar();
 
     // 4. Interactive / Game / WebGL Canvas elements
     document.querySelectorAll('canvas').forEach((c) => {
@@ -502,6 +712,21 @@
         return true;
       }
 
+      if (req.type === 'FD_GET_PAGE_MEDIA') {
+        const v = document.querySelector('video');
+        let streamUrl = null;
+        if (v) {
+          streamUrl = detectBestMediaUrl(v);
+        }
+        sendResponse({
+          ok: true,
+          hasMedia: !!v || interceptedStreams.length > 0,
+          url: streamUrl || (interceptedStreams.length > 0 ? interceptedStreams[0].url : window.location.href),
+          title: document.title
+        });
+        return true;
+      }
+
       if (req.type === 'FD_SHOW_TOAST') {
         showToast(req.message, req.isError);
         sendResponse({ ok: true });
@@ -510,8 +735,41 @@
     });
   }
 
-  // Scan immediately and observe dynamic single-page-app DOM changes
+  // Scan immediately and observe dynamic single-page-app DOM changes (debounced to save CPU)
   scanMedia();
-  const observer = new MutationObserver(() => scanMedia());
-  observer.observe(document.body, { childList: true, subtree: true });
+  let scanDebounceTimer = null;
+  const observer = new MutationObserver(() => {
+    if (scanDebounceTimer) return;
+    scanDebounceTimer = setTimeout(() => {
+      scanDebounceTimer = null;
+      scanMedia();
+    }, 150);
+  });
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  } else {
+    document.addEventListener('DOMContentLoaded', () => {
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+  }
+
+  // Real-time hover & playback listeners (captures dynamically loaded feed & iframe videos)
+  document.addEventListener('play', (e) => {
+    if (e.target && e.target.tagName === 'VIDEO') {
+      injectDownloadButton(e.target, false);
+    }
+  }, true);
+
+  document.addEventListener('mouseover', (e) => {
+    const el = e.target;
+    if (!el) return;
+    if (el.tagName === 'VIDEO') {
+      injectDownloadButton(el, false);
+    } else if (el.closest) {
+      const v = el.querySelector('video') || el.closest('div')?.querySelector('video');
+      if (v && (v.offsetWidth >= 80 || v.videoWidth >= 80 || v.getBoundingClientRect().width >= 80)) {
+        injectDownloadButton(v, false);
+      }
+    }
+  }, { capture: true, passive: true });
 })();
