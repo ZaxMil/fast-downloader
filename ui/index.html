@@ -209,7 +209,11 @@
     }
     [dir="rtl"] .resizer {
       right: auto;
-      left: 0;
+      left: -6px;
+    }
+    [dir="rtl"] .resizer::after {
+      left: auto;
+      right: 5px;
     }
     [dir="rtl"] .search-icon {
       left: auto;
@@ -469,8 +473,7 @@
       top: 100%;
       left: 0;
       min-width: 240px;
-      background: var(--bg-surface);
-      border: 1px solid var(--border-color);
+      background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(20px); border: 1px solid var(--border-color);
       border-radius: 8px;
       box-shadow: 0 14px 35px rgba(0, 0, 0, 0.55);
       padding: 5px 0;
@@ -562,12 +565,12 @@
     .context-menu {
       display: none;
       position: fixed;
-      min-width: 220px;
-      background: var(--bg-surface);
+      min-width: 230px;
+      background: #0f172a !important;
       border: 1px solid var(--border-color);
       border-radius: 8px;
-      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65);
-      padding: 5px 0;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.85);
+      padding: 6px 0;
       z-index: 3000;
       user-select: none;
       animation: menuFadeIn 0.12s ease-out;
@@ -974,13 +977,14 @@
     .table-container {
       flex: 1 1 0;
       min-height: 0;
-      overflow-x: hidden;
+      overflow-x: auto;
       overflow-y: auto;
       position: relative;
     }
 
     table {
       width: 100%;
+      min-width: 100%;
       border-collapse: collapse;
       text-align: left;
       font-size: 12.5px;
@@ -1008,12 +1012,27 @@
       white-space: nowrap;
       user-select: none;
       border-right: 1px solid var(--border-subtle);
-      overflow: hidden;
-      text-overflow: ellipsis;
+      position: relative;
     }
 
     th:last-child {
       border-right: none;
+    }
+
+    th[data-col]:not([data-col="actions"]) {
+      cursor: pointer;
+    }
+    th[data-col]:not([data-col="actions"]):hover {
+      background: var(--bg-card);
+      color: var(--text-main);
+    }
+
+    .th-inner {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      overflow: hidden;
     }
 
     .th-content {
@@ -1021,22 +1040,94 @@
       text-overflow: ellipsis;
       white-space: nowrap;
       display: inline-block;
-      max-width: calc(100% - 10px);
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .sort-icon {
+      font-size: 10px;
+      color: var(--emerald);
+      flex-shrink: 0;
+      display: inline-block;
+      min-width: 8px;
+    }
+
+    .header-settings-btn {
+      background: transparent;
+      border: none;
+      font-size: 12px;
+      cursor: pointer;
+      padding: 2px 4px;
+      border-radius: 4px;
+      opacity: 0.65;
+      transition: opacity 0.15s, background-color 0.15s, transform 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: inherit;
+      line-height: 1;
+    }
+    .header-settings-btn:hover {
+      opacity: 1;
+      background-color: rgba(255, 255, 255, 0.1);
+      transform: rotate(30deg);
+    }
+    [data-theme="light"] .header-settings-btn:hover {
+      background-color: rgba(0, 0, 0, 0.08);
+    }
+
+    .header-inline-edit {
+      background: var(--bg-base);
+      color: var(--text-main);
+      border: 1px solid var(--emerald);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      width: 100%;
+      outline: none;
+      font-family: inherit;
+      box-shadow: 0 0 6px rgba(16, 185, 129, 0.3);
     }
 
     .resizer {
       position: absolute;
       top: 0;
-      right: 0;
-      width: 5px;
+      right: -6px;
+      width: 12px;
       height: 100%;
       cursor: col-resize;
       user-select: none;
-      z-index: 10;
+      z-index: 20;
     }
 
-    .resizer:hover, .resizer.resizing {
+    .resizer::after {
+      content: '';
+      position: absolute;
+      top: 4px;
+      bottom: 4px;
+      left: 5px;
+      width: 2px;
+      background-color: transparent;
+      border-radius: 1px;
+      transition: background-color 0.15s;
+    }
+
+    .resizer:hover::after, .resizer.resizing::after {
       background-color: var(--emerald);
+    }
+
+    /* DYNAMIC COLUMN VISIBILITY */
+    #downloadsTable.hide-col-name th[data-col="name"], #downloadsTable.hide-col-name td[data-col="name"],
+    #downloadsTable.hide-col-queue th[data-col="queue"], #downloadsTable.hide-col-queue td[data-col="queue"],
+    #downloadsTable.hide-col-size th[data-col="size"], #downloadsTable.hide-col-size td[data-col="size"],
+    #downloadsTable.hide-col-progress th[data-col="progress"], #downloadsTable.hide-col-progress td[data-col="progress"],
+    #downloadsTable.hide-col-speed th[data-col="speed"], #downloadsTable.hide-col-speed td[data-col="speed"],
+    #downloadsTable.hide-col-eta th[data-col="eta"], #downloadsTable.hide-col-eta td[data-col="eta"],
+    #downloadsTable.hide-col-status th[data-col="status"], #downloadsTable.hide-col-status td[data-col="status"],
+    #downloadsTable.hide-col-actions th[data-col="actions"], #downloadsTable.hide-col-actions td[data-col="actions"] {
+      display: none !important;
     }
 
     tbody tr {
@@ -1350,8 +1441,7 @@
     }
 
     .modal-card {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-color);
+      background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(20px); border: 1px solid var(--border-color);
       border-radius: var(--radius-lg);
       width: 520px;
       max-width: 92vw;
@@ -1708,8 +1798,7 @@
       position: fixed;
       bottom: 80px;
       right: 20px;
-      background: var(--bg-surface);
-      border: 1px solid var(--border-color);
+      background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(20px); border: 1px solid var(--border-color);
       box-shadow: 0 10px 25px rgba(0,0,0,0.5);
       border-radius: var(--radius-md);
       padding: 12px 16px;
@@ -1901,8 +1990,14 @@
             <span class="menu-shortcut">Ctrl+L</span>
           </div>
           <div class="menu-divider"></div>
-          <div class="menu-action" onclick="resetColumnWidths()">
-            <span class="menu-action-label" data-i18n="menuResetColumns">Reset Column Widths</span>
+          <div class="menu-action" onclick="openColumnCustomizer(event)">
+            <span class="menu-action-label"><span>⚙️</span> <span data-i18n="headerCustomizerTitle">Columns & Table Setup</span></span>
+          </div>
+          <div class="menu-action" onclick="autoFitAllColumns()">
+            <span class="menu-action-label"><span>↔️</span> <span data-i18n="headerAutoFitAll">Auto-fit All Columns</span></span>
+          </div>
+          <div class="menu-action" onclick="resetColumnLayout()">
+            <span class="menu-action-label"><span>↺</span> <span data-i18n="headerResetColumns">Reset Layout to Default</span></span>
           </div>
         </div>
       </div>
@@ -2167,37 +2262,64 @@
         <table id="downloadsTable">
           <thead>
             <tr>
-              <th style="width:36px; min-width:36px; max-width:36px; text-align:center;"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this.checked)"></th>
-              <th data-col="name" style="min-width:120px;">
-                <span class="th-content" data-i18n="colFileName">File Name</span>
-                <div class="resizer"></div>
+              <th style="width:36px; min-width:36px; max-width:36px; text-align:center;">
+                <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this.checked)" title="Select all">
               </th>
-              <th data-col="queue" style="width:90px; min-width:70px;">
-                <span class="th-content" data-i18n="colQueue">Queue</span>
-                <div class="resizer"></div>
+              <th data-col="name" data-min-width="160" style="min-width:160px;" onclick="handleHeaderClick(event, 'name')" oncontextmenu="handleHeaderContextMenu(event, 'name')">
+                <div class="th-inner">
+                  <span class="th-content" data-i18n="colFileName" title="Double-click to rename | Click to sort">File Name</span>
+                  <span class="sort-icon" id="sort-name"></span>
+                </div>
+                <div class="resizer" ondblclick="autoFitColumn('name', event)" title="Drag to resize | Double-click to auto-fit"></div>
               </th>
-              <th data-col="size" style="width:80px; min-width:60px;">
-                <span class="th-content" data-i18n="colSize">Size</span>
-                <div class="resizer"></div>
+              <th data-col="queue" data-min-width="75" style="width:110px; min-width:75px;" onclick="handleHeaderClick(event, 'queue')" oncontextmenu="handleHeaderContextMenu(event, 'queue')">
+                <div class="th-inner">
+                  <span class="th-content" data-i18n="colQueue" title="Double-click to rename | Click to sort">Queue</span>
+                  <span class="sort-icon" id="sort-queue"></span>
+                </div>
+                <div class="resizer" ondblclick="autoFitColumn('queue', event)" title="Drag to resize | Double-click to auto-fit"></div>
               </th>
-              <th data-col="progress" style="width:140px; min-width:100px;">
-                <span class="th-content" data-i18n="colProgress">Progress</span>
-                <div class="resizer"></div>
+              <th data-col="size" data-min-width="65" style="width:85px; min-width:65px;" onclick="handleHeaderClick(event, 'size')" oncontextmenu="handleHeaderContextMenu(event, 'size')">
+                <div class="th-inner">
+                  <span class="th-content" data-i18n="colSize" title="Double-click to rename | Click to sort">Size</span>
+                  <span class="sort-icon" id="sort-size"></span>
+                </div>
+                <div class="resizer" ondblclick="autoFitColumn('size', event)" title="Drag to resize | Double-click to auto-fit"></div>
               </th>
-              <th data-col="speed" style="width:100px; min-width:75px;">
-                <span class="th-content" data-i18n="colSpeed">Transfer Rate</span>
-                <div class="resizer"></div>
+              <th data-col="progress" data-min-width="100" style="width:145px; min-width:100px;" onclick="handleHeaderClick(event, 'progress')" oncontextmenu="handleHeaderContextMenu(event, 'progress')">
+                <div class="th-inner">
+                  <span class="th-content" data-i18n="colProgress" title="Double-click to rename | Click to sort">Progress</span>
+                  <span class="sort-icon" id="sort-progress"></span>
+                </div>
+                <div class="resizer" ondblclick="autoFitColumn('progress', event)" title="Drag to resize | Double-click to auto-fit"></div>
               </th>
-              <th data-col="eta" style="width:75px; min-width:55px;">
-                <span class="th-content" data-i18n="colEta">Time Left</span>
-                <div class="resizer"></div>
+              <th data-col="speed" data-min-width="90" style="width:145px; min-width:90px;" onclick="handleHeaderClick(event, 'speed')" oncontextmenu="handleHeaderContextMenu(event, 'speed')">
+                <div class="th-inner">
+                  <span class="th-content" data-i18n="colSpeed" title="Double-click to rename | Click to sort">Transfer Rate</span>
+                  <span class="sort-icon" id="sort-speed"></span>
+                </div>
+                <div class="resizer" ondblclick="autoFitColumn('speed', event)" title="Drag to resize | Double-click to auto-fit"></div>
               </th>
-              <th data-col="status" style="width:90px; min-width:70px;">
-                <span class="th-content" data-i18n="colStatus">Status</span>
-                <div class="resizer"></div>
+              <th data-col="eta" data-min-width="75" style="width:115px; min-width:75px;" onclick="handleHeaderClick(event, 'eta')" oncontextmenu="handleHeaderContextMenu(event, 'eta')">
+                <div class="th-inner">
+                  <span class="th-content" data-i18n="colEta" title="Double-click to rename | Click to sort">Time Left</span>
+                  <span class="sort-icon" id="sort-eta"></span>
+                </div>
+                <div class="resizer" ondblclick="autoFitColumn('eta', event)" title="Drag to resize | Double-click to auto-fit"></div>
               </th>
-              <th data-col="actions" style="width:80px; min-width:70px; text-align:center;">
-                <span class="th-content" data-i18n="colActions">Actions</span>
+              <th data-col="status" data-min-width="75" style="width:100px; min-width:75px;" onclick="handleHeaderClick(event, 'status')" oncontextmenu="handleHeaderContextMenu(event, 'status')">
+                <div class="th-inner">
+                  <span class="th-content" data-i18n="colStatus" title="Double-click to rename | Click to sort">Status</span>
+                  <span class="sort-icon" id="sort-status"></span>
+                </div>
+                <div class="resizer" ondblclick="autoFitColumn('status', event)" title="Drag to resize | Double-click to auto-fit"></div>
+              </th>
+              <th data-col="actions" data-min-width="85" style="width:110px; min-width:85px; text-align:center;" oncontextmenu="handleHeaderContextMenu(event, 'actions')">
+                <div class="th-inner" style="justify-content:center;">
+                  <span class="th-content" data-i18n="colActions">Actions</span>
+                  <button class="header-settings-btn" onclick="openColumnCustomizer(event)" title="Customize & Edit Columns">⚙️</button>
+                </div>
+                <div class="resizer" ondblclick="autoFitColumn('actions', event)" title="Drag to resize | Double-click to auto-fit"></div>
               </th>
             </tr>
           </thead>
@@ -2243,6 +2365,29 @@
         </div>
       </div>
     </main>
+  </div>
+
+  <!-- TABLE HEADER / COLUMN EDITOR CONTEXT MENU -->
+  <div id="headerContextMenu" class="context-menu" style="display:none; min-width: 240px;">
+    <div style="padding: 7px 14px 5px; font-size: 11px; font-weight: 700; color: var(--emerald); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border-subtle); display:flex; justify-content:space-between; align-items:center;">
+      <span data-i18n="headerCustomizerTitle">Columns & Table Setup</span>
+      <span style="font-size:13px;">⚙️</span>
+    </div>
+    
+    <div id="columnVisibilityList" style="padding: 4px 0; max-height:260px; overflow-y:auto;">
+      <!-- Populated dynamically by renderColumnCustomizerList() -->
+    </div>
+
+    <div class="menu-divider"></div>
+    <div class="menu-action" id="ctxHeaderRename" onclick="promptRenameColumn()">
+      <span class="menu-action-label"><span>✏️</span> <span data-i18n="headerRenameCol">Rename Column...</span></span>
+    </div>
+    <div class="menu-action" onclick="autoFitAllColumns()">
+      <span class="menu-action-label"><span>↔️</span> <span data-i18n="headerAutoFitAll">Auto-fit All Columns</span></span>
+    </div>
+    <div class="menu-action" onclick="resetColumnLayout()">
+      <span class="menu-action-label"><span>↺</span> <span data-i18n="headerResetColumns">Reset Layout to Default</span></span>
+    </div>
   </div>
 
   <!-- TASK ROW CONTEXT MENU -->
@@ -3027,6 +3172,11 @@
         colEta: "Time Left",
         colStatus: "Status",
         colActions: "Actions",
+        headerCustomizerTitle: "Columns & Table Setup",
+        headerAutoFitAll: "Auto-fit All Columns",
+        headerResetColumns: "Reset Layout to Default",
+        headerRenameCol: "Rename Column...",
+        headerRenamePrompt: "Enter new title for column:",
         
         statusDownloading: "Downloading",
         statusPaused: "Paused",
@@ -3159,6 +3309,11 @@
         colEta: "الوقت المتبقي",
         colStatus: "الحالة",
         colActions: "إجراءات",
+        headerCustomizerTitle: "تخصيص الأعمدة والجدول",
+        headerAutoFitAll: "ملاءمة عرض كافة الأعمدة",
+        headerResetColumns: "استعادة التخطيط الافتراضي",
+        headerRenameCol: "إعادة تسمية هذا العمود...",
+        headerRenamePrompt: "أدخل اسماً جديداً للعمود:",
         
         statusDownloading: "جاري التحميل",
         statusPaused: "متوقف مؤقتاً",
@@ -3323,6 +3478,7 @@
         }
       });
 
+      applyColumnLabels();
       renderTable();
     }
 
@@ -3348,6 +3504,397 @@
       }
     }
 
+    // ==========================================
+    // TABLE COLUMN CUSTOMIZATION & RESIZING
+    // ==========================================
+    let currentSort = {
+      col: null,
+      direction: 'asc'
+    };
+
+    let headerContextMenuCol = null;
+
+    function getColumnVisibility() {
+      const saved = localStorage.getItem('fast_col_visibility');
+      if (saved) {
+        try { return JSON.parse(saved); } catch(e) {}
+      }
+      return {
+        name: true,
+        queue: true,
+        size: true,
+        progress: true,
+        speed: true,
+        eta: true,
+        status: true,
+        actions: true
+      };
+    }
+
+    function applyColumnVisibility() {
+      const table = document.getElementById('downloadsTable');
+      if (!table) return;
+      const vis = getColumnVisibility();
+      for (const col of Object.keys(vis)) {
+        table.classList.toggle('hide-col-' + col, !vis[col]);
+      }
+    }
+
+    function toggleColumnVisibility(colName, isVisible) {
+      const vis = getColumnVisibility();
+      vis[colName] = isVisible;
+      localStorage.setItem('fast_col_visibility', JSON.stringify(vis));
+      applyColumnVisibility();
+      renderColumnCustomizerList();
+    }
+
+    function getCustomColumnLabels() {
+      try {
+        return JSON.parse(localStorage.getItem('fast_col_labels') || '{}');
+      } catch(e) {
+        return {};
+      }
+    }
+
+    const FALLBACK_COL_LABELS = {
+      en: {
+        name: 'File Name',
+        queue: 'Queue',
+        size: 'Size',
+        progress: 'Progress',
+        speed: 'Transfer Rate',
+        eta: 'Time Left',
+        status: 'Status',
+        actions: 'Actions'
+      },
+      ar: {
+        name: 'اسم الملف',
+        queue: 'القائمة',
+        size: 'الحجم',
+        progress: 'التقدم',
+        speed: 'السرعة',
+        eta: 'الوقت المتبقي',
+        status: 'الحالة',
+        actions: 'إجراءات'
+      }
+    };
+
+    function getCustomColumnLabel(colId) {
+      const custom = getCustomColumnLabels();
+      if (custom[colId]) return custom[colId];
+      const lang = (typeof currentLang !== 'undefined' && currentLang === 'ar') ? 'ar' : 'en';
+      if (typeof I18N !== 'undefined' && I18N[lang]) {
+        const keyMap = {
+          name: 'colFileName',
+          queue: 'colQueue',
+          size: 'colSize',
+          progress: 'colProgress',
+          speed: 'colSpeed',
+          eta: 'colEta',
+          status: 'colStatus',
+          actions: 'colActions'
+        };
+        if (I18N[lang][keyMap[colId]]) return I18N[lang][keyMap[colId]];
+      }
+      return (FALLBACK_COL_LABELS[lang] && FALLBACK_COL_LABELS[lang][colId]) || colId;
+    }
+
+    function saveCustomColumnLabel(colId, newLabel) {
+      const custom = getCustomColumnLabels();
+      custom[colId] = newLabel.trim();
+      localStorage.setItem('fast_col_labels', JSON.stringify(custom));
+      applyColumnLabels();
+      showToast(currentLang === 'ar' ? 'تم تحديث اسم العمود بنجاح' : `Column "${colId}" renamed to "${newLabel.trim()}"`);
+    }
+
+    function applyColumnLabels() {
+      const headers = document.querySelectorAll('#downloadsTable th[data-col]');
+      headers.forEach(th => {
+        const colId = th.getAttribute('data-col');
+        const span = th.querySelector('.th-content');
+        if (span) {
+          span.textContent = getCustomColumnLabel(colId);
+        }
+      });
+    }
+
+    function autoFitColumn(colId, e) {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      const th = document.querySelector(`#downloadsTable th[data-col="${colId}"]`);
+      if (!th) return;
+
+      const label = th.querySelector('.th-content') ? th.querySelector('.th-content').textContent.trim() : '';
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      ctx.font = 'bold 11px Inter, system-ui, sans-serif';
+      let maxWidth = ctx.measureText(label.toUpperCase()).width + 45;
+
+      ctx.font = '12.5px Inter, system-ui, sans-serif';
+      const cells = document.querySelectorAll(`#downloadsTable td[data-col="${colId}"]`);
+      cells.forEach(td => {
+        const text = td.innerText ? td.innerText.trim() : '';
+        if (text) {
+          let extra = 32;
+          if (colId === 'progress') extra = 50;
+          if (colId === 'name') extra = 55;
+          const w = ctx.measureText(text).width + extra;
+          if (w > maxWidth) maxWidth = w;
+        }
+      });
+
+      const minW = parseInt(th.dataset.minWidth || th.style.minWidth) || 75;
+      const finalWidth = Math.min(600, Math.max(minW, Math.ceil(maxWidth)));
+      th.style.width = finalWidth + 'px';
+      th.style.minWidth = finalWidth + 'px';
+
+      const widths = JSON.parse(localStorage.getItem('fast_col_widths') || '{}');
+      widths[colId] = finalWidth;
+      localStorage.setItem('fast_col_widths', JSON.stringify(widths));
+    }
+
+    function autoFitAllColumns() {
+      closeAllContextMenus();
+      closeAllMenus();
+      const cols = ['name', 'queue', 'size', 'progress', 'speed', 'eta', 'status', 'actions'];
+      cols.forEach(c => autoFitColumn(c));
+      showToast(currentLang === 'ar' ? 'تمت ملاءمة أبعاد كافة الأعمدة!' : 'All columns auto-fitted to content!');
+    }
+
+    function resetColumnLayout() {
+      closeAllContextMenus();
+      closeAllMenus();
+      localStorage.removeItem('fast_col_widths');
+      localStorage.removeItem('fast_col_visibility');
+      localStorage.removeItem('fast_col_labels');
+
+      const defaultWidths = {
+        name: '',
+        queue: '95px',
+        size: '85px',
+        progress: '145px',
+        speed: '140px',
+        eta: '110px',
+        status: '100px',
+        actions: '110px'
+      };
+
+      const table = document.getElementById('downloadsTable');
+      if (table) {
+        Object.keys(defaultWidths).forEach(c => {
+          table.classList.remove('hide-col-' + c);
+        });
+        table.querySelectorAll('th[data-col]').forEach(th => {
+          const col = th.getAttribute('data-col');
+          th.style.width = defaultWidths[col] || '';
+          th.style.minWidth = th.dataset.minWidth ? (th.dataset.minWidth + 'px') : '';
+        });
+      }
+
+      currentSort = { col: null, direction: 'asc' };
+      updateSortIcons();
+      applyLanguage(currentLang);
+      renderTable();
+      showToast(currentLang === 'ar' ? 'تمت استعادة تخطيط الجدول الافتراضي' : 'Table layout restored to default!');
+    }
+
+    function handleHeaderClick(e, colId) {
+      if (e.target.closest('.resizer') || e.target.closest('.header-settings-btn') || e.target.closest('input')) {
+        return;
+      }
+      if (colId === 'actions' || colId === 'select') return;
+
+      if (currentSort.col === colId) {
+        if (currentSort.direction === 'asc') {
+          currentSort.direction = 'desc';
+        } else {
+          currentSort.col = null;
+          currentSort.direction = 'asc';
+        }
+      } else {
+        currentSort.col = colId;
+        currentSort.direction = 'asc';
+      }
+
+      updateSortIcons();
+      renderTable();
+    }
+
+    function updateSortIcons() {
+      const cols = ['name', 'queue', 'size', 'progress', 'speed', 'eta', 'status'];
+      cols.forEach(c => {
+        const icon = document.getElementById('sort-' + c);
+        if (!icon) return;
+        if (currentSort.col === c) {
+          icon.textContent = currentSort.direction === 'asc' ? ' ▲' : ' ▼';
+          icon.style.opacity = '1';
+        } else {
+          icon.textContent = '';
+          icon.style.opacity = '0';
+        }
+      });
+    }
+
+    function handleHeaderContextMenu(e, colId) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeAllMenus();
+      closeAllContextMenus();
+
+      headerContextMenuCol = colId;
+      const menu = document.getElementById('headerContextMenu');
+      if (!menu) return;
+
+      renderColumnCustomizerList();
+
+      const renameItem = document.getElementById('ctxHeaderRename');
+      if (renameItem) {
+        if (colId && colId !== 'actions' && colId !== 'select') {
+          renameItem.style.display = 'flex';
+          const colLabel = getCustomColumnLabel(colId);
+          const renameLabel = renameItem.querySelector('.menu-action-label span:last-child');
+          if (renameLabel) {
+            renameLabel.textContent = (currentLang === 'ar' ? `إعادة تسمية "${colLabel}"...` : `Rename "${colLabel}"...`);
+          }
+        } else {
+          renameItem.style.display = 'none';
+        }
+      }
+
+      positionContextMenu(menu, e.clientX, e.clientY);
+    }
+
+    function openColumnCustomizer(e) {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      closeAllMenus();
+      closeAllContextMenus();
+
+      const menu = document.getElementById('headerContextMenu');
+      if (!menu) return;
+
+      headerContextMenuCol = null;
+      renderColumnCustomizerList();
+
+      const renameItem = document.getElementById('ctxHeaderRename');
+      if (renameItem) renameItem.style.display = 'none';
+
+      if (e && e.currentTarget) {
+        const rect = e.currentTarget.getBoundingClientRect();
+        positionContextMenu(menu, rect.left - 140, rect.bottom + 6);
+      } else {
+        const table = document.getElementById('downloadsTable');
+        const rect = table ? table.getBoundingClientRect() : { left: 200, top: 150 };
+        positionContextMenu(menu, rect.left + 200, rect.top + 30);
+      }
+    }
+
+    function renderColumnCustomizerList() {
+      const container = document.getElementById('columnVisibilityList');
+      if (!container) return;
+
+      const vis = getColumnVisibility();
+      const cols = [
+        { id: 'name', required: true },
+        { id: 'queue' },
+        { id: 'size' },
+        { id: 'progress' },
+        { id: 'speed' },
+        { id: 'eta' },
+        { id: 'status' },
+        { id: 'actions' }
+      ];
+
+      let html = '';
+      cols.forEach(col => {
+        const label = getCustomColumnLabel(col.id);
+        const isChecked = vis[col.id] !== false;
+        const isDisabled = !!col.required;
+        html += `
+          <label class="menu-action" style="cursor:pointer; padding:5px 14px;" onclick="event.stopPropagation()">
+            <span class="menu-action-label" style="gap:10px;">
+              <input type="checkbox" ${isChecked ? 'checked' : ''} ${isDisabled ? 'disabled' : ''} onchange="toggleColumnVisibility('${col.id}', this.checked)">
+              <span style="font-size:12px; font-weight:500;">${label}</span>
+            </span>
+            ${isDisabled ? '<span style="font-size:10px; color:var(--text-dim);">(Req)</span>' : ''}
+          </label>
+        `;
+      });
+
+      container.innerHTML = html;
+    }
+
+    function promptRenameColumn() {
+      const colId = headerContextMenuCol;
+      closeAllContextMenus();
+      if (!colId) return;
+
+      const currentLabel = getCustomColumnLabel(colId);
+      const promptMsg = I18N[currentLang] ? I18N[currentLang].headerRenamePrompt : 'Enter new title for column:';
+      const newLabel = window.prompt(`${promptMsg} (${colId})`, currentLabel);
+      if (newLabel !== null && newLabel.trim().length > 0) {
+        saveCustomColumnLabel(colId, newLabel.trim());
+      }
+    }
+
+    function makeHeaderEditable(thContent, colName) {
+      if (thContent.querySelector('input')) return;
+      const currentText = thContent.textContent.trim();
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = currentText;
+      input.className = 'header-inline-edit';
+      
+      let done = false;
+      const finish = (save) => {
+        if (done) return;
+        done = true;
+        if (save && input.value.trim()) {
+          saveCustomColumnLabel(colName, input.value.trim());
+        } else {
+          applyColumnLabels();
+        }
+      };
+
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          finish(true);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          finish(false);
+        }
+      });
+      input.addEventListener('blur', () => finish(true));
+      input.addEventListener('click', (e) => e.stopPropagation());
+      input.addEventListener('mousedown', (e) => e.stopPropagation());
+
+      thContent.textContent = '';
+      thContent.appendChild(input);
+      input.focus();
+      input.select();
+    }
+
+    function setupHeaderDblClickEdit() {
+      const headers = document.querySelectorAll('#downloadsTable th[data-col]');
+      headers.forEach(th => {
+        const content = th.querySelector('.th-content');
+        if (!content) return;
+        content.addEventListener('dblclick', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const colId = th.getAttribute('data-col');
+          if (colId !== 'actions') {
+            makeHeaderEditable(content, colId);
+          }
+        });
+      });
+    }
+
     function initColumnResizers() {
       const table = document.getElementById('downloadsTable');
       if (!table) return;
@@ -3356,9 +3903,9 @@
       const savedWidths = JSON.parse(localStorage.getItem('fast_col_widths') || '{}');
       headers.forEach(th => {
         const colName = th.getAttribute('data-col');
-        // Keep name column flexible so table always fits 100% width with no horizontal scroll
-        if (colName !== 'name' && savedWidths[colName]) {
+        if (savedWidths[colName]) {
           th.style.width = savedWidths[colName] + 'px';
+          th.style.minWidth = savedWidths[colName] + 'px';
         }
       });
 
@@ -3372,9 +3919,10 @@
         const onMouseMove = (e) => {
           const isRtl = document.documentElement.getAttribute('dir') === 'rtl';
           const diff = isRtl ? (startX - e.pageX) : (e.pageX - startX);
-          const minW = parseInt(th.style.minWidth) || 50;
+          const minW = parseInt(th.dataset.minWidth || th.style.minWidth) || 60;
           const newWidth = Math.max(minW, startWidth + diff);
           th.style.width = newWidth + 'px';
+          th.style.minWidth = newWidth + 'px';
         };
 
         const onMouseUp = () => {
@@ -3386,9 +3934,7 @@
           const widths = {};
           table.querySelectorAll('th[data-col]').forEach(h => {
             const col = h.getAttribute('data-col');
-            if (col !== 'name') {
-              widths[col] = h.offsetWidth;
-            }
+            widths[col] = h.offsetWidth;
           });
           localStorage.setItem('fast_col_widths', JSON.stringify(widths));
         };
@@ -3585,6 +4131,40 @@
         return true;
       });
 
+      // Apply Column Sorting if active
+      if (currentSort.col) {
+        filtered.sort((a, b) => {
+          let res = 0;
+          switch (currentSort.col) {
+            case 'name':
+              res = (a.name || '').localeCompare(b.name || '');
+              break;
+            case 'queue':
+              res = (a.queue || '').localeCompare(b.queue || '');
+              break;
+            case 'size':
+              res = (a.totalLength || 0) - (b.totalLength || 0);
+              break;
+            case 'progress':
+              res = (a.progress || 0) - (b.progress || 0);
+              break;
+            case 'speed':
+              res = (a.downloadSpeed || 0) - (b.downloadSpeed || 0);
+              break;
+            case 'eta': {
+              const etaA = (a.eta == null || a.eta < 0) ? 999999999 : a.eta;
+              const etaB = (b.eta == null || b.eta < 0) ? 999999999 : b.eta;
+              res = etaA - etaB;
+              break;
+            }
+            case 'status':
+              res = (a.status || '').localeCompare(b.status || '');
+              break;
+          }
+          return currentSort.direction === 'desc' ? -res : res;
+        });
+      }
+
       const tableContainer = document.querySelector('.table-container');
       if (filtered.length === 0) {
         tbody.innerHTML = '';
@@ -3635,10 +4215,10 @@
 
         html += `
           <tr class="${isSelected ? 'selected' : ''}" onclick="toggleSelect('${t.gid}', event)" ondblclick="showSegmentModal('${t.gid}')" oncontextmenu="handleRowContextMenu(event, '${t.gid}')" title="Right-click for options | Double click for Multi-Segment Inspector">
-            <td style="text-align:center;" onclick="event.stopPropagation()">
+            <td data-col="select" style="text-align:center;" onclick="event.stopPropagation()">
               <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleSelect('${t.gid}', null, this.checked)">
             </td>
-            <td>
+            <td data-col="name">
               <div class="file-cell">
                 <div class="file-icon-box">${icon}</div>
                 <div class="file-meta">
@@ -3649,13 +4229,13 @@
                 </div>
               </div>
             </td>
-            <td>
+            <td data-col="queue">
               <span class="queue-badge ${queueClass}" onclick="cycleQueue('${t.gid}', event)" title="Click to switch queue">
                 ${queueLabel}
               </span>
             </td>
-            <td><strong>${formatBytes(t.totalLength)}</strong></td>
-            <td>
+            <td data-col="size"><strong>${formatBytes(t.totalLength)}</strong></td>
+            <td data-col="progress">
               <div class="progress-cell">
                 <div class="progress-container">
                   <div class="progress-track">
@@ -3668,16 +4248,16 @@
                 </div>
               </div>
             </td>
-            <td>
+            <td data-col="speed">
               ${t.downloadSpeed > 0 ? `<span class="speed-pill">⚡ ${formatBytes(t.downloadSpeed)}/s</span>` : `<span style="color:var(--text-dim)">--</span>`}
             </td>
-            <td style="color:var(--text-muted); font-size:12px;">${isDone ? (currentLang === 'ar' ? 'مكتمل' : 'Done') : formatEta(t.eta)}</td>
-            <td>
+            <td data-col="eta" style="color:var(--text-muted); font-size:12px;">${isDone ? (currentLang === 'ar' ? 'مكتمل' : 'Done') : formatEta(t.eta)}</td>
+            <td data-col="status">
               <span class="status-tag ${statusClass}">
                 <span style="font-size:8px;">●</span> ${statusText}
               </span>
             </td>
-            <td style="text-align:center;" onclick="event.stopPropagation()">
+            <td data-col="actions" style="text-align:center;" onclick="event.stopPropagation()">
               <div class="row-actions" style="justify-content:center;">
                 <button class="icon-action-btn" onclick="showSegmentModal('${t.gid}')" title="Multi-Segment & Connection Inspector">📊</button>
                 ${isPaused || isError ? 
@@ -3703,8 +4283,10 @@
     function closeAllContextMenus() {
       const tm = document.getElementById('taskContextMenu');
       const em = document.getElementById('emptyContextMenu');
+      const hm = document.getElementById('headerContextMenu');
       if (tm) tm.style.display = 'none';
       if (em) em.style.display = 'none';
+      if (hm) hm.style.display = 'none';
       contextMenuGid = null;
     }
 
@@ -5547,7 +6129,10 @@
     applyLanguage(currentLang);
     restoreSidebarState();
     restoreGraphState();
+    applyColumnVisibility();
+    applyColumnLabels();
     initColumnResizers();
+    setupHeaderDblClickEdit();
 
     // Start Polling Loop
     pollBackend();
