@@ -3258,37 +3258,89 @@ namespace FastDownloader
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool IsWindowVisible(IntPtr hWnd);
 
+        public static int DashboardPid = 0;
+
         public static bool FocusExistingWindow()
         {
             IntPtr found = IntPtr.Zero;
-            EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+
+            // 1. Fast path: check known Dashboard process
+            if (DashboardPid > 0)
             {
-                if (!IsWindowVisible(hWnd)) return true;
-                StringBuilder sb = new StringBuilder(512);
-                GetWindowText(hWnd, sb, 512);
-                string title = sb.ToString();
-                if (!string.IsNullOrEmpty(title) && title.IndexOf("FastDownloader", StringComparison.OrdinalIgnoreCase) >= 0)
+                try
                 {
-                    try
+                    Process p = Process.GetProcessById(DashboardPid);
+                    if (p != null && !p.HasExited)
                     {
-                        uint pid;
-                        GetWindowThreadProcessId(hWnd, out pid);
-                        Process proc = Process.GetProcessById((int)pid);
-                        string procName = proc.ProcessName.ToLowerInvariant();
-                        if (procName != "code" && procName != "explorer" && procName != "devenv")
+                        if (p.MainWindowHandle != IntPtr.Zero && IsWindowVisible(p.MainWindowHandle))
+                        {
+                            found = p.MainWindowHandle;
+                        }
+                    }
+                }
+                catch
+                {
+                    DashboardPid = 0;
+                }
+            }
+
+            // 2. Enumerate top-level windows specifically for FastDownloader app window
+            if (found == IntPtr.Zero)
+            {
+                EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+                {
+                    if (!IsWindowVisible(hWnd)) return true;
+                    StringBuilder sb = new StringBuilder(512);
+                    GetWindowText(hWnd, sb, 512);
+                    string title = sb.ToString().Trim();
+                    if (string.IsNullOrEmpty(title)) return true;
+
+                    // Match exact app window title; exclude regular browser tabs that mention FastDownloader
+                    bool isAppWindow = false;
+                    if (title.Equals("FastDownloader Pro", StringComparison.OrdinalIgnoreCase) ||
+                        title.Equals("FastDownloader", StringComparison.OrdinalIgnoreCase))
+                    {
+                        isAppWindow = true;
+                    }
+                    else if (title.StartsWith("FastDownloader Pro", StringComparison.OrdinalIgnoreCase) ||
+                             title.StartsWith("FastDownloader", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Ensure it's not a regular browser window with tabs
+                        if (!title.Contains(" - Google Chrome") &&
+                            !title.Contains(" - Personal - Microsoft") &&
+                            !title.Contains(" - Work - Microsoft") &&
+                            !title.Contains(" and ") &&
+                            !title.Contains(" - Mozilla Firefox") &&
+                            !title.Contains(" - Brave"))
+                        {
+                            isAppWindow = true;
+                        }
+                    }
+
+                    if (isAppWindow)
+                    {
+                        try
+                        {
+                            uint pid;
+                            GetWindowThreadProcessId(hWnd, out pid);
+                            Process proc = Process.GetProcessById((int)pid);
+                            string procName = proc.ProcessName.ToLowerInvariant();
+                            if (procName != "code" && procName != "explorer" && procName != "devenv")
+                            {
+                                found = hWnd;
+                                DashboardPid = (int)pid;
+                                return false;
+                            }
+                        }
+                        catch
                         {
                             found = hWnd;
                             return false;
                         }
                     }
-                    catch
-                    {
-                        found = hWnd;
-                        return false;
-                    }
-                }
-                return true;
-            }, IntPtr.Zero);
+                    return true;
+                }, IntPtr.Zero);
+            }
 
             if (found != IntPtr.Zero)
             {
@@ -3509,17 +3561,102 @@ namespace FastDownloader
             LaunchDashboard(engine.AppDir);
         }
 
+        public static string FindChromiumBrowser()
+        {
+            // 1. Windows Registry App Paths (Edge, Chrome, Brave)
+            string[] appNames = new string[] { "msedge.exe", "chrome.exe", "brave.exe" };
+            foreach (string app in appNames)
+            {
+                string subKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\" + app;
+                try
+                {
+                    using (Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(subKey))
+                    {
+                        if (key != null)
+                        {
+                            object val = key.GetValue("");
+                            if (val != null)
+                            {
+                                string p = val.ToString().Trim('"', ' ');
+                                if (File.Exists(p)) return p;
+                            }
+                        }
+                    }
+                }
+                catch { }
+                try
+                {
+                    using (Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(subKey))
+                    {
+                        if (key != null)
+                        {
+                            object val = key.GetValue("");
+                            if (val != null)
+                            {
+                                string p = val.ToString().Trim('"', ' ');
+                                if (File.Exists(p)) return p;
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            // 2. Well-known disk locations (Program Files, Program Files x86, LocalAppData)
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string progFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            string progFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+
+            string[] candidatePaths = new string[]
+            {
+                Path.Combine(progFilesX86, @"Microsoft\Edge\Application\msedge.exe"),
+                Path.Combine(progFiles, @"Microsoft\Edge\Application\msedge.exe"),
+                Path.Combine(localAppData, @"Microsoft\Edge\Application\msedge.exe"),
+                Path.Combine(progFiles, @"Google\Chrome\Application\chrome.exe"),
+                Path.Combine(progFilesX86, @"Google\Chrome\Application\chrome.exe"),
+                Path.Combine(localAppData, @"Google\Chrome\Application\chrome.exe"),
+                Path.Combine(progFiles, @"BraveSoftware\Brave-Browser\Application\brave.exe"),
+                Path.Combine(progFilesX86, @"BraveSoftware\Brave-Browser\Application\brave.exe"),
+                Path.Combine(localAppData, @"BraveSoftware\Brave-Browser\Application\brave.exe")
+            };
+
+            foreach (string p in candidatePaths)
+            {
+                try
+                {
+                    if (!string.IsNullOrEmpty(p) && File.Exists(p)) return p;
+                }
+                catch { }
+            }
+
+            return null;
+        }
+
+        private static void CleanProfileLocks(string profileDir)
+        {
+            try
+            {
+                if (!Directory.Exists(profileDir)) return;
+                string[] lockFiles = new string[] { "SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile" };
+                foreach (string lf in lockFiles)
+                {
+                    try
+                    {
+                        string p = Path.Combine(profileDir, lf);
+                        if (File.Exists(p)) File.Delete(p);
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+        }
+
         public static void LaunchDashboard(string appDir)
         {
-            string edgePath = @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe";
-            if (!File.Exists(edgePath)) edgePath = @"C:\Program Files\Microsoft\Edge\Application\msedge.exe";
-
-            string chromePath = @"C:\Program Files\Google\Chrome\Application\chrome.exe";
-            if (!File.Exists(chromePath)) chromePath = @"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe";
-
             string profileDir = Path.Combine(appDir, ".app_profile");
+            CleanProfileLocks(profileDir);
 
-            string targetBrowser = File.Exists(edgePath) ? edgePath : (File.Exists(chromePath) ? chromePath : null);
+            string targetBrowser = FindChromiumBrowser();
 
             if (targetBrowser != null)
             {
@@ -3528,17 +3665,25 @@ namespace FastDownloader
                     ProcessStartInfo psi = new ProcessStartInfo
                     {
                         FileName = targetBrowser,
-                        Arguments = string.Format("--new-window --app=http://127.0.0.1:6801/ --user-data-dir=\"{0}\" --window-size=1200,780 --no-first-run --no-default-browser-check --disable-features=Translate,OptimizationHints --enable-features=WindowControlsOverlay", profileDir),
+                        // Note: --app creates the dedicated standalone window; omitting --new-window prevents regular browser tabs.
+                        Arguments = string.Format("--app=http://127.0.0.1:6801/ --user-data-dir=\"{0}\" --window-size=1240,800 --no-first-run --no-default-browser-check --disable-features=Translate,OptimizationHints --disable-extensions --disable-background-mode", profileDir),
                         CreateNoWindow = false,
                         UseShellExecute = false
                     };
-                    Process.Start(psi);
+                    Process p = Process.Start(psi);
+                    if (p != null)
+                    {
+                        try { WindowManager.DashboardPid = p.Id; } catch { }
+                    }
                     return;
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    try { File.AppendAllText(Path.Combine(appDir, "startup.log"), DateTime.Now.ToString() + " LaunchDashboard error: " + ex.Message + "\r\n"); } catch {}
+                }
             }
 
-            // Fallback: Default Browser
+            // Fallback only if no Chromium browser could be discovered:
             try
             {
                 Process.Start("http://127.0.0.1:6801/");

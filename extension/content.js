@@ -571,9 +571,7 @@
         if (action === 'dashboard') {
           try {
             chrome.runtime.sendMessage({ type: 'FD_OPEN_APP' });
-          } catch (err) {
-            window.open('http://127.0.0.1:6801/', '_blank');
-          }
+          } catch (err) {}
           return;
         }
 

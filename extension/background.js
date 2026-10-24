@@ -149,13 +149,16 @@ async function openFastDownloaderApp() {
     if (resp.ok) return { ok: true, source: "http" };
   } catch (e) {}
 
-  // 3. Fallback: Open web dashboard tab
-  try {
-    chrome.tabs.create({ url: `${FD_API_BASE}/` });
-    return { ok: true, source: "web" };
-  } catch (e) {
-    return { ok: false, error: e.message };
+  // 3. Resilient retry for 2 seconds (allows daemon time to bind port without opening browser tabs)
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await new Promise(r => setTimeout(r, 500));
+    try {
+      const resp = await fetch(`${FD_API_BASE}/api/openapp`, { method: "POST" });
+      if (resp.ok) return { ok: true, source: "http-retry" };
+    } catch (e) {}
   }
+  console.warn("[FastDownloader] Desktop app not responding. Please launch FastDownloader.exe.");
+  return { ok: false, error: "App unreachable" };
 }
 
 // 3. CONTEXT MENUS SETUP (IDM-Grade Right-Click Menus)
