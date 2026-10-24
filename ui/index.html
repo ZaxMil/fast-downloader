@@ -1752,6 +1752,10 @@
           <span class="status-dot" style="background:#3B82F6; box-shadow:0 0 6px #3B82F6;"></span>
           <span id="extStatusText">Browser Ext: Active</span>
         </div>
+        <div class="status-pill" id="updateStatusPill" style="cursor:pointer;" onclick="showUpdateModal()" title="Update Manager (yt-dlp, aria2 & app)">
+          <span class="status-dot" id="updateStatusDot" style="background:#10B981; box-shadow:0 0 6px #10B981;"></span>
+          <span id="updateStatusText">Updates: Up to date</span>
+        </div>
       </div>
     </div>
 
@@ -1892,6 +1896,10 @@
           <div class="menu-action" onclick="diagnoseEngines()">
             <span class="menu-action-label" data-i18n="menuDiagnostics">Engine Diagnostics</span>
           </div>
+          <div class="menu-action" onclick="showUpdateModal()">
+            <span class="menu-action-label" data-i18n="menuUpdateManager">⚡ Updates & Engine Automation...</span>
+            <span class="menu-shortcut">Ctrl+U</span>
+          </div>
         </div>
       </div>
 
@@ -1905,6 +1913,9 @@
           </div>
           <div class="menu-action" onclick="showAboutModal()">
             <span class="menu-action-label" data-i18n="menuAbout">About FastDownloader Pro</span>
+          </div>
+          <div class="menu-action" onclick="showUpdateModal()">
+            <span class="menu-action-label" data-i18n="menuCheckUpdates">🔄 Check for Updates...</span>
           </div>
           <div class="menu-divider"></div>
           <div class="menu-action" onclick="showSupportModal()" style="color:#FF5E5B; font-weight:600;">
@@ -2551,7 +2562,7 @@
       <div class="modal-body" style="padding:28px 24px;">
         <img src="/ui/logo.png" style="width:58px;height:58px;border-radius:14px;box-shadow:0 0 25px rgba(16,185,129,0.4);margin-bottom:14px;object-fit:cover;">
         <h3 style="margin:0 0 4px 0; font-size:18px; font-weight:700;">FastDownloader <span class="brand-pro-tag">PRO</span></h3>
-        <p style="margin:0 0 16px 0; font-size:12px; color:var(--text-dim);">Version 1.2.0 • Ultra-Fast Native Acceleration</p>
+        <p style="margin:0 0 16px 0; font-size:12px; color:var(--text-dim);">Version 0.1.0 (Beta) • Ultra-Fast Native Acceleration</p>
         <div style="background:var(--bg-base); padding:12px; border-radius:8px; border:1px solid var(--border-subtle); text-align:left; font-size:12px; line-height:1.7; color:var(--text-muted); margin-bottom:18px;">
           <div>⚡ <strong>aria2 Core:</strong> 16-chunk parallel multi-source downloading</div>
           <div>🎬 <strong>yt-dlp Engine:</strong> 4K/8K video & live stream extraction</div>
@@ -2602,6 +2613,144 @@
           </a>
           <button class="btn" onclick="closeModal('supportModal')" style="font-size:12px; color:var(--text-dim);" data-i18n="supportBtnLater">
             Maybe Later
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: UPDATE MANAGER & HANDS-OFF AUTOMATION -->
+  <div class="modal-overlay" id="updateModal">
+    <div class="modal-card" style="width:580px; max-width:92vw; max-height:88vh; display:flex; flex-direction:column;">
+      <div class="modal-header" style="border-bottom:1px solid var(--border-subtle); padding:16px 20px;">
+        <div class="modal-title" style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:18px;">⚡</span>
+          <span style="font-size:15px; font-weight:700;" data-i18n="updateModalTitle">Updates & Hands-Off Engine Automation</span>
+          <span class="brand-pro-tag" style="font-size:10px;">AUTO</span>
+        </div>
+        <button class="modal-close" onclick="closeModal('updateModal')">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding:18px 20px; overflow-y:auto; gap:16px; display:flex; flex-direction:column;">
+        
+        <!-- App Release Card -->
+        <div class="update-card" style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:10px; padding:14px 16px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <img src="/ui/logo.png" style="width:36px; height:36px; border-radius:8px; object-fit:cover;">
+              <div>
+                <div style="font-weight:700; font-size:14px; color:var(--text-main);">FastDownloader <span class="brand-pro-tag">PRO</span></div>
+                <div style="font-size:11.5px; color:var(--text-dim);">
+                  Installed: <strong style="color:var(--text-main);">v0.1.0 (Beta)</strong> • Latest: <strong id="appLatestVerText" style="color:var(--emerald);">v0.1.0 (Beta)</strong>
+                </div>
+              </div>
+            </div>
+            <div id="appUpdateBadge" style="font-size:11px; padding:3px 9px; border-radius:12px; font-weight:700; background:rgba(16,185,129,0.15); color:var(--emerald); border:1px solid rgba(16,185,129,0.3);">
+              Up to date
+            </div>
+          </div>
+          <div id="appUpdateDetails" style="display:none; margin-top:10px; padding:10px 12px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25); border-radius:8px;">
+            <div style="font-size:12px; font-weight:700; color:#F59E0B; margin-bottom:4px;">🎉 New FastDownloader Release Available!</div>
+            <div id="appReleaseNotesText" style="font-size:11.5px; color:var(--text-muted); max-height:80px; overflow-y:auto; line-height:1.5; white-space:pre-wrap; margin-bottom:8px;"></div>
+            <button class="btn btn-primary" id="btnApplyAppUpdate" onclick="applyAppUpdate()" style="width:100%; font-size:12.5px; font-weight:700; background:#10B981;">
+              ⚡ Install & Restart App Now
+            </button>
+          </div>
+        </div>
+
+        <!-- Engines Section -->
+        <div style="font-size:12px; font-weight:700; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px; margin-top:2px;">
+          Core Engine Upstream Updaters
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <!-- yt-dlp Card -->
+          <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:10px; padding:12px 14px; display:flex; flex-direction:column; justify-content:space-between;">
+            <div>
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+                <span style="font-weight:700; font-size:13px; color:var(--text-main);">🎬 yt-dlp Engine</span>
+                <span style="font-size:10px; padding:2px 6px; border-radius:8px; background:rgba(6,182,212,0.15); color:#06B6D4; font-weight:700;">Upstream</span>
+              </div>
+              <div style="font-size:11px; color:var(--text-dim); line-height:1.4; margin-bottom:10px;">
+                YouTube, TikTok, X & media extractors. Keeps working even without app updates.
+              </div>
+            </div>
+            <div>
+              <div style="font-size:11.5px; color:var(--text-muted); margin-bottom:8px;">
+                Version: <strong id="ytdlpVerText" style="color:var(--text-main);">2026.10.21</strong>
+              </div>
+              <button class="btn btn-sm btn-primary" id="btnUpdateYtdlp" onclick="updateEngine('ytdlp')" style="width:100%; font-size:11.5px;">
+                ⚡ Update yt-dlp
+              </button>
+            </div>
+          </div>
+
+          <!-- aria2 Card -->
+          <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:10px; padding:12px 14px; display:flex; flex-direction:column; justify-content:space-between;">
+            <div>
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+                <span style="font-weight:700; font-size:13px; color:var(--text-main);">🚀 aria2c Core</span>
+                <span style="font-size:10px; padding:2px 6px; border-radius:8px; background:rgba(16,185,129,0.15); color:var(--emerald); font-weight:700;">16x Turbo</span>
+              </div>
+              <div style="font-size:11px; color:var(--text-dim); line-height:1.4; margin-bottom:10px;">
+                Ultra-fast parallel chunk segmented downloading with low memory footprint.
+              </div>
+            </div>
+            <div>
+              <div style="font-size:11.5px; color:var(--text-muted); margin-bottom:8px;">
+                Version: <strong id="aria2VerText" style="color:var(--text-main);">1.37.0</strong>
+              </div>
+              <button class="btn btn-sm" id="btnCheckAria" onclick="updateEngine('aria2')" style="width:100%; font-size:11.5px;">
+                Check aria2
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Automation & Hands-off Card -->
+        <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:10px; padding:14px 16px;">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+            <span style="font-size:16px;">🤖</span>
+            <div style="font-weight:700; font-size:13px; color:var(--text-main);">Hands-Off Background Automation</div>
+          </div>
+          <div style="font-size:11.5px; color:var(--text-dim); line-height:1.5; margin-bottom:12px;">
+            Leave FastDownloader running with zero maintenance. Even if no app release is published for 6+ months, your video and download engines update themselves automatically.
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <label style="display:flex; align-items:center; gap:10px; font-size:12px; cursor:pointer; color:var(--text-main);">
+              <input type="checkbox" id="chkAutoUpdateEngines" onchange="saveUpdateAutomationSettings()" checked style="cursor:pointer; accent-color:var(--emerald); width:15px; height:15px;">
+              <span><strong>Auto-update engines in background</strong> (yt-dlp weekly upstream checks)</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:10px; font-size:12px; cursor:pointer; color:var(--text-main);">
+              <input type="checkbox" id="chkAutoUpdateApp" onchange="saveUpdateAutomationSettings()" checked style="cursor:pointer; accent-color:var(--emerald); width:15px; height:15px;">
+              <span><strong>Check for FastDownloader Pro client updates</strong> daily</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:10px; font-size:12px; cursor:pointer; color:var(--text-main);">
+              <input type="checkbox" id="chkNotifyOnUpdate" onchange="saveUpdateAutomationSettings()" checked style="cursor:pointer; accent-color:var(--emerald); width:15px; height:15px;">
+              <span><strong>Notify via desktop banner</strong> when engines or app update</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Real-time Console Log -->
+        <div style="background:#0A0E17; border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:10px 12px; font-family:Consolas, Monaco, monospace; font-size:11px; color:#A0AEC0; max-height:110px; overflow-y:auto;" id="updateConsoleBox">
+          <div style="color:var(--emerald);">[System] Update manager initialized. Ready.</div>
+        </div>
+
+      </div>
+
+      <div class="modal-footer" style="border-top:1px solid var(--border-subtle); padding:12px 20px; display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:11px; color:var(--text-dim);" id="updateLastCheckLabel">Last check: Active</span>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-primary" id="btnCheckAllUpdates" onclick="checkAllUpdates()" style="font-size:12px;">
+            🔄 Check All Updates
+          </button>
+          <button class="btn" onclick="updateEngine('all')" style="font-size:12px;">
+            ⚡ Update All Engines
+          </button>
+          <button class="btn" onclick="closeModal('updateModal')" style="font-size:12px;">
+            Close
           </button>
         </div>
       </div>
@@ -2880,6 +3029,9 @@
         menuFilterVideos: "Filter: Videos & Streams",
         menuFilterArchives: "Filter: Archives & ISO",
         menuDiagnostics: "Engine Diagnostics",
+        menuUpdateManager: "⚡ Updates & Engine Automation...",
+        menuCheckUpdates: "🔄 Check for Updates...",
+        updateModalTitle: "Updates & Hands-Off Engine Automation",
         menuShortcuts: "Keyboard Shortcuts Guide",
         menuAbout: "About FastDownloader Pro",
         menuSupport: "💖 Support Project (Ko-fi)",
@@ -3009,6 +3161,9 @@
         menuFilterVideos: "عرض: فيديوهات وبث فقط",
         menuFilterArchives: "عرض: ملفات مضغوطة فقط",
         menuDiagnostics: "فحص صحة المحركات",
+        menuUpdateManager: "⚡ التحديثات وأتمتة المحركات...",
+        menuCheckUpdates: "🔄 التحقق من وجود تحديثات...",
+        updateModalTitle: "إدارة التحديثات والتشغيل الذاتي للمحركات",
         menuShortcuts: "دليل اختصارات لوحة المفاتيح",
         menuAbout: "عن FastDownloader Pro",
         menuSupport: "💖 ادعم المشروع (Ko-fi)",
@@ -4261,6 +4416,9 @@
           if (typeof data.autoCapture === 'boolean' && data.autoCapture !== isAutoGrabEnabled) {
             updateAutoGrabUI(data.autoCapture);
           }
+          if (data.appUpdateAvailable) {
+            updateHeaderUpdatePill(true, data.latestAppVersion);
+          }
         }
       } catch(e) {}
     }
@@ -4814,6 +4972,205 @@
       }
     }
 
+    // =========================================================================
+    // UPDATE MANAGER & ENGINE AUTOMATION
+    // =========================================================================
+    let updateStatusCache = null;
+
+    function logToUpdateConsole(msg, isHighlight = false) {
+      const box = document.getElementById('updateConsoleBox');
+      if (!box) return;
+      const line = document.createElement('div');
+      if (isHighlight) line.style.color = 'var(--emerald)';
+      line.textContent = msg;
+      box.appendChild(line);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    async function showUpdateModal() {
+      closeAllMenus();
+      showModal('updateModal');
+      await refreshUpdateStatus(false);
+    }
+
+    async function refreshUpdateStatus(forceCheck = false) {
+      try {
+        const endpoint = forceCheck ? `${API_BASE}/api/update/check` : `${API_BASE}/api/update/status`;
+        const method = forceCheck ? 'POST' : 'GET';
+        if (forceCheck) logToUpdateConsole(`[${new Date().toLocaleTimeString()}] Checking GitHub and upstream engines...`);
+        
+        const res = await fetch(endpoint, { method });
+        if (res.ok) {
+          const data = await res.json();
+          updateStatusCache = data;
+          applyUpdateStatusToUI(data);
+          if (forceCheck) {
+            logToUpdateConsole(`[${new Date().toLocaleTimeString()}] Check completed successfully.`, true);
+          }
+        }
+      } catch (err) {
+        logToUpdateConsole(`[Error] Failed to connect to update service: ${err.message}`);
+      }
+    }
+
+    function applyUpdateStatusToUI(data) {
+      if (!data) return;
+
+      // 1. App status
+      const app = data.app || {};
+      const appLatest = document.getElementById('appLatestVerText');
+      const appBadge = document.getElementById('appUpdateBadge');
+      const appDetails = document.getElementById('appUpdateDetails');
+      const appNotes = document.getElementById('appReleaseNotesText');
+
+      if (appLatest) appLatest.textContent = 'v' + (app.latestVersion || '0.1.0 (Beta)');
+
+      if (app.updateAvailable) {
+        if (appBadge) {
+          appBadge.textContent = '✨ Update Available';
+          appBadge.style.background = 'rgba(245, 158, 11, 0.2)';
+          appBadge.style.color = '#F59E0B';
+          appBadge.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+        }
+        if (appDetails) appDetails.style.display = 'block';
+        if (appNotes) appNotes.textContent = app.releaseNotes || 'Bug fixes, performance boosts, and updated video stream extractors.';
+        
+        updateHeaderUpdatePill(true, app.latestVersion);
+      } else {
+        if (appBadge) {
+          appBadge.textContent = 'Up to date';
+          appBadge.style.background = 'rgba(16, 185, 129, 0.15)';
+          appBadge.style.color = 'var(--emerald)';
+          appBadge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+        }
+        if (appDetails) appDetails.style.display = 'none';
+        updateHeaderUpdatePill(false);
+      }
+
+      // 2. Engines
+      const yt = data.ytdlp || {};
+      const ytdlpVer = document.getElementById('ytdlpVerText');
+      if (ytdlpVer) ytdlpVer.textContent = yt.currentVersion || '2026.10.21';
+
+      const ar = data.aria2 || {};
+      const ariaVer = document.getElementById('aria2VerText');
+      if (ariaVer) ariaVer.textContent = ar.currentVersion || '1.37.0';
+
+      // 3. Automation Settings
+      const s = data.settings || {};
+      const chkEng = document.getElementById('chkAutoUpdateEngines');
+      const chkApp = document.getElementById('chkAutoUpdateApp');
+      const chkNot = document.getElementById('chkNotifyOnUpdate');
+      if (chkEng && typeof s.autoUpdateEngines === 'boolean') chkEng.checked = s.autoUpdateEngines;
+      if (chkApp && typeof s.autoUpdateApp === 'boolean') chkApp.checked = s.autoUpdateApp;
+      if (chkNot && typeof s.notifyOnUpdate === 'boolean') chkNot.checked = s.notifyOnUpdate;
+
+      const lastLbl = document.getElementById('updateLastCheckLabel');
+      if (lastLbl && s.lastCheck) {
+        lastLbl.textContent = 'Last auto-check: ' + new Date(s.lastCheck).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+    }
+
+    function updateHeaderUpdatePill(hasUpdate, latestVer = '') {
+      const pill = document.getElementById('updateStatusPill');
+      const dot = document.getElementById('updateStatusDot');
+      const text = document.getElementById('updateStatusText');
+      if (!pill || !dot || !text) return;
+
+      if (hasUpdate) {
+        dot.style.background = '#F59E0B';
+        dot.style.boxShadow = '0 0 10px #F59E0B';
+        text.textContent = '✨ Update ' + (latestVer ? 'v' + latestVer : 'Available');
+      } else {
+        dot.style.background = '#10B981';
+        dot.style.boxShadow = '0 0 6px #10B981';
+        text.textContent = 'Updates: Up to date';
+      }
+    }
+
+    async function checkAllUpdates() {
+      const btn = document.getElementById('btnCheckAllUpdates');
+      if (btn) { btn.disabled = true; btn.textContent = '🔄 Checking...'; }
+      await refreshUpdateStatus(true);
+      if (btn) { btn.disabled = false; btn.textContent = '🔄 Check All Updates'; }
+    }
+
+    async function updateEngine(engineName) {
+      logToUpdateConsole(`[${new Date().toLocaleTimeString()}] Triggering update for engine: ${engineName}...`);
+      try {
+        const btn = engineName === 'ytdlp' ? document.getElementById('btnUpdateYtdlp') : null;
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Updating...'; }
+
+        const res = await fetch(`${API_BASE}/api/update/engine`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ engine: engineName })
+        });
+
+        if (res.ok) {
+          const result = await res.json();
+          if (result.logs && Array.isArray(result.logs)) {
+            result.logs.forEach(l => logToUpdateConsole(l));
+          }
+          logToUpdateConsole(`[Result] ${result.message || 'Completed.'}`, true);
+          showToast(`⚡ ${result.message || 'Engine update completed.'}`);
+          await refreshUpdateStatus(false);
+        } else {
+          logToUpdateConsole(`[Error] Engine update returned status ${res.status}`);
+        }
+      } catch (err) {
+        logToUpdateConsole(`[Error] Failed to execute engine update: ${err.message}`);
+      } finally {
+        const btn = engineName === 'ytdlp' ? document.getElementById('btnUpdateYtdlp') : null;
+        if (btn) { btn.disabled = false; btn.textContent = '⚡ Update yt-dlp'; }
+      }
+    }
+
+    async function applyAppUpdate() {
+      const btn = document.getElementById('btnApplyAppUpdate');
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Downloading & Restarting...'; }
+      logToUpdateConsole(`[${new Date().toLocaleTimeString()}] Downloading FastDownloader Pro update from GitHub...`, true);
+
+      try {
+        const res = await fetch(`${API_BASE}/api/update/app`, { method: 'POST' });
+        if (res.ok) {
+          const data = await res.json();
+          logToUpdateConsole(`[Success] ${data.message || 'App restarting...'}`, true);
+          showToast('⚡ Updating FastDownloader Pro... App will restart momentarily.');
+        } else {
+          logToUpdateConsole('[Error] Failed to initiate in-place update.');
+          if (btn) { btn.disabled = false; btn.textContent = '⚡ Install & Restart App Now'; }
+        }
+      } catch (err) {
+        logToUpdateConsole(`[Error] ${err.message}`);
+        if (btn) { btn.disabled = false; btn.textContent = '⚡ Install & Restart App Now'; }
+      }
+    }
+
+    async function saveUpdateAutomationSettings() {
+      const chkEng = document.getElementById('chkAutoUpdateEngines');
+      const chkApp = document.getElementById('chkAutoUpdateApp');
+      const chkNot = document.getElementById('chkNotifyOnUpdate');
+
+      const payload = {
+        autoUpdateEngines: chkEng ? chkEng.checked : true,
+        autoUpdateApp: chkApp ? chkApp.checked : true,
+        notifyOnUpdate: chkNot ? chkNot.checked : true
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/api/update/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          logToUpdateConsole(`[Settings] Hands-off automation preferences saved.`);
+          showToast('✅ Update automation preferences saved');
+        }
+      } catch (e) {}
+    }
+
     // IDM-GRADE DYNAMIC MULTI-SEGMENT & THREAD INSPECTOR
     let currentDetailGid = null;
 
@@ -5056,6 +5413,10 @@
         e.preventDefault();
         toggleSidebar();
       }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'u' || e.key === 'U')) {
+        e.preventDefault();
+        showUpdateModal();
+      }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
         e.preventDefault();
         toggleTheme();
@@ -5099,6 +5460,14 @@
     setInterval(pollBackend, 1000);
     checkExtensionStatus();
     setInterval(checkExtensionStatus, 3000);
+
+    // Deep link modal trigger
+    try {
+      const qParams = new URLSearchParams(window.location.search);
+      if (qParams.get('modal') === 'update') {
+        setTimeout(showUpdateModal, 300);
+      }
+    } catch(e) {}
   </script>
 </body>
 </html>

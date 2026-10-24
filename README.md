@@ -61,18 +61,26 @@ Combining an ultra-fast **16-connection `aria2c` multi-stream engine**, a dedica
 
 ---
 
-## 📥 Easy 1-Click Installation
+## 📥 Easy Installation
 
 Choose your preferred way to install FastDownloader Pro:
 
-### 📦 Method 1: Ready-to-Run All-In-One Portable (Fastest • 0-Second Setup)
-1. Download **[`FastDownloader-AllInOne.zip`](https://github.com/ZaxMil/fast-downloader/releases/latest/download/FastDownloader-AllInOne.zip)** from Releases.
-2. Extract to any folder.
-3. Launch **`FastDownloader.exe`** — all turbo engines (`aria2c`, `yt-dlp`, `ffmpeg`) are already pre-bundled and configured. **Zero installation time!**
+### 🚀 Method 1: One-File Setup Wizard (Recommended for Users)
+1. Download **`FastDownloader-Setup.exe`** from [Releases](https://github.com/ZaxMil/fast-downloader/releases).
+2. Double-click the installer to launch the guided **Setup Wizard**.
+3. Review the license agreement, select your destination folder, and let Setup automatically configure Desktop/Start Menu shortcuts and browser integration!
+   - *Includes full EULA, legal disclaimer, privacy policy, and native Windows Add/Remove Programs uninstaller support.*
 
 ---
 
-### ⚡ Method 2: The 1-Second Turbo PowerShell Command
+### 📦 Method 2: Ready-to-Run Portable Archive (Zero-Install)
+1. Download **[`FastDownloader-AllInOne.zip`](https://github.com/ZaxMil/fast-downloader/releases/latest/download/FastDownloader-AllInOne.zip)** from Releases.
+2. Extract to any folder.
+3. Launch **`FastDownloader.exe`** — all turbo engines (`aria2c`, `yt-dlp`) are already pre-bundled and configured.
+
+---
+
+### ⚡ Method 3: 1-Second Turbo PowerShell Command
 Open Windows PowerShell and paste this single command:
 
 ```powershell

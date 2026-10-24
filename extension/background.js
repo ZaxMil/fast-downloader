@@ -1,4 +1,4 @@
-// FastDownloader Extension Background Worker (v1.1.0)
+// FastDownloader Extension Background Worker (v0.1.0-beta)
 // IDM-Grade Session & Cookie Handoff + Automatic Download Interception
 
 const FD_API_BASE = "http://127.0.0.1:6801";
@@ -563,7 +563,7 @@ function sendHeartbeat() {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      version: "1.1.0",
+      version: "0.1.0",
       userAgent: navigator.userAgent
     })
   })
