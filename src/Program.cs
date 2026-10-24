@@ -90,8 +90,19 @@ namespace FastDownloader
 
                 string newExt = null;
 
+                // 0. Windows Installer MSI / OLE2 Compound Document (0xD0 0xCF 0x11 0xE0)
+                if (read >= 8 && buffer[0] == 0xD0 && buffer[1] == 0xCF && buffer[2] == 0x11 && buffer[3] == 0xE0 &&
+                                 buffer[4] == 0xA1 && buffer[5] == 0xB1 && buffer[6] == 0x1A && buffer[7] == 0xE1)
+                {
+                    newExt = ".msi";
+                }
+                // 0.1 Windows Executable PE / MZ (0x4D 0x5A)
+                else if (buffer[0] == 0x4D && buffer[1] == 0x5A)
+                {
+                    newExt = ".exe";
+                }
                 // 1. MP4 / MOV / M4V (ftyp box at offset 4)
-                if (read >= 12 && buffer[4] == 0x66 && buffer[5] == 0x74 && buffer[6] == 0x79 && buffer[7] == 0x70)
+                else if (read >= 12 && buffer[4] == 0x66 && buffer[5] == 0x74 && buffer[6] == 0x79 && buffer[7] == 0x70)
                 {
                     newExt = ".mp4";
                 }
@@ -380,12 +391,18 @@ namespace FastDownloader
                     string fname = "";
                     if (!string.IsNullOrEmpty(disposition))
                     {
-                        var match = Regex.Match(disposition, @"filename\*?=(?:UTF-8'')?[""']?([^"";
-
-]+)[""']?");
-                        if (match.Success)
+                        var mUtf = Regex.Match(disposition, @"filename\*=UTF-8''([^;\r\n""']+)", RegexOptions.IgnoreCase);
+                        if (mUtf.Success)
                         {
-                            fname = Uri.UnescapeDataString(match.Groups[1].Value.Trim());
+                            fname = Uri.UnescapeDataString(mUtf.Groups[1].Value.Trim('"', '\''));
+                        }
+                        else
+                        {
+                            var mStd = Regex.Match(disposition, @"filename\s*=\s*""?([^;""\r\n]+)""?", RegexOptions.IgnoreCase);
+                            if (mStd.Success)
+                            {
+                                fname = mStd.Groups[1].Value.Trim('"', '\'');
+                            }
                         }
                     }
 
@@ -401,6 +418,21 @@ namespace FastDownloader
                     if (string.IsNullOrEmpty(fname) || fname.Trim() == "/" || fname.Trim() == "")
                     {
                         fname = "download";
+                    }
+
+                    // If filename lacks extension, derive from Content-Type
+                    if (string.IsNullOrEmpty(Path.GetExtension(fname)))
+                    {
+                        string ct = resp.ContentType != null ? resp.ContentType.ToLowerInvariant() : "";
+                        if (ct.Contains("application/x-msi") || ct.Contains("application/x-msdownload")) fname += ".msi";
+                        else if (ct.Contains("application/zip")) fname += ".zip";
+                        else if (ct.Contains("application/pdf")) fname += ".pdf";
+                        else if (ct.Contains("application/x-7z")) fname += ".7z";
+                        else if (ct.Contains("application/x-rar")) fname += ".rar";
+                        else if (ct.Contains("image/jpeg")) fname += ".jpg";
+                        else if (ct.Contains("image/png")) fname += ".png";
+                        else if (ct.Contains("video/mp4")) fname += ".mp4";
+                        else if (ct.Contains("audio/mpeg")) fname += ".mp3";
                     }
 
                     res.filename = fname;
@@ -960,8 +992,11 @@ namespace FastDownloader
             string probeSizeFormatted = (probe != null && !string.IsNullOrEmpty(probe.sizeFormatted)) ? probe.sizeFormatted : "Unknown size";
             bool probeResumable = probe != null && probe.resumable;
 
-            string resolvedFilename = !string.IsNullOrEmpty(filename) ? filename : probeFilename;
-            if (string.IsNullOrEmpty(resolvedFilename)) resolvedFilename = !string.IsNullOrEmpty(title) ? title : "download";
+            string resolvedFilename = (!string.IsNullOrEmpty(filename) && filename != "Browser Download") ? filename : probeFilename;
+            if (string.IsNullOrEmpty(resolvedFilename) || resolvedFilename == "Browser Download")
+            {
+                resolvedFilename = !string.IsNullOrEmpty(probeFilename) ? probeFilename : (!string.IsNullOrEmpty(title) && title != "Browser Download" ? title : "download");
+            }
 
             string resolvedCat = !string.IsNullOrEmpty(category) ? category : probeCategory;
             if (string.IsNullOrEmpty(resolvedCat)) resolvedCat = "General";
@@ -2529,7 +2564,7 @@ namespace FastDownloader
                             item["eta"] = eta;
                             item["status"] = status;
                             item["engine"] = "aria2";
-                            item["filePath"] = resolvedPath;
+                            item["filePath"] = !string.IsNullOrEmpty(resolvedPath) ? resolvedPath.Replace('/', '\\') : "";
                             item["url"] = resolvedUrl;
                             unifiedList.Add(item);
                         }
@@ -2549,7 +2584,8 @@ namespace FastDownloader
                                 item["status"] = yt.Status;
                                 item["engine"] = "yt-dlp";
                                 item["url"] = yt.Url;
-                                item["filePath"] = Path.Combine(engine.DownloadsFolder, yt.Name);
+                                string ytSaveDir = !string.IsNullOrEmpty(yt.SaveDir) ? yt.SaveDir : engine.DownloadsFolder;
+                                item["filePath"] = Path.Combine(ytSaveDir, yt.Name).Replace('/', '\\');
                             unifiedList.Insert(0, item);
                         }
 
@@ -2693,20 +2729,52 @@ namespace FastDownloader
                         return;
                     }
 
-                    // 8. OPEN FOLDER API (Supports highlighting file with /select)
+                    // 8. OPEN FOLDER API (Supports highlighting file with /select, normalized backslashes)
                     if (urlPath.StartsWith("/api/openfolder") && method == "POST")
                     {
                         var data = JsonHelper.ParseDict(requestBody);
-                        string filePath = data != null && data.ContainsKey("path") ? data["path"].ToString() : "";
-                        if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
+                        string rawPath = data != null && data.ContainsKey("path") ? data["path"].ToString() : "";
+                        string filePath = !string.IsNullOrEmpty(rawPath) ? rawPath.Trim('"', ' ').Replace('/', '\\') : "";
+
+                        if (!string.IsNullOrEmpty(filePath))
                         {
-                            try { Process.Start("explorer.exe", "/select,\"" + filePath + "\""); }
-                            catch { Process.Start("explorer.exe", engine.DownloadsFolder); }
-                        }
-                        else if (!string.IsNullOrEmpty(filePath) && Directory.Exists(filePath))
-                        {
-                            try { Process.Start("explorer.exe", filePath); }
-                            catch { Process.Start("explorer.exe", engine.DownloadsFolder); }
+                            try
+                            {
+                                string fullPath = Path.GetFullPath(filePath);
+                                if (File.Exists(fullPath))
+                                {
+                                    Process.Start("explorer.exe", "/select,\"" + fullPath + "\"");
+                                }
+                                else if (Directory.Exists(fullPath))
+                                {
+                                    Process.Start("explorer.exe", "\"" + fullPath + "\"");
+                                }
+                                else
+                                {
+                                    string dir = Path.GetDirectoryName(fullPath);
+                                    if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                                    {
+                                        string baseName = Path.GetFileNameWithoutExtension(fullPath);
+                                        string[] matches = Directory.GetFiles(dir, baseName + ".*");
+                                        if (matches != null && matches.Length > 0 && File.Exists(matches[0]))
+                                        {
+                                            Process.Start("explorer.exe", "/select,\"" + matches[0] + "\"");
+                                        }
+                                        else
+                                        {
+                                            Process.Start("explorer.exe", "\"" + dir + "\"");
+                                        }
+                                    }
+                                    else
+                                    {
+                                        Process.Start("explorer.exe", "\"" + engine.DownloadsFolder + "\"");
+                                    }
+                                }
+                            }
+                            catch
+                            {
+                                Process.Start("explorer.exe", "\"" + engine.DownloadsFolder + "\"");
+                            }
                         }
                         else
                         {
@@ -2715,7 +2783,7 @@ namespace FastDownloader
                             {
                                 targetFolder = Path.Combine(engine.AppDir, "extension");
                             }
-                            Process.Start("explorer.exe", targetFolder);
+                            Process.Start("explorer.exe", "\"" + targetFolder + "\"");
                         }
 
                         string ok = "{\"ok\":true}";

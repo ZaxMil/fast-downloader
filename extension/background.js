@@ -497,23 +497,39 @@ function shouldInterceptDownload(url, filename, mime) {
     if (INTERCEPT_EXTENSIONS.has(ext)) return true;
   }
   // Check MIME
-  if (mime && (mime.includes("application/zip") || mime.includes("application/x-rar") || mime.includes("application/x-msdownload") || mime.includes("application/octet-stream"))) {
+  if (mime && (mime.includes("application/zip") || mime.includes("application/x-rar") || mime.includes("application/x-msdownload") || mime.includes("application/x-msi") || mime.includes("application/octet-stream"))) {
     return true;
   }
   return false;
 }
 
-chrome.downloads.onCreated.addListener(async (item) => {
+const interceptedDownloadIds = new Set();
+
+async function handleDownloadIntercept(item, suggest) {
   try {
     if (!cachedAutoIntercept) return;
     const settings = await chrome.storage.local.get({ autoIntercept: true });
     if (!settings.autoIntercept) return;
 
-    const targetUrl = item.finalUrl || item.url;
-    if (!shouldInterceptDownload(targetUrl, item.filename, item.mime)) return;
+    if (interceptedDownloadIds.has(item.id)) return;
 
-    // Prevent loop for localhost downloads
+    const targetUrl = item.finalUrl || item.url;
     if (targetUrl.includes("127.0.0.1:6801") || targetUrl.includes("127.0.0.1:6800")) return;
+
+    // Extract resolved filename from Chrome (fully populated in onDeterminingFilename)
+    let cleanFilename = item.filename ? item.filename.split(/[\\/]/).pop() : "";
+    if (!cleanFilename) {
+      try {
+        const u = new URL(targetUrl);
+        const p = u.pathname.split("/").filter(Boolean).pop();
+        if (p && p.includes(".")) cleanFilename = decodeURIComponent(p);
+      } catch (e) {}
+    }
+
+    if (!shouldInterceptDownload(targetUrl, cleanFilename, item.mime)) return;
+
+    interceptedDownloadIds.add(item.id);
+    setTimeout(() => interceptedDownloadIds.delete(item.id), 60000);
 
     // Cancel native browser download
     chrome.downloads.cancel(item.id, () => {
@@ -523,12 +539,11 @@ chrome.downloads.onCreated.addListener(async (item) => {
     // Forward to FastDownloader as an intercepted download (triggers Smart Pre-Flight confirmation dialog)
     const cookies = await getCookiesForUrl(targetUrl);
     const clientHeaders = getBrowserClientHeaders(targetUrl, item.referrer || "");
-    const cleanFilename = item.filename ? item.filename.split(/[\\/]/).pop() : "";
 
     const payload = {
       action: "intercept",
       url: targetUrl,
-      title: cleanFilename || "Browser Download",
+      title: cleanFilename || "Download",
       filename: cleanFilename,
       referer: item.referrer || "",
       cookies: cookies,
@@ -557,6 +572,18 @@ chrome.downloads.onCreated.addListener(async (item) => {
     await openFastDownloaderApp();
   } catch (e) {
     console.error("Failed to intercept download:", e);
+  }
+}
+
+// Primary interceptor: onDeterminingFilename has the exact filename parsed by Chrome headers
+chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+  handleDownloadIntercept(item, suggest);
+});
+
+// Fallback interceptor: onCreated for instant downloads
+chrome.downloads.onCreated.addListener((item) => {
+  if (item.filename && shouldInterceptDownload(item.finalUrl || item.url, item.filename, item.mime)) {
+    handleDownloadIntercept(item);
   }
 });
 
