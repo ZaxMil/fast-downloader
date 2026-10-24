@@ -937,7 +937,7 @@ namespace FastDownloader
             {
                 foreach (var t in YtTasks)
                 {
-                    try { if (t.Process != null && !t.Process.HasExited) t.Process.Kill(); } catch { }
+                    KillProcessTree(t.Process);
                 }
             }
         }
@@ -1113,6 +1113,45 @@ namespace FastDownloader
             return tasks;
         }
 
+        private static void KillProcessTree(Process proc)
+        {
+            if (proc == null) return;
+            try
+            {
+                int pid = proc.Id;
+                KillProcessTreeById(pid);
+            }
+            catch { }
+        }
+
+        private static void KillProcessTreeById(int pid)
+        {
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo
+                {
+                    FileName = "taskkill",
+                    Arguments = "/F /T /PID " + pid,
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    WindowStyle = ProcessWindowStyle.Hidden
+                };
+                using (var p = Process.Start(psi))
+                {
+                    if (p != null) p.WaitForExit(3000);
+                }
+            }
+            catch
+            {
+                try
+                {
+                    var proc = Process.GetProcessById(pid);
+                    if (!proc.HasExited) proc.Kill();
+                }
+                catch { }
+            }
+        }
+
         public void PauseTask(string gid)
         {
             if (!string.IsNullOrEmpty(gid) && gid.StartsWith("yt_"))
@@ -1120,17 +1159,18 @@ namespace FastDownloader
                 lock (ytLock)
                 {
                     var yt = YtTasks.Find(t => t.Gid == gid);
-                    if (yt != null && (yt.Status == "downloading" || yt.Status == "processing"))
+                    if (yt != null)
                     {
-                        try { if (yt.Process != null && !yt.Process.HasExited) yt.Process.Kill(); } catch { }
                         yt.Status = "paused";
                         yt.DownloadSpeed = 0;
                         yt.Eta = 0;
+                        KillProcessTree(yt.Process);
                     }
                 }
                 return;
             }
             SendAriaAction("aria2.pause", gid);
+            SendAriaAction("aria2.forcePause", gid);
         }
         public void ResumeTask(string gid)
         {
@@ -1142,9 +1182,10 @@ namespace FastDownloader
                     if (yt != null && (yt.Status == "paused" || yt.Status == "error"))
                     {
                         yt.Status = "downloading";
+                        var taskRef = yt;
                         Thread t = new Thread(() =>
                         {
-                            RunYtDlpProcess(yt, yt.YtExe, yt.FfmpegDir, yt.FormatArg, yt.ExtraHeaders, yt.SaveDir, yt.Url, yt.IsYouTube, true);
+                            RunYtDlpProcess(taskRef, taskRef.YtExe, taskRef.FfmpegDir, taskRef.FormatArg, taskRef.ExtraHeaders, taskRef.SaveDir, taskRef.Url, taskRef.IsYouTube, true);
                         });
                         t.IsBackground = true;
                         t.Start();
@@ -1157,19 +1198,58 @@ namespace FastDownloader
         public void RemoveTask(string gid)
         {
             SendAriaAction("aria2.remove", gid);
+            SendAriaAction("aria2.forceRemove", gid);
             SendAriaAction("aria2.removeDownloadResult", gid);
             lock (ytLock)
             {
                 var yt = YtTasks.Find(t => t.Gid == gid);
                 if (yt != null)
                 {
-                    try { if (yt.Process != null && !yt.Process.HasExited) yt.Process.Kill(); } catch { }
+                    yt.Status = "removed";
+                    KillProcessTree(yt.Process);
                     YtTasks.Remove(yt);
                 }
             }
         }
-        public void PauseAll() { SendAriaActionWithoutParams("aria2.pauseAll"); }
-        public void ResumeAll() { SendAriaActionWithoutParams("aria2.unpauseAll"); }
+        public void PauseAll()
+        {
+            SendAriaActionWithoutParams("aria2.pauseAll");
+            SendAriaActionWithoutParams("aria2.forcePauseAll");
+            lock (ytLock)
+            {
+                foreach (var yt in YtTasks)
+                {
+                    if (yt.Status == "downloading" || yt.Status == "processing")
+                    {
+                        yt.Status = "paused";
+                        yt.DownloadSpeed = 0;
+                        yt.Eta = 0;
+                        KillProcessTree(yt.Process);
+                    }
+                }
+            }
+        }
+        public void ResumeAll()
+        {
+            SendAriaActionWithoutParams("aria2.unpauseAll");
+            lock (ytLock)
+            {
+                foreach (var yt in YtTasks)
+                {
+                    if (yt.Status == "paused" || yt.Status == "error")
+                    {
+                        yt.Status = "downloading";
+                        var taskRef = yt;
+                        Thread t = new Thread(() =>
+                        {
+                            RunYtDlpProcess(taskRef, taskRef.YtExe, taskRef.FfmpegDir, taskRef.FormatArg, taskRef.ExtraHeaders, taskRef.SaveDir, taskRef.Url, taskRef.IsYouTube, true);
+                        });
+                        t.IsBackground = true;
+                        t.Start();
+                    }
+                }
+            }
+        }
 
         public void SetSpeedLimit(string limit)
         {
@@ -1360,6 +1440,7 @@ namespace FastDownloader
 
         private void ParseYtOutputLine(YtTaskInfo taskInfo, string line, ref long previousStreamBytes, ref long currentStreamTotal, ref long currentStreamCompleted)
         {
+            if (taskInfo == null || taskInfo.Status == "paused" || taskInfo.Status == "removed") return;
             if (string.IsNullOrEmpty(line)) return;
 
             if (line.Contains("Destination: "))
@@ -1539,7 +1620,12 @@ namespace FastDownloader
                         try { File.WriteAllText(Path.Combine(AppDir, "ytdlp_last_error.log"), allErrors); } catch { }
                     }
 
-                    if (taskInfo.Status == "paused") return;
+                    if (taskInfo.Status == "paused" || taskInfo.Status == "removed")
+                    {
+                        taskInfo.DownloadSpeed = 0;
+                        taskInfo.Eta = 0;
+                        return;
+                    }
 
                     if (p.ExitCode != 0 && allowRetry && isYouTube)
                     {
@@ -2522,19 +2608,26 @@ namespace FastDownloader
                     if (urlPath == "/api/action" && method == "POST")
                     {
                         var data = JsonHelper.ParseDict(requestBody);
-                        string gid = data.ContainsKey("gid") ? data["gid"].ToString() : "";
-                        string action = data.ContainsKey("action") ? data["action"].ToString() : "";
+                        if (data != null)
+                        {
+                            string gid = SafeGetString(data, "gid");
+                            string action = SafeGetString(data, "action");
 
-                        if (action == "pause" && !string.IsNullOrEmpty(gid)) engine.PauseTask(gid);
-                        if (action == "resume" && !string.IsNullOrEmpty(gid)) engine.ResumeTask(gid);
-                        if (action == "remove" && !string.IsNullOrEmpty(gid)) engine.RemoveTask(gid);
-                        if (action == "pauseAll") engine.PauseAll();
-                        if (action == "resumeAll") engine.ResumeAll();
+                            if (action == "pause" && !string.IsNullOrEmpty(gid)) engine.PauseTask(gid);
+                            if (action == "resume" && !string.IsNullOrEmpty(gid)) engine.ResumeTask(gid);
+                            if (action == "remove" && !string.IsNullOrEmpty(gid)) engine.RemoveTask(gid);
+                            if (action == "pauseAll") engine.PauseAll();
+                            if (action == "resumeAll") engine.ResumeAll();
 
-                        string ok = "{\"ok\":true}";
-                        byte[] okBytes = Encoding.UTF8.GetBytes(ok);
-                        SendHeaders(writer, 200, "OK", "application/json", okBytes.Length);
-                        writer.Write(ok);
+                            string ok = "{\"ok\":true}";
+                            byte[] okBytes = Encoding.UTF8.GetBytes(ok);
+                            SendHeaders(writer, 200, "OK", "application/json", okBytes.Length, allowedOrigin);
+                            writer.Write(ok);
+                            writer.Flush();
+                            return;
+                        }
+                        SendHeaders(writer, 400, "Bad Request", "application/json", 24, allowedOrigin);
+                        writer.Write("{\"error\":\"Invalid data\"}");
                         writer.Flush();
                         return;
                     }

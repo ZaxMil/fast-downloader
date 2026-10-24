@@ -3882,21 +3882,40 @@
     // Task Actions
     async function taskAction(gid, action) {
       try {
+        const localTask = tasks.find(x => x.gid === gid);
+        if (localTask) {
+          if (action === 'pause') {
+            localTask.status = 'paused';
+            localTask.downloadSpeed = 0;
+            renderTable();
+          } else if (action === 'resume') {
+            localTask.status = 'downloading';
+            renderTable();
+          }
+        }
         await fetch(`${API_BASE}/api/action`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ gid, action })
         });
-        showToast(`Task ${action}d`);
-        pollBackend();
+        showToast(action === 'pause' ? 'Task paused' : (action === 'resume' ? 'Task resumed' : `Task ${action}d`));
+        await pollBackend();
       } catch (err) {}
     }
 
     function resumeSelected() {
+      if (selectedGids.size === 0) {
+        resumeAll();
+        return;
+      }
       selectedGids.forEach(gid => taskAction(gid, 'resume'));
     }
 
     function pauseSelected() {
+      if (selectedGids.size === 0) {
+        pauseAll();
+        return;
+      }
       selectedGids.forEach(gid => taskAction(gid, 'pause'));
     }
 
@@ -3909,23 +3928,36 @@
     }
 
     async function resumeAll() {
+      tasks.forEach(t => {
+        if (t.status === 'paused' || t.status === 'waiting' || t.status === 'error') {
+          t.status = 'downloading';
+        }
+      });
+      renderTable();
       await fetch(`${API_BASE}/api/action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'resumeAll' })
       });
       showToast("Resumed all tasks");
-      pollBackend();
+      await pollBackend();
     }
 
     async function pauseAll() {
+      tasks.forEach(t => {
+        if (t.status === 'downloading' || t.status === 'active' || t.status === 'processing') {
+          t.status = 'paused';
+          t.downloadSpeed = 0;
+        }
+      });
+      renderTable();
       await fetch(`${API_BASE}/api/action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'pauseAll' })
       });
       showToast("Paused all tasks");
-      pollBackend();
+      await pollBackend();
     }
 
     async function changeSpeedLimit(limit) {
@@ -5432,6 +5464,17 @@
       if ((e.ctrlKey || e.metaKey) && (e.key === 'g' || e.key === 'G')) {
         e.preventDefault();
         toggleAutoGrab();
+      }
+      if (e.code === 'Space' && !['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
+        e.preventDefault();
+        if (selectedGids.size > 0) {
+          const selGid = Array.from(selectedGids)[0];
+          toggleTaskPause(selGid);
+        } else {
+          const hasActive = tasks.some(t => t.status === 'downloading' || t.status === 'active');
+          if (hasActive) pauseAll();
+          else resumeAll();
+        }
       }
       if (e.key === 'Delete') {
         removeSelected();
