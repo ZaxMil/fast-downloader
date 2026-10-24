@@ -2232,7 +2232,8 @@ namespace FastDownloader
                     {
                         if (urlPath.StartsWith("/api/"))
                         {
-                            SendHeaders(writer, 403, "Forbidden", "application/json", 27);
+                            byte[] errBytes = Encoding.UTF8.GetBytes("{\"error\":\"Origin forbidden\"}");
+                            SendHeaders(writer, 403, "Forbidden", "application/json", errBytes.Length, null);
                             writer.Write("{\"error\":\"Origin forbidden\"}");
                             writer.Flush();
                             return;
