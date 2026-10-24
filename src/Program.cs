@@ -1244,15 +1244,15 @@ namespace FastDownloader
             if (!File.Exists(ytExe)) ytExe = Path.Combine(AppDir, "yt-dlp.exe");
             string ffmpegDir = Path.Combine(AppDir, "bin");
 
-            string formatArg = "-f \"bv*[vcodec^=avc1]+ba[acodec^=mp4a]/bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/18/b\" --merge-output-format mp4";
-            if (quality == "720p") formatArg = "-f \"bv*[height<=720][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720]/bv*[height<=720]+ba/b\" --merge-output-format mp4";
+            string formatArg = "-f \"bv*[vcodec^=avc1]+ba[acodec^=mp4a]/bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/18/bestvideo*+bestaudio/best\" --merge-output-format mp4";
+            if (quality == "720p") formatArg = "-f \"bv*[height<=720][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720]/bv*[height<=720]+ba/18/best\" --merge-output-format mp4";
             if (quality == "audio") formatArg = "-x --audio-format mp3";
 
             string extraHeaders = "";
             bool isYouTube = url.Contains("youtube.com") || url.Contains("youtu.be");
             if (isYouTube)
             {
-                extraHeaders += " --extractor-args \"youtube:player_client=android,web\"";
+                extraHeaders += " --extractor-args \"youtube:player_client=ios,android,mweb,web\"";
             }
             if (!string.IsNullOrEmpty(cookies)) extraHeaders += " --add-header \"Cookie:" + cookies.Replace("\"", "\\\"") + "\"";
             if (!string.IsNullOrEmpty(referer)) extraHeaders += " --referer \"" + referer.Replace("\"", "\\\"") + "\"";
@@ -1476,7 +1476,7 @@ namespace FastDownloader
                 ProcessStartInfo psi = new ProcessStartInfo
                 {
                     FileName = ytExe,
-                    Arguments = string.Format("--ffmpeg-location \"{0}\" {1}{2} -o \"%(title).60s [%(id)s].%(ext)s\" --windows-filenames --external-downloader aria2c --downloader-args \"aria2c:-x 16 -s 16 -k 1M --disable-ipv6=true --async-dns-server=8.8.8.8,1.1.1.1 --summary-interval=1\" -P \"{3}\" \"{4}\"",
+                    Arguments = string.Format("--ffmpeg-location \"{0}\" {1}{2} -o \"%(title).60s [%(id)s].%(ext)s\" --windows-filenames --downloader dash:native --downloader m3u8:native --downloader http:aria2c --downloader https:aria2c --downloader-args \"aria2c:-x 16 -s 16 -k 1M --disable-ipv6=true --async-dns-server=8.8.8.8,1.1.1.1 --summary-interval=1\" -P \"{3}\" \"{4}\"",
                         ffmpegDir, formatArg, extraHeaders, saveDir, url),
                     CreateNoWindow = true,
                     UseShellExecute = false,
@@ -1545,9 +1545,12 @@ namespace FastDownloader
                     {
                         if (allErrors.Contains("The page needs to be reloaded") ||
                             allErrors.Contains("challenge solving failed") ||
-                            allErrors.Contains("Sign in to confirm"))
+                            allErrors.Contains("Sign in to confirm") ||
+                            allErrors.Contains("Requested format is not available") ||
+                            allErrors.Contains("Skipping client") ||
+                            allErrors.Contains("Only images are available"))
                         {
-                            string retryHeaders = " --extractor-args \"youtube:player_client=android,web\"";
+                            string retryHeaders = " --extractor-args \"youtube:player_client=ios,android,mweb,web\"";
                             RunYtDlpProcess(taskInfo, ytExe, ffmpegDir, formatArg, retryHeaders, saveDir, url, isYouTube, false);
                             return;
                         }
@@ -2468,16 +2471,22 @@ namespace FastDownloader
                     if (urlPath == "/api/download" && method == "POST")
                     {
                         var data = JsonHelper.ParseDict(requestBody);
-                        string dlUrl = data.ContainsKey("url") ? data["url"].ToString().Trim() : "";
-                        string quality = data.ContainsKey("quality") ? data["quality"].ToString() : "best";
-                        string queue = data.ContainsKey("queue") ? data["queue"].ToString() : "MainQueue";
-                        string cookies = data.ContainsKey("cookies") ? data["cookies"].ToString() : "";
-                        string userAgent = data.ContainsKey("userAgent") ? data["userAgent"].ToString() : "";
-                        string referer = data.ContainsKey("referer") ? data["referer"].ToString() : "";
-                        string filename = data.ContainsKey("filename") && !string.IsNullOrEmpty(data["filename"].ToString()) ? data["filename"].ToString() : (data.ContainsKey("title") ? data["title"].ToString() : "");
-                        string type = data.ContainsKey("type") ? data["type"].ToString().ToLowerInvariant() : "";
-                        bool startNow = true;
-                        if (data.ContainsKey("startNow")) bool.TryParse(data["startNow"].ToString(), out startNow);
+                        if (data != null)
+                        {
+                            string dlUrl = SafeGetString(data, "url").Trim();
+                            string quality = SafeGetString(data, "quality", "best");
+                            string queue = SafeGetString(data, "queue", "MainQueue");
+                            string cookies = SafeGetString(data, "cookies");
+                            string userAgent = SafeGetString(data, "userAgent");
+                            string referer = SafeGetString(data, "referer");
+                            string filename = SafeGetString(data, "filename");
+                            if (string.IsNullOrEmpty(filename)) filename = SafeGetString(data, "title");
+                            string type = SafeGetString(data, "type").ToLowerInvariant();
+                            bool startNow = true;
+                            if (data.ContainsKey("startNow") && data["startNow"] != null)
+                            {
+                                bool.TryParse(data["startNow"].ToString(), out startNow);
+                            }
 
                         if (!string.IsNullOrEmpty(dlUrl))
                         {
@@ -2497,11 +2506,16 @@ namespace FastDownloader
 
                             string ok = "{\"ok\":true,\"gid\":\"" + assignedGid + "\"}";
                             byte[] okBytes = Encoding.UTF8.GetBytes(ok);
-                            SendHeaders(writer, 200, "OK", "application/json", okBytes.Length);
+                            SendHeaders(writer, 200, "OK", "application/json", okBytes.Length, allowedOrigin);
                             writer.Write(ok);
                             writer.Flush();
                             return;
                         }
+                        }
+                        SendHeaders(writer, 400, "Bad Request", "application/json", 24, allowedOrigin);
+                        writer.Write("{\"error\":\"Invalid data\"}");
+                        writer.Flush();
+                        return;
                     }
 
                     // 5. TASK ACTION API
@@ -3024,6 +3038,12 @@ namespace FastDownloader
             }
         }
 
+        private static string SafeGetString(Dictionary<string, object> dict, string key, string fallback = "")
+        {
+            if (dict == null || !dict.ContainsKey(key) || dict[key] == null) return fallback;
+            return dict[key].ToString();
+        }
+
         private static bool IsTrustedOrigin(string origin)
         {
             if (string.IsNullOrEmpty(origin)) return true;
@@ -3388,17 +3408,23 @@ namespace FastDownloader
             string edgePath = @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe";
             if (!File.Exists(edgePath)) edgePath = @"C:\Program Files\Microsoft\Edge\Application\msedge.exe";
 
-            string profileDir = Path.Combine(appDir, ".edge_profile");
+            string chromePath = @"C:\Program Files\Google\Chrome\Application\chrome.exe";
+            if (!File.Exists(chromePath)) chromePath = @"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe";
 
-            if (File.Exists(edgePath))
+            string profileDir = Path.Combine(appDir, ".app_profile");
+
+            string targetBrowser = File.Exists(edgePath) ? edgePath : (File.Exists(chromePath) ? chromePath : null);
+
+            if (targetBrowser != null)
             {
                 try
                 {
                     ProcessStartInfo psi = new ProcessStartInfo
                     {
-                        FileName = edgePath,
-                        Arguments = string.Format("--app=http://127.0.0.1:6801/ --user-data-dir=\"{0}\" --window-size=1180,760 --no-first-run --no-default-browser-check", profileDir),
-                        UseShellExecute = true
+                        FileName = targetBrowser,
+                        Arguments = string.Format("--new-window --app=http://127.0.0.1:6801/ --user-data-dir=\"{0}\" --window-size=1200,780 --no-first-run --no-default-browser-check --disable-features=Translate,OptimizationHints", profileDir),
+                        CreateNoWindow = false,
+                        UseShellExecute = false
                     };
                     Process.Start(psi);
                     return;

@@ -8,6 +8,7 @@ bin/
 
 # User Data & Runtime Profiles
 .edge_profile/
+.app_profile/
 downloads/
 settings.json
 
