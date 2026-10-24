@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FastDownloader Pro - Turbo Download Manager</title>
+  <title>FastDownloader Pro</title>
+  <meta name="theme-color" id="themeColorMeta" content="#0B0E14">
+  <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <style>
     :root {
@@ -281,8 +283,54 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 8px 16px;
+      padding: 0 14px;
+      height: 42px;
+      background: var(--bg-surface);
       border-bottom: 1px solid var(--border-subtle);
+      user-select: none;
+      position: relative;
+      z-index: 600;
+      app-region: drag;
+      -webkit-app-region: drag;
+    }
+
+    [data-theme="light"] .titlebar {
+      background: #FFFFFF;
+      border-bottom: 1px solid #E2E8F0;
+    }
+
+    @media (display-mode: window-controls-overlay) {
+      .titlebar {
+        padding-left: env(titlebar-area-x, 14px);
+        padding-right: calc(100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px) + 12px);
+        height: env(titlebar-area-height, 42px);
+      }
+    }
+
+    .header-left-zone {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      height: 100%;
+    }
+
+    .brand, .engine-status-group, .status-pill, .app-menubar, .menu-item, .menu-btn, button, input, select {
+      app-region: no-drag;
+      -webkit-app-region: no-drag;
+    }
+
+    .app-menubar {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      padding: 0;
+      background: transparent !important;
+      border-bottom: none !important;
+      font-size: 12px;
+      user-select: none;
+      position: relative;
+      z-index: 600;
+      flex-shrink: 0;
     }
 
     .brand {
@@ -1730,37 +1778,17 @@
     }, 1500);
   </script>
 
-  <!-- HEADER & TOOLBAR -->
+  <!-- UNIFIED HEADER (BRAND + MENUBAR + ENGINE STATUS) -->
   <header>
-    <div class="titlebar">
-      <div class="brand">
-        <img class="brand-icon" src="/ui/logo.png" alt="FastDownloader Pro" style="width:28px;height:28px;border-radius:7px;box-shadow:0 0 14px rgba(16,185,129,0.35);object-fit:cover;">
-        <span>FastDownloader</span>
-        <span class="brand-pro-tag">PRO</span>
-      </div>
+    <div class="titlebar" id="appTitlebar">
+      <div class="header-left-zone">
+        <div class="brand">
+          <img class="brand-icon" src="/ui/logo.png" alt="FastDownloader Pro" style="width:24px;height:24px;border-radius:6px;box-shadow:0 0 10px rgba(16,185,129,0.35);object-fit:cover;">
+          <span style="font-weight:700; font-size:13.5px; letter-spacing:0.3px; color:var(--text-main);">FastDownloader</span>
+          <span class="brand-pro-tag">PRO</span>
+        </div>
 
-      <div class="engine-status-group">
-        <div class="status-pill">
-          <span class="status-dot"></span>
-          <span>aria2 (16 Chunks)</span>
-        </div>
-        <div class="status-pill">
-          <span class="status-dot"></span>
-          <span>yt-dlp + ffmpeg</span>
-        </div>
-        <div class="status-pill" id="extStatusPill" style="cursor:pointer;" onclick="showExtensionModal()">
-          <span class="status-dot" style="background:#3B82F6; box-shadow:0 0 6px #3B82F6;"></span>
-          <span id="extStatusText">Browser Ext: Active</span>
-        </div>
-        <div class="status-pill" id="updateStatusPill" style="cursor:pointer;" onclick="showUpdateModal()" title="Update Manager (yt-dlp, aria2 & app)">
-          <span class="status-dot" id="updateStatusDot" style="background:#10B981; box-shadow:0 0 6px #10B981;"></span>
-          <span id="updateStatusText">Updates: Up to date</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- APP DESKTOP MENUBAR -->
-    <nav class="app-menubar" id="appMenubar" role="menubar">
+        <nav class="app-menubar" id="appMenubar" role="menubar">
       <!-- Tasks (المهام) -->
       <div class="menu-item" data-menu="tasks">
         <button class="menu-btn" data-i18n="menuTasks">Tasks</button>
@@ -1924,6 +1952,27 @@
         </div>
       </div>
     </nav>
+      </div>
+
+      <div class="engine-status-group">
+        <div class="status-pill">
+          <span class="status-dot"></span>
+          <span>aria2 (16 Chunks)</span>
+        </div>
+        <div class="status-pill">
+          <span class="status-dot"></span>
+          <span>yt-dlp + ffmpeg</span>
+        </div>
+        <div class="status-pill" id="extStatusPill" style="cursor:pointer;" onclick="showExtensionModal()">
+          <span class="status-dot" style="background:#3B82F6; box-shadow:0 0 6px #3B82F6;"></span>
+          <span id="extStatusText">Browser Ext: Active</span>
+        </div>
+        <div class="status-pill" id="updateStatusPill" style="cursor:pointer;" onclick="showUpdateModal()" title="Update Manager (yt-dlp, aria2 & app)">
+          <span class="status-dot" id="updateStatusDot" style="background:#10B981; box-shadow:0 0 6px #10B981;"></span>
+          <span id="updateStatusText">Updates: Up to date</span>
+        </div>
+      </div>
+    </div>
 
     <div class="action-toolbar">
       <div class="action-group">
@@ -3211,6 +3260,8 @@
       currentTheme = theme;
       document.documentElement.setAttribute('data-theme', theme);
       localStorage.setItem('fast_theme', theme);
+      const meta = document.getElementById('themeColorMeta');
+      if (meta) meta.setAttribute('content', theme === 'light' ? '#FFFFFF' : '#0B0E14');
       const icon = document.getElementById('themeToggleIcon');
       const text = document.getElementById('themeToggleText');
       if (icon && text) {

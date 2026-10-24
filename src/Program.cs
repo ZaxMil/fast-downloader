@@ -2374,6 +2374,19 @@ namespace FastDownloader
                         }
                     }
 
+                    if (urlPath == "/manifest.json")
+                    {
+                        string mPath = Path.Combine(engine.AppDir, "ui", "manifest.json");
+                        if (File.Exists(mPath))
+                        {
+                            byte[] mBytes = File.ReadAllBytes(mPath);
+                            SendHeaders(writer, 200, "OK", "application/manifest+json; charset=utf-8", mBytes.Length);
+                            writer.BaseStream.Write(mBytes, 0, mBytes.Length);
+                            writer.BaseStream.Flush();
+                            return;
+                        }
+                    }
+
                     if (urlPath.StartsWith("/ui/"))
                     {
                         string subFile = urlPath.Substring(4).TrimStart('/', '\\');
@@ -3515,7 +3528,7 @@ namespace FastDownloader
                     ProcessStartInfo psi = new ProcessStartInfo
                     {
                         FileName = targetBrowser,
-                        Arguments = string.Format("--new-window --app=http://127.0.0.1:6801/ --user-data-dir=\"{0}\" --window-size=1200,780 --no-first-run --no-default-browser-check --disable-features=Translate,OptimizationHints", profileDir),
+                        Arguments = string.Format("--new-window --app=http://127.0.0.1:6801/ --user-data-dir=\"{0}\" --window-size=1200,780 --no-first-run --no-default-browser-check --disable-features=Translate,OptimizationHints --enable-features=WindowControlsOverlay", profileDir),
                         CreateNoWindow = false,
                         UseShellExecute = false
                     };

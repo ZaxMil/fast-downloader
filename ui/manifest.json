@@ -1,0 +1,21 @@
+{
+  "name": "FastDownloader Pro",
+  "short_name": "FastDownloader",
+  "start_url": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "theme_color": "#0B0E14",
+  "background_color": "#0B0E14",
+  "icons": [
+    {
+      "src": "/ui/logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/ui/logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
