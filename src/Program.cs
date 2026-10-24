@@ -23,6 +23,7 @@ namespace FastDownloader
         private static JavaScriptSerializer serializer = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         public static string Serialize(object obj) { return serializer.Serialize(obj); }
         public static Dictionary<string, object> ParseDict(string json) { return serializer.Deserialize<Dictionary<string, object>>(json); }
+        public static object DeserializeObject(string json) { return serializer.DeserializeObject(json); }
     }
 
     public static class MediaUrlHelper
@@ -754,8 +755,39 @@ namespace FastDownloader
         public string DownloadsFolder { get; private set; }
         public string AppDir { get; private set; }
         private readonly object ytLock = new object();
+        private readonly object queueLock = new object();
         public List<YtTaskInfo> YtTasks { get; private set; }
         public Dictionary<string, QueueConfig> Queues { get; private set; }
+
+        public List<YtTaskInfo> GetYtTasksSnapshot()
+        {
+            lock (ytLock)
+            {
+                return new List<YtTaskInfo>(YtTasks);
+            }
+        }
+
+        public Dictionary<string, QueueConfig> GetQueuesSnapshot()
+        {
+            lock (queueLock)
+            {
+                return new Dictionary<string, QueueConfig>(Queues);
+            }
+        }
+
+        public void UpdateQueueConfig(string queueName, Action<QueueConfig> updateAction)
+        {
+            lock (queueLock)
+            {
+                QueueConfig cfg;
+                if (!Queues.TryGetValue(queueName, out cfg))
+                {
+                    cfg = new QueueConfig();
+                    Queues[queueName] = cfg;
+                }
+                if (updateAction != null) updateAction(cfg);
+            }
+        }
         public bool AutoCaptureEnabled { get; set; }
         public bool AutoUpdateEngines { get; set; }
         public bool AutoUpdateApp { get; set; }
@@ -858,6 +890,12 @@ namespace FastDownloader
 
             try
             {
+                // Kill any stale aria2c instances holding port 6800 before starting
+                foreach (var p in Process.GetProcessesByName("aria2c"))
+                {
+                    try { p.Kill(); p.WaitForExit(600); } catch { }
+                }
+
                 string safeDir = DownloadsFolder.Replace("\\", "/");
                 ProcessStartInfo psi = new ProcessStartInfo
                 {
@@ -883,6 +921,15 @@ namespace FastDownloader
             try
             {
                 if (ariaProcess != null && !ariaProcess.HasExited) ariaProcess.Kill();
+            }
+            catch { }
+
+            try
+            {
+                foreach (var p in Process.GetProcessesByName("aria2c"))
+                {
+                    try { p.Kill(); } catch { }
+                }
             }
             catch { }
 
@@ -1506,10 +1553,17 @@ namespace FastDownloader
                         }
                     }
 
-                    taskInfo.Progress = 100;
-                    taskInfo.Status = p.ExitCode == 0 ? "completed" : "error";
                     taskInfo.DownloadSpeed = 0;
                     taskInfo.Eta = 0;
+                    if (p.ExitCode == 0)
+                    {
+                        taskInfo.Progress = 100;
+                        taskInfo.Status = "completed";
+                    }
+                    else
+                    {
+                        taskInfo.Status = "error";
+                    }
                     if (p.ExitCode == 0)
                     {
                         if (taskInfo.TotalLength > 0 && taskInfo.CompletedLength < taskInfo.TotalLength)
@@ -1739,13 +1793,23 @@ namespace FastDownloader
 
             try
             {
-                string apiUrl = "https://api.github.com/repos/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases/latest";
+                string apiUrl = "https://api.github.com/repos/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases?per_page=5";
                 using (WebClient wc = new WebClient())
                 {
                     wc.Headers["User-Agent"] = "FastDownloader-App/" + CurrentAppVersion;
                     wc.Headers["Accept"] = "application/vnd.github.v3+json";
                     string json = wc.DownloadString(apiUrl);
-                    var dict = JsonHelper.ParseDict(json);
+                    Dictionary<string, object> dict = null;
+                    try
+                    {
+                        object parsed = JsonHelper.DeserializeObject(json);
+                        ArrayList aList = parsed as ArrayList;
+                        object[] aArr = parsed as object[];
+                        if (aList != null && aList.Count > 0) dict = aList[0] as Dictionary<string, object>;
+                        else if (aArr != null && aArr.Length > 0) dict = aArr[0] as Dictionary<string, object>;
+                        else dict = parsed as Dictionary<string, object>;
+                    }
+                    catch { }
 
                     if (dict != null && dict.ContainsKey("tag_name"))
                     {
@@ -2012,6 +2076,7 @@ namespace FastDownloader
 
                 ThreadPool.QueueUserWorkItem(_ =>
                 {
+                    try { if (engine != null) engine.StopAria2(); } catch { }
                     Thread.Sleep(300);
                     Environment.Exit(0);
                 });
@@ -2139,6 +2204,7 @@ namespace FastDownloader
                     string urlPath = qIdx >= 0 ? rawUrl.Substring(0, qIdx) : rawUrl;
 
                     int contentLength = 0;
+                    string requestOrigin = "";
                     string headerLine;
                     while (!string.IsNullOrEmpty(headerLine = reader.ReadLine()))
                     {
@@ -2146,12 +2212,31 @@ namespace FastDownloader
                         {
                             int.TryParse(headerLine.Substring(15).Trim(), out contentLength);
                         }
+                        else if (headerLine.StartsWith("Origin:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            requestOrigin = headerLine.Substring(7).Trim();
+                        }
                     }
+
+                    bool isTrustedOrigin = IsTrustedOrigin(requestOrigin);
+                    string allowedOrigin = isTrustedOrigin ? (string.IsNullOrEmpty(requestOrigin) ? "*" : requestOrigin) : null;
 
                     if (method == "OPTIONS")
                     {
                         SendHeaders(writer, 200, "OK", "text/plain", 0);
                         return;
+                    }
+
+                    // Security guard: Deny cross-origin attacks from external websites
+                    if (!string.IsNullOrEmpty(requestOrigin) && !isTrustedOrigin)
+                    {
+                        if (urlPath.StartsWith("/api/"))
+                        {
+                            SendHeaders(writer, 403, "Forbidden", "application/json", 27);
+                            writer.Write("{\"error\":\"Origin forbidden\"}");
+                            writer.Flush();
+                            return;
+                        }
                     }
 
                     // READ POST BODY
@@ -2346,11 +2431,10 @@ namespace FastDownloader
                             unifiedList.Add(item);
                         }
 
-                        // Add YT-DLP Tasks
-                        lock (engine.YtTasks)
+                        // Add YT-DLP Tasks using thread-safe snapshot
+                        var ytSnapshot = engine.GetYtTasksSnapshot();
+                        foreach (var yt in ytSnapshot)
                         {
-                            foreach (var yt in engine.YtTasks)
-                            {
                                 var item = new Dictionary<string, object>();
                                 item["gid"] = yt.Gid;
                                 item["name"] = yt.Name;
@@ -2363,8 +2447,7 @@ namespace FastDownloader
                                 item["engine"] = "yt-dlp";
                                 item["url"] = yt.Url;
                                 item["filePath"] = Path.Combine(engine.DownloadsFolder, yt.Name);
-                                unifiedList.Insert(0, item);
-                            }
+                            unifiedList.Insert(0, item);
                         }
 
                         var result = new Dictionary<string, object>
@@ -2466,21 +2549,18 @@ namespace FastDownloader
                             var cfgDict = data["config"] as Dictionary<string, object>;
                             if (cfgDict != null)
                             {
-                                QueueConfig cfg;
-                                if (!engine.Queues.TryGetValue(q, out cfg))
+                                engine.UpdateQueueConfig(q, cfg =>
                                 {
-                                    cfg = new QueueConfig();
-                                    engine.Queues[q] = cfg;
-                                }
-                                if (cfgDict.ContainsKey("enabled")) cfg.Enabled = Convert.ToBoolean(cfgDict["enabled"]);
-                                if (cfgDict.ContainsKey("startTime")) cfg.StartTime = cfgDict["startTime"].ToString();
-                                if (cfgDict.ContainsKey("stopTime")) cfg.StopTime = cfgDict["stopTime"].ToString();
-                                if (cfgDict.ContainsKey("maxConcurrent"))
-                                {
-                                    cfg.MaxConcurrent = Convert.ToInt32(cfgDict["maxConcurrent"]);
-                                    engine.SetMaxConcurrentDownloads(cfg.MaxConcurrent);
-                                }
-                                if (cfgDict.ContainsKey("shutdown")) cfg.Shutdown = Convert.ToBoolean(cfgDict["shutdown"]);
+                                    if (cfgDict.ContainsKey("enabled")) cfg.Enabled = Convert.ToBoolean(cfgDict["enabled"]);
+                                    if (cfgDict.ContainsKey("startTime")) cfg.StartTime = cfgDict["startTime"].ToString();
+                                    if (cfgDict.ContainsKey("stopTime")) cfg.StopTime = cfgDict["stopTime"].ToString();
+                                    if (cfgDict.ContainsKey("maxConcurrent"))
+                                    {
+                                        cfg.MaxConcurrent = Convert.ToInt32(cfgDict["maxConcurrent"]);
+                                        engine.SetMaxConcurrentDownloads(cfg.MaxConcurrent);
+                                    }
+                                    if (cfgDict.ContainsKey("shutdown")) cfg.Shutdown = Convert.ToBoolean(cfgDict["shutdown"]);
+                                });
                             }
                         }
 
@@ -2525,7 +2605,7 @@ namespace FastDownloader
                         return;
                     }
 
-                    // 8.5 OPEN FILE API (Direct shell execution of finished download)
+                    // 8.5 OPEN FILE API (Direct shell execution of finished download with security checks)
                     if (urlPath == "/api/openfile" && method == "POST")
                     {
                         var data = JsonHelper.ParseDict(requestBody);
@@ -2535,19 +2615,29 @@ namespace FastDownloader
                         {
                             try
                             {
-                                Process.Start(new ProcessStartInfo
+                                string fullPath = Path.GetFullPath(filePath);
+                                string fullDownloads = Path.GetFullPath(engine.DownloadsFolder);
+                                if (fullPath.StartsWith(fullDownloads, StringComparison.OrdinalIgnoreCase))
                                 {
-                                    FileName = filePath,
-                                    UseShellExecute = true
-                                });
-                                launched = true;
+                                    string ext = Path.GetExtension(fullPath).ToLowerInvariant();
+                                    bool isBlockedScript = ext == ".bat" || ext == ".cmd" || ext == ".vbs" || ext == ".ps1" || ext == ".reg" || ext == ".hta" || ext == ".scr";
+                                    if (!isBlockedScript)
+                                    {
+                                        Process.Start(new ProcessStartInfo
+                                        {
+                                            FileName = fullPath,
+                                            UseShellExecute = true
+                                        });
+                                        launched = true;
+                                    }
+                                }
                             }
                             catch { }
                         }
 
                         string ok = "{\"ok\":" + (launched ? "true" : "false") + "}";
                         byte[] okBytes = Encoding.UTF8.GetBytes(ok);
-                        SendHeaders(writer, 200, "OK", "application/json", okBytes.Length);
+                        SendHeaders(writer, 200, "OK", "application/json", okBytes.Length, allowedOrigin);
                         writer.Write(ok);
                         writer.Flush();
                         return;
@@ -2933,12 +3023,24 @@ namespace FastDownloader
             }
         }
 
-        private void SendHeaders(StreamWriter writer, int code, string status, string contentType, int length)
+        private static bool IsTrustedOrigin(string origin)
+        {
+            if (string.IsNullOrEmpty(origin)) return true;
+            origin = origin.ToLowerInvariant();
+            return origin.StartsWith("chrome-extension://") ||
+                   origin.StartsWith("http://127.0.0.1") ||
+                   origin.StartsWith("http://localhost");
+        }
+
+        private void SendHeaders(StreamWriter writer, int code, string status, string contentType, int length, string allowedOrigin = "*")
         {
             writer.Write(string.Format("HTTP/1.1 {0} {1}\r\n", code, status));
-            writer.Write("Access-Control-Allow-Origin: *\r\n");
-            writer.Write("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n");
-            writer.Write("Access-Control-Allow-Headers: Content-Type\r\n");
+            if (!string.IsNullOrEmpty(allowedOrigin))
+            {
+                writer.Write("Access-Control-Allow-Origin: " + allowedOrigin + "\r\n");
+                writer.Write("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n");
+                writer.Write("Access-Control-Allow-Headers: Content-Type\r\n");
+            }
             writer.Write("Content-Type: " + contentType + "\r\n");
             writer.Write("Content-Length: " + length + "\r\n");
             writer.Write("Connection: close\r\n");
@@ -3082,6 +3184,7 @@ namespace FastDownloader
 
     public class DownloaderAppContext : ApplicationContext
     {
+        public static EngineManager CurrentEngine { get; private set; }
         private EngineManager engine;
         private UpdateManager updateManager;
         private HttpBridgeServer bridge;
@@ -3094,6 +3197,7 @@ namespace FastDownloader
         public DownloaderAppContext()
         {
             engine = new EngineManager();
+            CurrentEngine = engine;
             engine.StartAria2();
 
             // Setup System Tray
@@ -3314,7 +3418,7 @@ namespace FastDownloader
             DateTime now = DateTime.Now;
             string nowTimeStr = now.ToString("HH:mm");
 
-            foreach (var kvp in engine.Queues)
+            foreach (var kvp in engine.GetQueuesSnapshot())
             {
                 string queueName = kvp.Key;
                 QueueConfig cfg = kvp.Value;
@@ -3534,7 +3638,24 @@ namespace FastDownloader
                         UseShellExecute = true
                     };
                     Process.Start(psi);
-                    Thread.Sleep(800);
+                }
+
+                // Active health check polling: wait up to 6 seconds for bridge to respond
+                for (int attempt = 0; attempt < 20; attempt++)
+                {
+                    try
+                    {
+                        HttpWebRequest testReq = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:6801/api/status");
+                        testReq.Timeout = 300;
+                        using (HttpWebResponse testResp = (HttpWebResponse)testReq.GetResponse())
+                        {
+                            if (testResp.StatusCode == HttpStatusCode.OK) break;
+                        }
+                    }
+                    catch
+                    {
+                        Thread.Sleep(250);
+                    }
                 }
             }
             catch { }
@@ -3594,6 +3715,7 @@ namespace FastDownloader
             AppDomain.CurrentDomain.ProcessExit += (s, e) =>
             {
                 try { File.AppendAllText(Path.Combine(appDir, "startup.log"), DateTime.Now.ToString() + " ProcessExit triggered.\r\n"); } catch {}
+                try { if (DownloaderAppContext.CurrentEngine != null) DownloaderAppContext.CurrentEngine.StopAria2(); } catch { }
             };
 
             try

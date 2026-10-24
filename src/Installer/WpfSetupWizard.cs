@@ -1671,12 +1671,16 @@ namespace FastDownloader.Installer
             {
                 string path = System.IO.Path.Combine(targetDir, "com.fastdownloader.app.json");
                 string exe = System.IO.Path.Combine(targetDir, "FastDownloader.exe").Replace("\\", "\\\\");
-                if (File.Exists(path))
-                {
-                    string content = File.ReadAllText(path);
-                    content = System.Text.RegularExpressions.Regex.Replace(content, "\"path\": \".*?\"", "\"path\": \"" + exe + "\"");
-                    File.WriteAllText(path, content);
-                }
+                string manifest = "{\n" +
+                    "  \"name\": \"" + NativeHostName + "\",\n" +
+                    "  \"description\": \"FastDownloader Native Messaging Host\",\n" +
+                    "  \"path\": \"" + exe + "\",\n" +
+                    "  \"type\": \"stdio\",\n" +
+                    "  \"allowed_origins\": [\n" +
+                    "    \"chrome-extension://knedhffekcklfpbgmghgclgnhpehmjkn/\"\n" +
+                    "  ]\n" +
+                    "}";
+                File.WriteAllText(path, manifest, System.Text.Encoding.UTF8);
             }
             catch { }
         }
