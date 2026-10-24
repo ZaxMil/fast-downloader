@@ -384,6 +384,109 @@
       border: 1px solid var(--border-subtle);
     }
 
+    .status-pill-unified {
+      cursor: pointer;
+      padding: 4px 11px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+    .status-pill-unified:hover {
+      background: rgba(16, 185, 129, 0.1);
+      border-color: rgba(16, 185, 129, 0.4);
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+    }
+    [data-theme="light"] .status-pill-unified {
+      background: #F1F5F9;
+      border-color: #E2E8F0;
+    }
+    [data-theme="light"] .status-pill-unified:hover {
+      background: #E2E8F0;
+      border-color: #CBD5E1;
+    }
+
+    /* SYSTEM STATUS POPOVER MENU */
+    .system-status-popover {
+      width: 320px;
+      background: #0f172a !important;
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.85);
+      overflow: hidden;
+      z-index: 3000;
+    }
+    [data-theme="light"] .system-status-popover {
+      background: #FFFFFF !important;
+      border-color: #E2E8F0;
+    }
+    .sys-menu-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 14px;
+      cursor: pointer;
+      transition: background 0.12s ease;
+      gap: 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    }
+    .sys-menu-item:last-child {
+      border-bottom: none;
+    }
+    .sys-menu-item:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+    [data-theme="light"] .sys-menu-item:hover {
+      background: #F8FAFC;
+    }
+    .sys-item-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+    .sys-item-icon {
+      font-size: 15px;
+      flex-shrink: 0;
+    }
+    .sys-item-title {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-main);
+      white-space: nowrap;
+    }
+    .sys-item-desc {
+      font-size: 10px;
+      color: var(--text-dim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sys-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 10px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .sys-badge-active {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34D399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .sys-badge-warning {
+      background: rgba(245, 158, 11, 0.15);
+      color: #FBBF24;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .sys-badge-info {
+      background: rgba(59, 130, 246, 0.15);
+      color: #60A5FA;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
     .status-dot {
       width: 6px;
       height: 6px;
@@ -2132,21 +2235,10 @@
       </div>
 
       <div class="engine-status-group">
-        <div class="status-pill">
-          <span class="status-dot"></span>
-          <span>aria2 (16 Chunks)</span>
-        </div>
-        <div class="status-pill">
-          <span class="status-dot"></span>
-          <span>yt-dlp + ffmpeg</span>
-        </div>
-        <div class="status-pill" id="extStatusPill" style="cursor:pointer;" onclick="showExtensionModal()">
-          <span class="status-dot" style="background:#3B82F6; box-shadow:0 0 6px #3B82F6;"></span>
-          <span id="extStatusText">Browser Ext: Active</span>
-        </div>
-        <div class="status-pill" id="updateStatusPill" style="cursor:pointer;" onclick="showUpdateModal()" title="Update Manager (yt-dlp, aria2 & app)">
-          <span class="status-dot" id="updateStatusDot" style="background:#10B981; box-shadow:0 0 6px #10B981;"></span>
-          <span id="updateStatusText">Updates: Up to date</span>
+        <div class="status-pill status-pill-unified" id="systemStatusPill" onclick="toggleSystemStatusMenu(event)" title="Engines, Browser & Updates Health (Click to expand)">
+          <span class="status-dot" id="systemStatusDot" style="background:#10B981; box-shadow:0 0 8px #10B981;"></span>
+          <span id="systemStatusText" style="font-weight:600; font-size:11.5px;">Engines & Updates</span>
+          <span style="font-size:9px; opacity:0.7; margin-left:1px;">▾</span>
         </div>
       </div>
     </div>
@@ -2455,6 +2547,82 @@
         </div>
       </div>
     </main>
+  </div>
+
+  <!-- SYSTEM HEALTH, ENGINES & UPDATES UNIFIED MENU -->
+  <div id="systemStatusMenu" class="context-menu system-status-popover" style="display:none;">
+    <!-- POPOVER HEADER -->
+    <div style="padding:10px 14px 8px; background:linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(6, 182, 212, 0.08)); border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:15px;">⚡</span>
+        <div>
+          <div style="font-size:12px; font-weight:700; color:var(--text-main); letter-spacing:0.3px;" data-i18n="sysMenuTitle">Engines & Updates</div>
+          <div style="font-size:10.5px; color:var(--text-dim);" id="sysMenuSub">All core systems healthy</div>
+        </div>
+      </div>
+      <span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; background:rgba(16, 185, 129, 0.2); color:#10B981;">v0.1.0</span>
+    </div>
+
+    <!-- STATUS ITEMS -->
+    <div style="padding:4px 0;">
+      <!-- ITEM 1: ARIA2 -->
+      <div class="sys-menu-item" onclick="diagnoseEngines(); closeAllContextMenus();" title="Click to test / inspect aria2">
+        <div class="sys-item-left">
+          <span class="sys-item-icon">🚀</span>
+          <div>
+            <div class="sys-item-title">aria2 Turbo Core</div>
+            <div class="sys-item-desc">16-Connection Parallel Streaming</div>
+          </div>
+        </div>
+        <span class="sys-badge sys-badge-active" id="sysAriaBadge">● Active</span>
+      </div>
+
+      <!-- ITEM 2: YT-DLP & FFMPEG -->
+      <div class="sys-menu-item" onclick="showUpdateModal(); closeAllContextMenus();" title="Click to update / inspect yt-dlp">
+        <div class="sys-item-left">
+          <span class="sys-item-icon">🎬</span>
+          <div>
+            <div class="sys-item-title">yt-dlp + FFmpeg</div>
+            <div class="sys-item-desc" id="sysYtdlpDesc">Universal 4K/8K Media Sniffer</div>
+          </div>
+        </div>
+        <span class="sys-badge sys-badge-active" id="sysYtdlpBadge">● Ready</span>
+      </div>
+
+      <!-- ITEM 3: BROWSER EXTENSION -->
+      <div class="sys-menu-item" onclick="showExtensionModal(); closeAllContextMenus();" title="Click to install / test Browser Extension">
+        <div class="sys-item-left">
+          <span class="sys-item-icon">🌐</span>
+          <div>
+            <div class="sys-item-title" data-i18n="sysExtTitle">Browser Integration</div>
+            <div class="sys-item-desc" id="sysExtDesc">Edge & Chrome Companion</div>
+          </div>
+        </div>
+        <span class="sys-badge sys-badge-active" id="sysExtBadge">● Active</span>
+      </div>
+
+      <!-- ITEM 4: SOFTWARE UPDATES -->
+      <div class="sys-menu-item" onclick="showUpdateModal(); closeAllContextMenus();" title="Click to manage app & engine updates">
+        <div class="sys-item-left">
+          <span class="sys-item-icon">🔄</span>
+          <div>
+            <div class="sys-item-title" data-i18n="sysUpdatesTitle">Software Updates</div>
+            <div class="sys-item-desc" id="sysUpdateDesc">App & Engine Automation</div>
+          </div>
+        </div>
+        <span class="sys-badge sys-badge-active" id="sysUpdateBadge">● Up to date</span>
+      </div>
+    </div>
+
+    <!-- POPOVER ACTIONS FOOTER -->
+    <div style="padding:8px 12px; background:rgba(0,0,0,0.25); border-top:1px solid var(--border-subtle); display:flex; gap:8px;">
+      <button class="btn btn-primary" style="flex:1; height:28px; font-size:11px;" onclick="checkAllUpdates(); event.stopPropagation();" id="sysBtnCheckUpdates">
+        🔄 Check Updates
+      </button>
+      <button class="btn" style="height:28px; font-size:11px;" onclick="showUpdateModal(); closeAllContextMenus();" title="Configure Automatic Daily Updates">
+        ⚙️ Settings
+      </button>
+    </div>
   </div>
 
   <!-- TOOLBAR CUSTOMIZER CONTEXT MENU -->
@@ -3293,6 +3461,9 @@
         toolbarCustomizerTitle: "Toolbar Buttons",
         toolbarCompactMode: "Compact Mode (Icons Only)",
         toolbarReset: "Reset Toolbar to Default",
+        sysMenuTitle: "Engines & Updates",
+        sysExtTitle: "Browser Integration",
+        sysUpdatesTitle: "Software Updates",
         
         statusDownloading: "Downloading",
         statusPaused: "Paused",
@@ -3433,6 +3604,9 @@
         toolbarCustomizerTitle: "أزرار شريط الأدوات",
         toolbarCompactMode: "الوضع المضغوط (أيقونات فقط)",
         toolbarReset: "استعادة شريط الأدوات الافتراضي",
+        sysMenuTitle: "المحركات والتحديثات",
+        sysExtTitle: "إضافة المتصفح",
+        sysUpdatesTitle: "تحديثات البرامج",
         
         statusDownloading: "جاري التحميل",
         statusPaused: "متوقف مؤقتاً",
@@ -3598,6 +3772,7 @@
       });
 
       applyColumnLabels();
+      refreshUnifiedSystemStatus();
       renderTable();
     }
 
@@ -4542,10 +4717,12 @@
       const em = document.getElementById('emptyContextMenu');
       const hm = document.getElementById('headerContextMenu');
       const tbm = document.getElementById('toolbarContextMenu');
+      const sm = document.getElementById('systemStatusMenu');
       if (tm) tm.style.display = 'none';
       if (em) em.style.display = 'none';
       if (hm) hm.style.display = 'none';
       if (tbm) tbm.style.display = 'none';
+      if (sm) sm.style.display = 'none';
       contextMenuGid = null;
     }
 
@@ -5347,19 +5524,69 @@
       } catch(e) {}
     }
 
-    function updateExtensionPill(connected) {
-      const pill = document.getElementById('extStatusPill');
-      const dot = pill.querySelector('.status-dot');
-      const text = document.getElementById('extStatusText');
-      if (connected) {
+    let g_extConnected = false;
+    let g_hasUpdate = false;
+    let g_latestVer = '';
+
+    function refreshUnifiedSystemStatus() {
+      const dot = document.getElementById('systemStatusDot');
+      const text = document.getElementById('systemStatusText');
+      const sub = document.getElementById('sysMenuSub');
+      if (!dot || !text) return;
+
+      if (g_hasUpdate) {
+        dot.style.background = '#F59E0B';
+        dot.style.boxShadow = '0 0 10px #F59E0B';
+        text.textContent = '✨ Update Available';
+        if (sub) sub.textContent = 'New update ready to install';
+      } else if (!g_extConnected) {
         dot.style.background = '#10B981';
         dot.style.boxShadow = '0 0 8px #10B981';
-        text.textContent = 'Browser Ext: Connected (Active)';
+        text.textContent = currentLang === 'ar' ? 'المحركات والتحديثات' : 'Engines & Updates';
+        if (sub) sub.textContent = 'Core engines active (Extension standby)';
       } else {
-        dot.style.background = '#3B82F6';
-        dot.style.boxShadow = '0 0 6px #3B82F6';
-        text.textContent = 'Browser Ext: 1-Click Install';
+        dot.style.background = '#10B981';
+        dot.style.boxShadow = '0 0 8px #10B981';
+        text.textContent = currentLang === 'ar' ? 'المحركات والتحديثات' : 'Engines & Updates';
+        if (sub) sub.textContent = currentLang === 'ar' ? 'كافة الأنظمة والمحركات جاهزة' : 'All core systems healthy';
       }
+    }
+
+    function toggleSystemStatusMenu(e) {
+      if (e) {
+        if (typeof e.preventDefault === 'function') e.preventDefault();
+        if (typeof e.stopPropagation === 'function') e.stopPropagation();
+      }
+      const menu = document.getElementById('systemStatusMenu');
+      if (!menu) return;
+
+      const isShown = menu.style.display === 'block';
+      closeAllContextMenus();
+      closeAllMenus();
+
+      if (!isShown) {
+        const pill = document.getElementById('systemStatusPill');
+        const rect = pill.getBoundingClientRect();
+        positionContextMenu(menu, rect.right - 320, rect.bottom + 6);
+      }
+    }
+
+    function updateExtensionPill(connected) {
+      g_extConnected = !!connected;
+      const extBadge = document.getElementById('sysExtBadge');
+      const extDesc = document.getElementById('sysExtDesc');
+      if (extBadge) {
+        if (connected) {
+          extBadge.className = 'sys-badge sys-badge-active';
+          extBadge.textContent = '● Connected';
+          if (extDesc) extDesc.textContent = 'Sniffer & Downloader Active';
+        } else {
+          extBadge.className = 'sys-badge sys-badge-info';
+          extBadge.textContent = '1-Click Install';
+          if (extDesc) extDesc.textContent = 'Click to connect browser';
+        }
+      }
+      refreshUnifiedSystemStatus();
     }
 
     function updateExtensionModalBanner(connected) {
@@ -5996,20 +6223,22 @@
     }
 
     function updateHeaderUpdatePill(hasUpdate, latestVer = '') {
-      const pill = document.getElementById('updateStatusPill');
-      const dot = document.getElementById('updateStatusDot');
-      const text = document.getElementById('updateStatusText');
-      if (!pill || !dot || !text) return;
-
-      if (hasUpdate) {
-        dot.style.background = '#F59E0B';
-        dot.style.boxShadow = '0 0 10px #F59E0B';
-        text.textContent = '✨ Update ' + (latestVer ? 'v' + latestVer : 'Available');
-      } else {
-        dot.style.background = '#10B981';
-        dot.style.boxShadow = '0 0 6px #10B981';
-        text.textContent = 'Updates: Up to date';
+      g_hasUpdate = !!hasUpdate;
+      g_latestVer = latestVer;
+      const updateBadge = document.getElementById('sysUpdateBadge');
+      const updateDesc = document.getElementById('sysUpdateDesc');
+      if (updateBadge) {
+        if (hasUpdate) {
+          updateBadge.className = 'sys-badge sys-badge-warning';
+          updateBadge.textContent = '✨ v' + (latestVer || 'new');
+          if (updateDesc) updateDesc.textContent = 'New update available!';
+        } else {
+          updateBadge.className = 'sys-badge sys-badge-active';
+          updateBadge.textContent = '● Up to date';
+          if (updateDesc) updateDesc.textContent = 'App & Engine Automation';
+        }
       }
+      refreshUnifiedSystemStatus();
     }
 
     async function checkAllUpdates() {
