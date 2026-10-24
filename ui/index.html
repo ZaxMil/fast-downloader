@@ -2830,7 +2830,7 @@
         <button class="btn" type="button" onclick="cancelAddDownload()" style="cursor:pointer;"><span style="opacity:0.6;">(Esc)</span> Cancel</button>
         <div style="display:flex; gap:8px;">
           <button class="btn" type="button" onclick="submitAddDownload(false)" style="cursor:pointer;"><span style="opacity:0.6;">(Shift+Enter)</span> 📋 Save in Queue</button>
-          <button class="btn btn-primary" type="button" onclick="submitAddDownload(true)" style="cursor:pointer;"><span style="opacity:0.6;">(Enter)</span> ⚡ Download Now</button>
+          <button class="btn btn-primary" id="btnConfirmDownloadNow" type="button" onclick="submitAddDownload(true)" style="cursor:pointer;"><span style="opacity:0.6;">(Enter)</span> ⚡ Download Now</button>
         </div>
       </div>
     </div>
@@ -5190,6 +5190,10 @@
       checkDuplicateFileName(item.filename);
       playChime(true);
       showModal('addModal');
+      setTimeout(() => {
+        const btn = document.getElementById('btnConfirmDownloadNow');
+        if (btn) btn.focus();
+      }, 80);
     }
 
     function updatePreFlightCard(info) {

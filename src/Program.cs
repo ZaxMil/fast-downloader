@@ -3308,6 +3308,15 @@ namespace FastDownloader
         public static extern bool BringWindowToTop(IntPtr hWnd);
 
         [DllImport("user32.dll")]
+        public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        public static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+        public const uint SWP_NOMOVE = 0x0002;
+        public const uint SWP_NOSIZE = 0x0001;
+        public const uint SWP_SHOWWINDOW = 0x0040;
+
+        [DllImport("user32.dll")]
         public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
         public const int SW_RESTORE = 9;
@@ -3420,6 +3429,14 @@ namespace FastDownloader
                 {
                     ShowWindow(found, SW_SHOW);
                 }
+
+                // Bypass Windows foreground lock by toggling TOPMOST (pops up over active browser)
+                try
+                {
+                    SetWindowPos(found, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                    SetWindowPos(found, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                }
+                catch { }
                 BringWindowToTop(found);
                 SetForegroundWindow(found);
                 try { SwitchToThisWindow(found, true); } catch { }

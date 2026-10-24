@@ -91,7 +91,7 @@ async function sendDownloadToApp({ url, title, type = "auto", quality = "best", 
   const clientHeaders = getBrowserClientHeaders(url, referer);
 
   const payload = {
-    action: "download",
+    action: "intercept",
     url: url,
     title: title || "Download",
     type: type,
@@ -105,10 +105,11 @@ async function sendDownloadToApp({ url, title, type = "auto", quality = "best", 
     headers: clientHeaders
   };
 
-  // 1. First priority: IDM-grade Chrome Native Messaging (Auto-launches app, zero port conflict)
+  // 1. First priority: IDM-grade Chrome Native Messaging (Auto-launches app, opens pre-flight dialog)
   try {
     const nativeRes = await sendViaNativeMessaging(payload);
-    if (nativeRes && (nativeRes.ok || nativeRes.gid)) {
+    if (nativeRes && (nativeRes.ok || nativeRes.gid || nativeRes.pending)) {
+      await openFastDownloaderApp();
       return { ok: true, data: nativeRes, transport: "native" };
     }
   } catch (err) {
@@ -117,7 +118,7 @@ async function sendDownloadToApp({ url, title, type = "auto", quality = "best", 
 
   // 2. Fallback: Localhost HTTP Bridge (Port 6801)
   try {
-    const resp = await fetch(`${FD_API_BASE}/api/download`, {
+    const resp = await fetch(`${FD_API_BASE}/api/intercept`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
