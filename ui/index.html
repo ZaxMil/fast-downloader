@@ -4860,7 +4860,7 @@
       fetch(`${API_BASE}/api/download`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: t.url, filename: t.name, type: t.engine === 'yt-dlp' ? 'video' : 'auto' })
+        body: JSON.stringify({ url: t.url, filename: t.name, type: t.engine === 'yt-dlp' ? 'video' : 'auto', direct: true })
       }).then(() => {
         showToast('🔄 Restarted download task!');
       }).catch(() => showToast('Failed to restart task', true));
@@ -5379,7 +5379,7 @@
           resp = await fetch(`${API_BASE}/api/download`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url, queue, quality, startNow, filename, subfolder: category, category })
+            body: JSON.stringify({ url, queue, quality, startNow, filename, subfolder: category, category, direct: true })
           });
         }
 
@@ -6499,7 +6499,7 @@
       fetch(`${API_BASE}/api/download`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: t.url, filename: t.name, type: t.engine === 'yt-dlp' ? 'video' : 'auto' })
+        body: JSON.stringify({ url: t.url, filename: t.name, type: t.engine === 'yt-dlp' ? 'video' : 'auto', direct: true })
       }).then(() => {
         showToast('Restarted download task!');
         closeDetailModal();
