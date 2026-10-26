@@ -109,7 +109,7 @@ async function sendDownloadToApp({ url, title, type = "auto", quality = "best", 
   try {
     const nativeRes = await sendViaNativeMessaging(payload);
     if (nativeRes && (nativeRes.ok || nativeRes.gid || nativeRes.pending)) {
-      await openFastDownloaderApp();
+      // Native pre-flight dialog handles user interaction; do not pop open the browser dashboard!
       return { ok: true, data: nativeRes, transport: "native" };
     }
   } catch (err) {

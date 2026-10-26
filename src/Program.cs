@@ -1534,8 +1534,10 @@ namespace FastDownloader
             string ffmpegDir = Path.Combine(AppDir, "bin");
 
             string formatArg = "-f \"bv*[vcodec^=avc1]+ba[acodec^=mp4a]/bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/18/bestvideo*+bestaudio/best\" --merge-output-format mp4";
-            if (quality == "720p") formatArg = "-f \"bv*[height<=720][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720]/bv*[height<=720]+ba/18/best\" --merge-output-format mp4";
-            if (quality == "audio") formatArg = "-x --audio-format mp3";
+            if (quality == "1080p") formatArg = "-f \"bv*[height<=1080][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080]/bv*[height<=1080]+ba/best\" --merge-output-format mp4";
+            else if (quality == "720p") formatArg = "-f \"bv*[height<=720][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720]/bv*[height<=720]+ba/18/best\" --merge-output-format mp4";
+            else if (quality == "480p") formatArg = "-f \"bv*[height<=480][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480]/bv*[height<=480]+ba/best\" --merge-output-format mp4";
+            else if (quality == "audio") formatArg = "-x --audio-format mp3";
 
             string extraHeaders = "";
             bool isYouTube = url.Contains("youtube.com") || url.Contains("youtu.be");
@@ -4229,7 +4231,7 @@ namespace FastDownloader
             this.MinimizeBox = true;
             this.ShowInTaskbar = true;
             this.StartPosition = FormStartPosition.CenterScreen;
-            this.ClientSize = new Size(540, 320);
+            this.ClientSize = new Size(540, 352);
             this.BackColor = Color.FromArgb(24, 25, 29);
             this.ForeColor = Color.FromArgb(235, 238, 245);
             this.Font = new Font("Segoe UI", 9F);
@@ -4397,6 +4399,40 @@ namespace FastDownloader
                 ForeColor = Color.FromArgb(209, 213, 219)
             };
             this.Controls.Add(chkShutdown);
+
+            // Speed Limiter Control (IDM Feature)
+            Label lblSpeedLimit = new Label
+            {
+                Text = "Speed Limiter:",
+                Location = new Point(18, 252),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(160, 165, 175)
+            };
+            this.Controls.Add(lblSpeedLimit);
+
+            ComboBox cmbSpeedLimit = new ComboBox
+            {
+                Location = new Point(115, 248),
+                Size = new Size(140, 23),
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor = Color.FromArgb(32, 34, 40),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+            cmbSpeedLimit.Items.AddRange(new object[] { "🚀 Maximum / Unlimited", "🐌 500 KB/s", "⚡ 1 MB/s", "⚡ 2 MB/s", "⚡ 5 MB/s", "⚡ 10 MB/s" });
+            cmbSpeedLimit.SelectedIndex = 0;
+            cmbSpeedLimit.SelectedIndexChanged += (s, e) =>
+            {
+                string sel = cmbSpeedLimit.SelectedItem != null ? cmbSpeedLimit.SelectedItem.ToString() : "";
+                if (sel.Contains("Unlimited") || sel.Contains("Maximum")) engine.SetSpeedLimit("0");
+                else if (sel.Contains("500 KB")) engine.SetSpeedLimit("500K");
+                else if (sel.Contains("1 MB")) engine.SetSpeedLimit("1M");
+                else if (sel.Contains("2 MB")) engine.SetSpeedLimit("2M");
+                else if (sel.Contains("5 MB")) engine.SetSpeedLimit("5M");
+                else if (sel.Contains("10 MB")) engine.SetSpeedLimit("10M");
+            };
+            this.Controls.Add(cmbSpeedLimit);
 
             // 6. Bottom Buttons Bar
             Panel bottomPanel = new Panel

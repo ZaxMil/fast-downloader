@@ -421,7 +421,7 @@
     mainAction.title = isCanvas ? 'Record Canvas Animation' : 'Download with FastDownloader (Best Quality)';
     mainAction.innerHTML = `
       ${iconUrl ? `<img src="${iconUrl}" class="fd-pill-icon" alt="FD">` : `<span>⚡</span>`}
-      <span class="fd-pill-text">${isCanvas ? 'Record' : 'Download'}</span>
+      <span class="fd-pill-text">${isCanvas ? 'Record' : 'Download this video'}</span>
     `;
 
     // Dropdown Arrow Button
@@ -463,16 +463,24 @@
     } else {
       menu.innerHTML = `
         <div class="fd-menu-header">
-          <span>FastDownloader Pro</span>
-          <span class="fd-menu-status"><span class="fd-menu-status-dot"></span> 16 Chunks</span>
+          <span>⚡ FastDownloader Pro</span>
+          <span class="fd-menu-status"><span class="fd-menu-status-dot"></span> 16x Turbo</span>
         </div>
         <div class="fd-menu-item" data-quality="best">
           <div class="fd-menu-item-left">🎬 <span>Best Quality</span></div>
-          <span class="fd-menu-badge fd-badge-best">4K/1080p MP4</span>
+          <span class="fd-menu-badge fd-badge-best">4K / 1080p MP4</span>
+        </div>
+        <div class="fd-menu-item" data-quality="1080p">
+          <div class="fd-menu-item-left">🎬 <span>1080p Full HD</span></div>
+          <span class="fd-menu-badge">1080p MP4</span>
         </div>
         <div class="fd-menu-item" data-quality="720p">
-          <div class="fd-menu-item-left">🎬 <span>Fast Standard</span></div>
+          <div class="fd-menu-item-left">🎬 <span>720p HD</span></div>
           <span class="fd-menu-badge">720p MP4</span>
+        </div>
+        <div class="fd-menu-item" data-quality="480p">
+          <div class="fd-menu-item-left">🎬 <span>480p Standard</span></div>
+          <span class="fd-menu-badge">480p MP4</span>
         </div>
         <div class="fd-menu-item" data-quality="audio">
           <div class="fd-menu-item-left">🎵 <span>Audio Only</span></div>
@@ -481,9 +489,6 @@
         <div class="fd-menu-divider"></div>
         <div class="fd-menu-item" data-action="copy">
           <div class="fd-menu-item-left">📋 <span>Copy Video Link</span></div>
-        </div>
-        <div class="fd-menu-item" data-action="dashboard">
-          <div class="fd-menu-item-left">⚡ <span>Open App Dashboard</span></div>
         </div>
       `;
     }
