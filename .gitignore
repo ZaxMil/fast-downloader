@@ -4,6 +4,8 @@
 *.pdb
 *.obj
 *.zip
+!docs/*.exe
+!docs/*.zip
 bin/
 
 # User Data & Runtime Profiles
