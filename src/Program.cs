@@ -500,6 +500,14 @@ namespace FastDownloader
             }
             return string.Format("{0:0.##} {1}", len, sizes[order]);
         }
+
+        public static string FormatEta(long sec)
+        {
+            if (sec <= 0) return "00:00";
+            if (sec < 60) return string.Format("{0:D2}s", sec);
+            if (sec < 3600) return string.Format("{0:D2}:{1:D2}", sec / 60, sec % 60);
+            return string.Format("{0:D2}:{1:D2}:{2:D2}", sec / 3600, (sec % 3600) / 60, sec % 60);
+        }
     }
 
     public class BrowserInfo
@@ -1158,6 +1166,136 @@ namespace FastDownloader
             }
             catch { }
             return tasks;
+        }
+
+        public UnifiedTaskInfo GetTaskInfo(string gid)
+        {
+            if (string.IsNullOrEmpty(gid)) return null;
+
+            // 1. Check YT-DLP task
+            if (gid.StartsWith("yt_"))
+            {
+                lock (ytLock)
+                {
+                    foreach (var yt in YtTasks)
+                    {
+                        if (yt.Gid == gid)
+                        {
+                            string resolvedPath = "";
+                            if (!string.IsNullOrEmpty(yt.SaveDir) && !string.IsNullOrEmpty(yt.Name))
+                            {
+                                resolvedPath = Path.Combine(yt.SaveDir, yt.Name);
+                            }
+                            return new UnifiedTaskInfo
+                            {
+                                Gid = yt.Gid,
+                                Name = yt.Name,
+                                TotalLength = yt.TotalLength,
+                                CompletedLength = yt.CompletedLength,
+                                DownloadSpeed = yt.DownloadSpeed,
+                                Progress = yt.Progress,
+                                Eta = yt.Eta,
+                                Status = yt.Status,
+                                FilePath = resolvedPath,
+                                Url = yt.Url,
+                                Engine = "yt-dlp",
+                                NumConnections = 16
+                            };
+                        }
+                    }
+                }
+            }
+
+            // 2. Query Aria2 tellStatus
+            try
+            {
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:6800/jsonrpc");
+                req.Method = "POST";
+                req.ContentType = "application/json";
+                req.Timeout = 1000;
+                var payload = new
+                {
+                    jsonrpc = "2.0",
+                    id = "status",
+                    method = "aria2.tellStatus",
+                    @params = new object[] { gid, new string[] { "gid", "status", "totalLength", "completedLength", "downloadSpeed", "files", "connections" } }
+                };
+                byte[] data = Encoding.UTF8.GetBytes(JsonHelper.Serialize(payload));
+                req.ContentLength = data.Length;
+                using (var stream = req.GetRequestStream()) stream.Write(data, 0, data.Length);
+                using (var resp = req.GetResponse())
+                using (var reader = new StreamReader(resp.GetResponseStream()))
+                {
+                    var dict = JsonHelper.ParseDict(reader.ReadToEnd());
+                    if (dict != null && dict.ContainsKey("result"))
+                    {
+                        var res = dict["result"] as Dictionary<string, object>;
+                        if (res != null)
+                        {
+                            long totalLength = 0;
+                            if (res.ContainsKey("totalLength") && res["totalLength"] != null) long.TryParse(res["totalLength"].ToString(), out totalLength);
+                            long completedLength = 0;
+                            if (res.ContainsKey("completedLength") && res["completedLength"] != null) long.TryParse(res["completedLength"].ToString(), out completedLength);
+                            long downloadSpeed = 0;
+                            if (res.ContainsKey("downloadSpeed") && res["downloadSpeed"] != null) long.TryParse(res["downloadSpeed"].ToString(), out downloadSpeed);
+
+                            int progress = 0;
+                            if (totalLength > 0)
+                            {
+                                progress = (int)((completedLength * 100) / totalLength);
+                                if (progress > 100) progress = 100;
+                            }
+
+                            long eta = 0;
+                            if (downloadSpeed > 0 && totalLength > completedLength)
+                            {
+                                eta = (totalLength - completedLength) / downloadSpeed;
+                            }
+
+                            string status = res.ContainsKey("status") && res["status"] != null ? res["status"].ToString() : "active";
+                            string filePath = "";
+                            string name = "";
+                            if (res.ContainsKey("files"))
+                            {
+                                var files = res["files"] as ArrayList;
+                                if (files != null && files.Count > 0)
+                                {
+                                    var f = files[0] as Dictionary<string, object>;
+                                    if (f != null && f.ContainsKey("path"))
+                                    {
+                                        filePath = f["path"].ToString();
+                                        name = Path.GetFileName(filePath);
+                                    }
+                                }
+                            }
+
+                            int conns = 16;
+                            if (res.ContainsKey("connections") && res["connections"] != null)
+                            {
+                                int.TryParse(res["connections"].ToString(), out conns);
+                            }
+
+                            return new UnifiedTaskInfo
+                            {
+                                Gid = gid,
+                                Name = name,
+                                TotalLength = totalLength,
+                                CompletedLength = completedLength,
+                                DownloadSpeed = downloadSpeed,
+                                Progress = progress,
+                                Eta = eta,
+                                Status = status,
+                                FilePath = filePath,
+                                Url = "",
+                                Engine = "aria2",
+                                NumConnections = conns > 0 ? conns : 16
+                            };
+                        }
+                    }
+                }
+            }
+            catch { }
+            return null;
         }
 
         private static void KillProcessTree(Process proc)
@@ -3915,6 +4053,736 @@ namespace FastDownloader
         }
     }
 
+    public class UnifiedTaskInfo
+    {
+        public string Gid { get; set; }
+        public string Name { get; set; }
+        public long TotalLength { get; set; }
+        public long CompletedLength { get; set; }
+        public long DownloadSpeed { get; set; }
+        public int Progress { get; set; }
+        public long Eta { get; set; }
+        public string Status { get; set; }
+        public string FilePath { get; set; }
+        public string Url { get; set; }
+        public string Engine { get; set; }
+        public int NumConnections { get; set; }
+
+        public UnifiedTaskInfo()
+        {
+            NumConnections = 16;
+            Status = "downloading";
+        }
+    }
+
+    public class ModernProgressBar : Control
+    {
+        private int val = 0;
+        public int Value
+        {
+            get { return val; }
+            set
+            {
+                int clamped = Math.Max(0, Math.Min(100, value));
+                if (val != clamped)
+                {
+                    val = clamped;
+                    Invalidate();
+                }
+            }
+        }
+
+        public ModernProgressBar()
+        {
+            this.SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+            this.BackColor = Color.FromArgb(28, 30, 36);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            Graphics g = e.Graphics;
+
+            int w = this.ClientSize.Width;
+            int h = this.ClientSize.Height;
+            if (w <= 0 || h <= 0) return;
+
+            using (Pen borderPen = new Pen(Color.FromArgb(45, 48, 58)))
+            {
+                g.DrawRectangle(borderPen, 0, 0, w - 1, h - 1);
+            }
+
+            int fillWidth = (int)((val / 100.0) * (w - 2));
+            if (fillWidth > 0)
+            {
+                using (Brush brush = new SolidBrush(Color.FromArgb(16, 185, 129)))
+                {
+                    g.FillRectangle(brush, 1, 1, fillWidth, h - 2);
+                }
+            }
+        }
+    }
+
+    public class ChunkVisualizerPanel : Panel
+    {
+        private int numChunks = 16;
+        private int progressPct = 0;
+        private bool isDownloading = true;
+
+        public ChunkVisualizerPanel()
+        {
+            this.DoubleBuffered = true;
+            this.BackColor = Color.FromArgb(18, 19, 22);
+        }
+
+        public void UpdateProgress(int pct, bool downloading)
+        {
+            if (this.progressPct != pct || this.isDownloading != downloading)
+            {
+                this.progressPct = pct;
+                this.isDownloading = downloading;
+                this.Invalidate();
+            }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            Graphics g = e.Graphics;
+
+            int w = this.ClientSize.Width;
+            int h = this.ClientSize.Height;
+            if (w <= 0 || h <= 0) return;
+
+            int gap = 2;
+            int blockWidth = (w - (numChunks - 1) * gap) / numChunks;
+            if (blockWidth < 2) blockWidth = 2;
+
+            int filledBlocks = (int)((progressPct / 100.0) * numChunks);
+            if (progressPct > 0 && filledBlocks == 0) filledBlocks = 1;
+
+            using (Brush darkBrush = new SolidBrush(Color.FromArgb(34, 37, 46)))
+            using (Brush filledBrush = new SolidBrush(Color.FromArgb(16, 185, 129)))
+            using (Brush activeBrush = new SolidBrush(Color.FromArgb(6, 182, 212)))
+            {
+                for (int i = 0; i < numChunks; i++)
+                {
+                    int x = i * (blockWidth + gap);
+                    Rectangle rect = new Rectangle(x, 1, blockWidth, h - 2);
+
+                    if (i < filledBlocks)
+                    {
+                        g.FillRectangle(filledBrush, rect);
+                    }
+                    else if (i == filledBlocks && isDownloading && progressPct < 100)
+                    {
+                        g.FillRectangle(activeBrush, rect);
+                    }
+                    else
+                    {
+                        g.FillRectangle(darkBrush, rect);
+                    }
+                }
+            }
+        }
+    }
+
+    public class DownloadProgressDialog : Form
+    {
+        private EngineManager engine;
+        private string gid;
+        private string filename;
+        private string url;
+        private string saveDir;
+
+        private System.Windows.Forms.Timer pollTimer;
+        private Label lblFileName;
+        private Label lblStatus;
+        private ModernProgressBar progBar;
+        private Label lblPct;
+        private ChunkVisualizerPanel chunkVisualizer;
+        private Label lblSizeInfo;
+        private Label lblSpeed;
+        private Label lblTimeLeft;
+        private Label lblResume;
+        private Label lblConnections;
+        private CheckBox chkOpenComplete;
+        private CheckBox chkShutdown;
+        private Button btnPauseResume;
+        private Button btnCancel;
+        private Button btnHide;
+
+        private bool isPaused = false;
+        private bool hasCompleted = false;
+
+        public DownloadProgressDialog(EngineManager engine, string gid, string filename, string url, string saveDir)
+        {
+            this.engine = engine;
+            this.gid = gid;
+            this.filename = filename;
+            this.url = url;
+            this.saveDir = saveDir;
+
+            this.Text = "Download Status: " + filename;
+            this.FormBorderStyle = FormBorderStyle.FixedDialog;
+            this.MaximizeBox = false;
+            this.MinimizeBox = true;
+            this.ShowInTaskbar = true;
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.ClientSize = new Size(540, 320);
+            this.BackColor = Color.FromArgb(24, 25, 29);
+            this.ForeColor = Color.FromArgb(235, 238, 245);
+            this.Font = new Font("Segoe UI", 9F);
+
+            try
+            {
+                string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
+                if (File.Exists(icoPath)) this.Icon = new Icon(icoPath);
+            }
+            catch { }
+
+            // 1. Header Panel
+            Panel topPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 52,
+                BackColor = Color.FromArgb(18, 19, 22)
+            };
+
+            lblFileName = new Label
+            {
+                Text = "⚡ " + (filename.Length > 55 ? filename.Substring(0, 52) + "..." : filename),
+                Font = new Font("Segoe UI", 10.5F, FontStyle.Bold),
+                ForeColor = Color.White,
+                Location = new Point(14, 8),
+                Size = new Size(510, 20),
+                AutoEllipsis = true
+            };
+
+            lblStatus = new Label
+            {
+                Text = "⚡ Status: Downloading (16x Turbo Chunks)...",
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
+                ForeColor = Color.FromArgb(16, 185, 129),
+                Location = new Point(15, 29),
+                AutoSize = true
+            };
+
+            Panel headerBorder = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 1,
+                BackColor = Color.FromArgb(40, 42, 50)
+            };
+
+            topPanel.Controls.Add(lblFileName);
+            topPanel.Controls.Add(lblStatus);
+            topPanel.Controls.Add(headerBorder);
+            this.Controls.Add(topPanel);
+
+            // 2. Progress Section
+            progBar = new ModernProgressBar
+            {
+                Location = new Point(16, 62),
+                Size = new Size(440, 22)
+            };
+            this.Controls.Add(progBar);
+
+            lblPct = new Label
+            {
+                Text = "0%",
+                Location = new Point(462, 63),
+                Size = new Size(60, 20),
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Color.White
+            };
+            this.Controls.Add(lblPct);
+
+            // 3. Chunk Visualizer
+            Label lblChunkTitle = new Label
+            {
+                Text = "Connection Streams (16 parallel chunk segments):",
+                Location = new Point(16, 90),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 7.5F, FontStyle.Regular),
+                ForeColor = Color.FromArgb(156, 163, 175)
+            };
+            this.Controls.Add(lblChunkTitle);
+
+            chunkVisualizer = new ChunkVisualizerPanel
+            {
+                Location = new Point(16, 107),
+                Size = new Size(508, 15)
+            };
+            this.Controls.Add(chunkVisualizer);
+
+            // 4. Statistics Card
+            Panel statsCard = new Panel
+            {
+                Location = new Point(16, 128),
+                Size = new Size(508, 86),
+                BackColor = Color.FromArgb(18, 19, 22),
+                BorderStyle = BorderStyle.FixedSingle
+            };
+
+            lblSizeInfo = new Label
+            {
+                Text = "📦 Downloaded: 0 B / Calculating...",
+                Location = new Point(12, 10),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
+                ForeColor = Color.FromArgb(209, 213, 219)
+            };
+
+            lblSpeed = new Label
+            {
+                Text = "🚀 Transfer rate: 0 B/s",
+                Location = new Point(12, 34),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(16, 185, 129)
+            };
+
+            lblTimeLeft = new Label
+            {
+                Text = "⏱ Time left: Calculating...",
+                Location = new Point(12, 58),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
+                ForeColor = Color.FromArgb(6, 182, 212)
+            };
+
+            lblResume = new Label
+            {
+                Text = "🔄 Resume: Supported",
+                Location = new Point(280, 10),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
+                ForeColor = Color.FromArgb(156, 163, 175)
+            };
+
+            lblConnections = new Label
+            {
+                Text = "⚡ Active Streams: 16 Chunks",
+                Location = new Point(280, 34),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
+                ForeColor = Color.FromArgb(156, 163, 175)
+            };
+
+            statsCard.Controls.Add(lblSizeInfo);
+            statsCard.Controls.Add(lblSpeed);
+            statsCard.Controls.Add(lblTimeLeft);
+            statsCard.Controls.Add(lblResume);
+            statsCard.Controls.Add(lblConnections);
+            this.Controls.Add(statsCard);
+
+            // 5. Options Checkboxes
+            chkOpenComplete = new CheckBox
+            {
+                Text = "Open file when complete",
+                Location = new Point(18, 222),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 8.5F),
+                ForeColor = Color.FromArgb(209, 213, 219)
+            };
+            this.Controls.Add(chkOpenComplete);
+
+            chkShutdown = new CheckBox
+            {
+                Text = "Turn off computer when done",
+                Location = new Point(260, 222),
+                AutoSize = true,
+                Font = new Font("Segoe UI", 8.5F),
+                ForeColor = Color.FromArgb(209, 213, 219)
+            };
+            this.Controls.Add(chkShutdown);
+
+            // 6. Bottom Buttons Bar
+            Panel bottomPanel = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 52,
+                BackColor = Color.FromArgb(18, 19, 22)
+            };
+
+            Panel bottomBorder = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 1,
+                BackColor = Color.FromArgb(40, 42, 50)
+            };
+            bottomPanel.Controls.Add(bottomBorder);
+
+            btnPauseResume = new Button
+            {
+                Text = "⏸ Pause",
+                Location = new Point(200, 10),
+                Size = new Size(95, 32),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(42, 45, 55),
+                ForeColor = Color.White,
+                Cursor = Cursors.Hand
+            };
+            btnPauseResume.FlatAppearance.BorderColor = Color.FromArgb(60, 64, 76);
+            btnPauseResume.Click += (s, e) =>
+            {
+                if (isPaused)
+                {
+                    engine.ResumeTask(gid);
+                    isPaused = false;
+                    btnPauseResume.Text = "⏸ Pause";
+                    lblStatus.Text = "⚡ Status: Downloading (16x Turbo)...";
+                    lblStatus.ForeColor = Color.FromArgb(16, 185, 129);
+                }
+                else
+                {
+                    engine.PauseTask(gid);
+                    isPaused = true;
+                    btnPauseResume.Text = "▶ Resume";
+                    lblStatus.Text = "⏸ Status: Paused";
+                    lblStatus.ForeColor = Color.FromArgb(245, 158, 11);
+                }
+            };
+
+            btnCancel = new Button
+            {
+                Text = "✕ Cancel",
+                Location = new Point(305, 10),
+                Size = new Size(95, 32),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(42, 45, 55),
+                ForeColor = Color.FromArgb(248, 113, 113),
+                Cursor = Cursors.Hand
+            };
+            btnCancel.FlatAppearance.BorderColor = Color.FromArgb(60, 64, 76);
+            btnCancel.Click += (s, e) =>
+            {
+                var r = MessageBox.Show(this, "Are you sure you want to stop and remove this download?", "Cancel Download", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                if (r == DialogResult.Yes)
+                {
+                    pollTimer.Stop();
+                    engine.RemoveTask(gid);
+                    this.Close();
+                }
+            };
+
+            btnHide = new Button
+            {
+                Text = "🔽 Hide",
+                Location = new Point(410, 10),
+                Size = new Size(95, 32),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(32, 34, 40),
+                ForeColor = Color.FromArgb(156, 163, 175),
+                Cursor = Cursors.Hand
+            };
+            btnHide.FlatAppearance.BorderColor = Color.FromArgb(50, 52, 60);
+            btnHide.Click += (s, e) =>
+            {
+                pollTimer.Stop();
+                this.Close();
+            };
+
+            bottomPanel.Controls.Add(btnPauseResume);
+            bottomPanel.Controls.Add(btnCancel);
+            bottomPanel.Controls.Add(btnHide);
+            this.Controls.Add(bottomPanel);
+
+            // 7. Polling Timer
+            pollTimer = new System.Windows.Forms.Timer();
+            pollTimer.Interval = 300;
+            pollTimer.Tick += (s, e) => PollProgress();
+            pollTimer.Start();
+
+            this.FormClosing += (s, e) =>
+            {
+                if (pollTimer != null) pollTimer.Stop();
+            };
+        }
+
+        private void PollProgress()
+        {
+            if (hasCompleted) return;
+
+            var task = engine.GetTaskInfo(gid);
+            if (task == null) return;
+
+            progBar.Value = task.Progress;
+            lblPct.Text = task.Progress + "%";
+            chunkVisualizer.UpdateProgress(task.Progress, task.Status == "downloading" || task.Status == "active");
+
+            string totalFormatted = task.TotalLength > 0 ? UrlProbeHelper.FormatBytes(task.TotalLength) : "Unknown";
+            lblSizeInfo.Text = "📦 Downloaded: " + UrlProbeHelper.FormatBytes(task.CompletedLength) + " of " + totalFormatted;
+            lblSpeed.Text = "🚀 Transfer rate: " + UrlProbeHelper.FormatBytes(task.DownloadSpeed) + "/s";
+            lblTimeLeft.Text = "⏱ Time left: " + (task.Eta > 0 ? UrlProbeHelper.FormatEta(task.Eta) : (task.Progress >= 100 ? "00:00" : "Calculating..."));
+
+            if (task.Status == "paused" || task.Status == "waiting")
+            {
+                isPaused = true;
+                btnPauseResume.Text = "▶ Resume";
+                lblStatus.Text = "⏸ Status: Paused";
+                lblStatus.ForeColor = Color.FromArgb(245, 158, 11);
+            }
+            else if (task.Status == "downloading" || task.Status == "active")
+            {
+                isPaused = false;
+                btnPauseResume.Text = "⏸ Pause";
+                lblStatus.Text = "⚡ Status: Downloading (16x Turbo)...";
+                lblStatus.ForeColor = Color.FromArgb(16, 185, 129);
+            }
+
+            if (task.Status == "complete" || task.Status == "completed")
+            {
+                hasCompleted = true;
+                pollTimer.Stop();
+
+                string finalPath = task.FilePath;
+                if (string.IsNullOrEmpty(finalPath) && !string.IsNullOrEmpty(saveDir))
+                {
+                    finalPath = Path.Combine(saveDir, task.Name);
+                }
+
+                if (chkOpenComplete.Checked && !string.IsNullOrEmpty(finalPath) && File.Exists(finalPath))
+                {
+                    try { Process.Start(finalPath); } catch { }
+                }
+
+                if (chkShutdown.Checked)
+                {
+                    try { Application.SetSuspendState(PowerState.Suspend, false, false); } catch { }
+                }
+
+                this.Close();
+
+                if (DownloaderAppContext.Instance != null)
+                {
+                    DownloaderAppContext.Instance.ShowCompleteDialog(task.Gid, task.Name, finalPath, task.TotalLength);
+                }
+            }
+        }
+    }
+
+    public class DownloadCompleteDialog : Form
+    {
+        private string filename;
+        private string filePath;
+        private long totalLength;
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.ExStyle |= 0x00000008; // WS_EX_TOPMOST
+                return cp;
+            }
+        }
+
+        public DownloadCompleteDialog(string filename, string filePath, long totalLength)
+        {
+            this.filename = filename;
+            this.filePath = filePath;
+            this.totalLength = totalLength;
+
+            this.Text = "Download Complete - FastDownloader";
+            this.FormBorderStyle = FormBorderStyle.FixedDialog;
+            this.MaximizeBox = false;
+            this.MinimizeBox = false;
+            this.ShowInTaskbar = true;
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.TopMost = true;
+            this.ClientSize = new Size(500, 235);
+            this.BackColor = Color.FromArgb(24, 25, 29);
+            this.ForeColor = Color.FromArgb(235, 238, 245);
+            this.Font = new Font("Segoe UI", 9F);
+
+            try
+            {
+                string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
+                if (File.Exists(icoPath)) this.Icon = new Icon(icoPath);
+            }
+            catch { }
+
+            // 1. Header Panel
+            Panel topPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 56,
+                BackColor = Color.FromArgb(18, 19, 22)
+            };
+
+            Label lblBadge = new Label
+            {
+                Text = "✔",
+                Font = new Font("Segoe UI", 16F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(16, 185, 129),
+                Location = new Point(14, 10),
+                Size = new Size(32, 34)
+            };
+
+            Label lblTitle = new Label
+            {
+                Text = "Download Complete!",
+                Font = new Font("Segoe UI", 12F, FontStyle.Bold),
+                ForeColor = Color.White,
+                Location = new Point(48, 8),
+                AutoSize = true
+            };
+
+            Label lblSub = new Label
+            {
+                Text = "File has been verified and saved to disk.",
+                Font = new Font("Segoe UI", 8.5F),
+                ForeColor = Color.FromArgb(156, 163, 175),
+                Location = new Point(50, 31),
+                AutoSize = true
+            };
+
+            Panel headerBorder = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 1,
+                BackColor = Color.FromArgb(40, 42, 50)
+            };
+
+            topPanel.Controls.Add(lblBadge);
+            topPanel.Controls.Add(lblTitle);
+            topPanel.Controls.Add(lblSub);
+            topPanel.Controls.Add(headerBorder);
+            this.Controls.Add(topPanel);
+
+            // 2. Info Box
+            Panel infoCard = new Panel
+            {
+                Location = new Point(16, 68),
+                Size = new Size(468, 95),
+                BackColor = Color.FromArgb(18, 19, 22),
+                BorderStyle = BorderStyle.FixedSingle
+            };
+
+            Label lblFile = new Label
+            {
+                Text = filename,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                ForeColor = Color.White,
+                Location = new Point(12, 10),
+                Size = new Size(440, 20),
+                AutoEllipsis = true
+            };
+
+            string szFormatted = totalLength > 0 ? UrlProbeHelper.FormatBytes(totalLength) : "Complete";
+            Label lblSize = new Label
+            {
+                Text = "📦 Size:  " + szFormatted,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(16, 185, 129),
+                Location = new Point(12, 36),
+                AutoSize = true
+            };
+
+            string dirPath = !string.IsNullOrEmpty(filePath) ? Path.GetDirectoryName(filePath) : "";
+            Label lblFolder = new Label
+            {
+                Text = "📁 Saved to:  " + dirPath,
+                Font = new Font("Segoe UI", 8.5F),
+                ForeColor = Color.FromArgb(156, 163, 175),
+                Location = new Point(12, 60),
+                Size = new Size(440, 20),
+                AutoEllipsis = true
+            };
+
+            infoCard.Controls.Add(lblFile);
+            infoCard.Controls.Add(lblSize);
+            infoCard.Controls.Add(lblFolder);
+            this.Controls.Add(infoCard);
+
+            // 3. Bottom Button Bar
+            Panel bottomPanel = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 54,
+                BackColor = Color.FromArgb(18, 19, 22)
+            };
+
+            Panel bottomBorder = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 1,
+                BackColor = Color.FromArgb(40, 42, 50)
+            };
+            bottomPanel.Controls.Add(bottomBorder);
+
+            Button btnOpen = new Button
+            {
+                Text = "🚀 Open",
+                Location = new Point(115, 10),
+                Size = new Size(115, 34),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(16, 185, 129),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            btnOpen.FlatAppearance.BorderSize = 0;
+            btnOpen.Click += (s, e) =>
+            {
+                if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
+                {
+                    try { Process.Start(filePath); } catch { }
+                }
+                this.Close();
+            };
+
+            Button btnOpenFolder = new Button
+            {
+                Text = "📁 Open Folder",
+                Location = new Point(240, 10),
+                Size = new Size(140, 34),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(42, 45, 55),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 9F),
+                Cursor = Cursors.Hand
+            };
+            btnOpenFolder.FlatAppearance.BorderColor = Color.FromArgb(60, 64, 76);
+            btnOpenFolder.Click += (s, e) =>
+            {
+                if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
+                {
+                    try { Process.Start("explorer.exe", "/select,\"" + filePath.Replace('/', '\\') + "\""); } catch { }
+                }
+                else if (!string.IsNullOrEmpty(dirPath) && Directory.Exists(dirPath))
+                {
+                    try { Process.Start("explorer.exe", dirPath.Replace('/', '\\')); } catch { }
+                }
+                this.Close();
+            };
+
+            Button btnClose = new Button
+            {
+                Text = "✕ Close",
+                Location = new Point(390, 10),
+                Size = new Size(95, 34),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(32, 34, 40),
+                ForeColor = Color.FromArgb(156, 163, 175),
+                Font = new Font("Segoe UI", 9F),
+                Cursor = Cursors.Hand
+            };
+            btnClose.FlatAppearance.BorderColor = Color.FromArgb(50, 52, 60);
+            btnClose.Click += (s, e) => this.Close();
+
+            bottomPanel.Controls.Add(btnOpen);
+            bottomPanel.Controls.Add(btnOpenFolder);
+            bottomPanel.Controls.Add(btnClose);
+            this.Controls.Add(bottomPanel);
+
+            this.AcceptButton = btnOpen;
+            this.CancelButton = btnClose;
+        }
+    }
+
     public class DownloaderAppContext : ApplicationContext
     {
         public static EngineManager CurrentEngine { get; private set; }
@@ -3928,6 +4796,8 @@ namespace FastDownloader
         private ClipboardListener clipWindow;
         private string lastClipboardUrl = "";
         private MenuItem autoCaptureMenuItem;
+        private readonly object completedGidsLock = new object();
+        private HashSet<string> completedGids = new HashSet<string>();
 
         public DownloaderAppContext()
         {
@@ -4154,11 +5024,13 @@ namespace FastDownloader
                     {
                         engine.RemovePending(pending.pendingId, out ignored);
                         string gid = engine.StartConfirmedDownload(pending, dlg.FileName, dlg.SaveDirectory, dlg.Category, dlg.StartNow);
-                        if (trayIcon != null)
+                        if (dlg.StartNow && !string.IsNullOrEmpty(gid))
                         {
-                            trayIcon.ShowBalloonTip(2000, "⚡ FastDownloader",
-                                dlg.StartNow ? "Started: " + dlg.FileName : "Queued: " + dlg.FileName,
-                                ToolTipIcon.Info);
+                            ShowProgressDialog(gid, dlg.FileName, pending.url, dlg.SaveDirectory);
+                        }
+                        else if (trayIcon != null)
+                        {
+                            trayIcon.ShowBalloonTip(2000, "⚡ FastDownloader", "Queued: " + dlg.FileName, ToolTipIcon.Info);
                         }
                     }
                     else
@@ -4176,6 +5048,79 @@ namespace FastDownloader
             {
                 try { File.AppendAllText(Path.Combine(engine.AppDir, "dialog_err.log"), "Dialog err: " + ex + "\r\n"); } catch { }
             }
+        }
+
+        public void ShowProgressDialog(string gid, string filename, string url, string saveDir)
+        {
+            if (string.IsNullOrEmpty(gid)) return;
+            Thread t = new Thread(delegate()
+            {
+                try
+                {
+                    using (var dlg = new DownloadProgressDialog(engine, gid, filename, url, saveDir))
+                    {
+                        dlg.StartPosition = FormStartPosition.CenterScreen;
+                        dlg.Shown += (s, e) =>
+                        {
+                            try
+                            {
+                                dlg.Activate();
+                                dlg.BringToFront();
+                                WindowManager.SetForegroundWindow(dlg.Handle);
+                            }
+                            catch { }
+                        };
+                        dlg.ShowDialog();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    try { File.AppendAllText(Path.Combine(engine.AppDir, "dialog_err.log"), "ProgressDialog err: " + ex + "\r\n"); } catch { }
+                }
+            });
+            t.SetApartmentState(ApartmentState.STA);
+            t.IsBackground = true;
+            t.Start();
+        }
+
+        public void ShowCompleteDialog(string gid, string filename, string filePath, long totalLength)
+        {
+            lock (completedGidsLock)
+            {
+                if (completedGids.Contains(gid)) return;
+                completedGids.Add(gid);
+            }
+
+            Thread t = new Thread(delegate()
+            {
+                try
+                {
+                    using (var dlg = new DownloadCompleteDialog(filename, filePath, totalLength))
+                    {
+                        dlg.TopMost = true;
+                        dlg.StartPosition = FormStartPosition.CenterScreen;
+                        dlg.Shown += (s, e) =>
+                        {
+                            try
+                            {
+                                dlg.Activate();
+                                dlg.BringToFront();
+                                WindowManager.SetForegroundWindow(dlg.Handle);
+                                System.Media.SystemSounds.Asterisk.Play();
+                            }
+                            catch { }
+                        };
+                        dlg.ShowDialog();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    try { File.AppendAllText(Path.Combine(engine.AppDir, "dialog_err.log"), "CompleteDialog err: " + ex + "\r\n"); } catch { }
+                }
+            });
+            t.SetApartmentState(ApartmentState.STA);
+            t.IsBackground = true;
+            t.Start();
         }
 
         public void LaunchEdgeApp()
@@ -4361,6 +5306,48 @@ namespace FastDownloader
                     }
                 }
             }
+
+            // Check completed downloads for IDM-style completion popup
+            try
+            {
+                var ariaList = engine.GetAriaTasks();
+                foreach (var t in ariaList)
+                {
+                    if (t.ContainsKey("status") && t["status"].ToString() == "complete" && t.ContainsKey("gid"))
+                    {
+                        string g = t["gid"].ToString();
+                        bool already;
+                        lock (completedGidsLock) { already = completedGids.Contains(g); }
+                        if (!already)
+                        {
+                            var info = engine.GetTaskInfo(g);
+                            if (info != null)
+                            {
+                                ShowCompleteDialog(g, info.Name, info.FilePath, info.TotalLength);
+                            }
+                        }
+                    }
+                }
+
+                var ytList = engine.GetYtTasksSnapshot();
+                foreach (var yt in ytList)
+                {
+                    if (yt.Status == "completed")
+                    {
+                        bool already;
+                        lock (completedGidsLock) { already = completedGids.Contains(yt.Gid); }
+                        if (!already)
+                        {
+                            var info = engine.GetTaskInfo(yt.Gid);
+                            if (info != null)
+                            {
+                                ShowCompleteDialog(yt.Gid, info.Name, info.FilePath, info.TotalLength);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
         }
     }
 
