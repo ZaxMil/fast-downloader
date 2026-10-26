@@ -4466,9 +4466,8 @@
           }
           const data = await resp.json();
           processIncomingTasks(data.tasks || []);
-          if (data.pending && data.pending.length > 0) {
-            handlePendingInterceptions(data.pending);
-          }
+          // Native IDM dialog handles interceptions; suppress duplicate web modal
+          // if (data.pending && data.pending.length > 0) { handlePendingInterceptions(data.pending); }
           if (currentDetailGid) {
             const curTask = tasks.find(x => x.gid === currentDetailGid);
             if (curTask) updateDetailModal(curTask);
