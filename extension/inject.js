@@ -13,7 +13,6 @@
     if (STREAM_REGEX.test(url)) return true;
     const lower = url.toLowerCase();
     if (lower.includes('/hls/') || lower.includes('/dash/') || lower.includes('manifest')) return true;
-    if (lower.includes('fbcdn.net') && (lower.includes('.mp4') || lower.includes('/v/t') || lower.includes('bytestart'))) return true;
     if (lower.includes('.mp4?') || lower.endsWith('.mp4') || lower.includes('.webm') || lower.includes('.mkv')) return true;
     return false;
   }
@@ -35,7 +34,7 @@
 
       if (recentStreams.some(s => s.url === fullUrl)) return;
 
-      const isMaster = /\.(m3u8|mpd)(\?|$)/i.test(fullUrl) || fullUrl.includes('fbcdn.net');
+      const isMaster = /\.(m3u8|mpd)(\?|$)/i.test(fullUrl);
       const isChunk = /\.(ts|m4s)(\?|$)/i.test(fullUrl);
 
       const entry = {

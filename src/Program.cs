@@ -33,7 +33,7 @@ namespace FastDownloader
             if (string.IsNullOrEmpty(url)) return false;
             string lower = url.ToLowerInvariant();
             return lower.Contains("youtube.com") || lower.Contains("youtu.be") ||
-                   lower.Contains("facebook.com") || lower.Contains("fb.watch") || lower.Contains("fb.com") ||
+                   lower.Contains("facebook.com") || lower.Contains("fb.watch") || lower.Contains("fb.com") || lower.Contains("fbcdn.net") ||
                    lower.Contains("instagram.com") ||
                    lower.Contains("tiktok.com") ||
                    lower.Contains("twitter.com") || lower.Contains("x.com") ||
@@ -242,6 +242,17 @@ namespace FastDownloader
                 catch { }
 
                 return res;
+            }
+
+            if (url.Contains("fbcdn.net") && customHeaders != null)
+            {
+                string refHeader = "";
+                if (customHeaders.ContainsKey("Referer") && customHeaders["Referer"] != null) refHeader = customHeaders["Referer"].ToString();
+                else if (customHeaders.ContainsKey("referer") && customHeaders["referer"] != null) refHeader = customHeaders["referer"].ToString();
+                if (!string.IsNullOrEmpty(refHeader) && (refHeader.Contains("facebook.com") || refHeader.Contains("fb.watch")))
+                {
+                    url = refHeader;
+                }
             }
 
             if (MediaUrlHelper.IsMediaPlatformUrl(url))
@@ -1513,7 +1524,7 @@ namespace FastDownloader
             string finalCat = !string.IsNullOrEmpty(category) ? category : pending.category;
             string finalQuality = !string.IsNullOrEmpty(pending.quality) ? pending.quality : "best";
 
-            bool isVideo = MediaUrlHelper.IsMediaPlatformUrl(pending.url) || (pending.type == "video" && !MediaUrlHelper.HasDirectFileExtension(pending.url));
+            bool isVideo = MediaUrlHelper.IsMediaPlatformUrl(pending.url) || pending.category == "Video" || (pending.type == "video" && !MediaUrlHelper.HasDirectFileExtension(pending.url));
             string assignedGid;
             if (isVideo)
             {
@@ -1533,10 +1544,15 @@ namespace FastDownloader
             if (!File.Exists(ytExe)) ytExe = Path.Combine(AppDir, "yt-dlp.exe");
             string ffmpegDir = Path.Combine(AppDir, "bin");
 
+            if (url.Contains("fbcdn.net") && !string.IsNullOrEmpty(referer) && (referer.Contains("facebook.com") || referer.Contains("fb.watch")))
+            {
+                url = referer;
+            }
+
             string formatArg = "-f \"bv*[vcodec^=avc1]+ba[acodec^=mp4a]/bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/18/bestvideo*+bestaudio/best\" --merge-output-format mp4";
-            if (quality == "1080p") formatArg = "-f \"bv*[height<=1080][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080]/bv*[height<=1080]+ba/best\" --merge-output-format mp4";
-            else if (quality == "720p") formatArg = "-f \"bv*[height<=720][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720]/bv*[height<=720]+ba/18/best\" --merge-output-format mp4";
-            else if (quality == "480p") formatArg = "-f \"bv*[height<=480][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480]/bv*[height<=480]+ba/best\" --merge-output-format mp4";
+            if (quality == "1080p") formatArg = "-f \"bv*[height<=1080][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080]/bv*[height<=1080]+ba/b[height<=1080]/best\" --merge-output-format mp4";
+            else if (quality == "720p") formatArg = "-f \"bv*[height<=720][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720]/bv*[height<=720]+ba/b[height<=720]/best\" --merge-output-format mp4";
+            else if (quality == "480p") formatArg = "-f \"bv*[height<=480][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480]/bv*[height<=480]+ba/b[height<=480]/best\" --merge-output-format mp4";
             else if (quality == "audio") formatArg = "-x --audio-format mp3";
 
             string extraHeaders = "";
@@ -1545,7 +1561,35 @@ namespace FastDownloader
             {
                 extraHeaders += " --extractor-args \"youtube:player_client=ios,android,mweb,web\"";
             }
-            if (!string.IsNullOrEmpty(cookies)) extraHeaders += " --add-header \"Cookie:" + cookies.Replace("\"", "\\\"") + "\"";
+
+            if (!string.IsNullOrEmpty(cookies))
+            {
+                try
+                {
+                    string cookieFile = Path.Combine(AppDir, "cookie_" + gid + ".txt");
+                    StringBuilder sb = new StringBuilder();
+                    sb.AppendLine("# Netscape HTTP Cookie File");
+                    string domain = isYouTube ? ".youtube.com" : (url.Contains("facebook") || url.Contains("fbcdn") ? ".facebook.com" : "");
+                    if (string.IsNullOrEmpty(domain))
+                    {
+                        try { Uri u = new Uri(url); domain = "." + u.Host.TrimStart('.'); } catch { domain = ""; }
+                    }
+                    string[] cookiePairs = cookies.Split(new char[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var pair in cookiePairs)
+                    {
+                        int eq = pair.IndexOf('=');
+                        if (eq > 0)
+                        {
+                            string k = pair.Substring(0, eq).Trim();
+                            string v = pair.Substring(eq + 1).Trim();
+                            sb.AppendLine(string.Format("{0}\tTRUE\t/\tTRUE\t2147483647\t{1}\t{2}", domain, k, v));
+                        }
+                    }
+                    File.WriteAllText(cookieFile, sb.ToString(), Encoding.UTF8);
+                    extraHeaders += " --cookies \"" + cookieFile + "\"";
+                }
+                catch { }
+            }
             if (!string.IsNullOrEmpty(referer)) extraHeaders += " --referer \"" + referer.Replace("\"", "\\\"") + "\"";
             if (!string.IsNullOrEmpty(userAgent)) extraHeaders += " --user-agent \"" + userAgent.Replace("\"", "\\\"") + "\"";
 
@@ -1873,6 +1917,7 @@ namespace FastDownloader
 
                     taskInfo.DownloadSpeed = 0;
                     taskInfo.Eta = 0;
+                    try { string cFile = Path.Combine(AppDir, "cookie_" + taskInfo.Gid + ".txt"); if (File.Exists(cFile)) File.Delete(cFile); } catch { }
                     if (p.ExitCode == 0)
                     {
                         taskInfo.Progress = 100;

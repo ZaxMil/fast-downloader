@@ -14,10 +14,16 @@ const INTERCEPT_EXTENSIONS = new Set([
 ]);
 
 // 1. EXTRACT COOKIES FOR TARGET URL
-async function getCookiesForUrl(url) {
-  if (!url || typeof url !== "string" || !url.startsWith("http")) return "";
+async function getCookiesForUrl(url, referer = "") {
+  let cookieTarget = url;
+  if (url && (url.includes("facebook.com") || url.includes("fb.watch") || url.includes("fbcdn.net") || (referer && referer.includes("facebook.com")))) {
+    cookieTarget = "https://www.facebook.com/";
+  } else if (url && (url.includes("instagram.com") || url.includes("cdninstagram.com") || (referer && referer.includes("instagram.com")))) {
+    cookieTarget = "https://www.instagram.com/";
+  }
+  if (!cookieTarget || typeof cookieTarget !== "string" || !cookieTarget.startsWith("http")) return "";
   try {
-    const cookies = await chrome.cookies.getAll({ url: url });
+    const cookies = await chrome.cookies.getAll({ url: cookieTarget });
     if (!cookies || !cookies.length) return "";
     return cookies.map(c => `${c.name}=${c.value}`).join("; ");
   } catch (err) {
@@ -87,7 +93,7 @@ async function sendViaNativeMessaging(payload) {
 async function sendDownloadToApp({ url, title, type = "auto", quality = "best", referer = "", filename = "", subfolder = "", category = "" }) {
   if (!url) return { ok: false, error: "Missing URL" };
 
-  const cookies = await getCookiesForUrl(url);
+  const cookies = await getCookiesForUrl(url, referer);
   const clientHeaders = getBrowserClientHeaders(url, referer);
 
   const payload = {
@@ -538,7 +544,7 @@ async function handleDownloadIntercept(item, suggest) {
     });
 
     // Forward to FastDownloader as an intercepted download (triggers Smart Pre-Flight confirmation dialog)
-    const cookies = await getCookiesForUrl(targetUrl);
+    const cookies = await getCookiesForUrl(targetUrl, item.referrer || "");
     const clientHeaders = getBrowserClientHeaders(targetUrl, item.referrer || "");
 
     const payload = {

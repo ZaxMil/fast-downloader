@@ -77,42 +77,83 @@
     }, 4500);
   }
 
+  // Helper to clean tracking params from social media URLs
+  function cleanSocialUrl(href) {
+    if (!href) return '';
+    try {
+      const u = new URL(href);
+      u.searchParams.delete('__cft__[0]');
+      u.searchParams.delete('__cft__');
+      u.searchParams.delete('__tn__');
+      u.searchParams.delete('fbclid');
+      u.searchParams.delete('notif_id');
+      u.searchParams.delete('notif_t');
+      u.searchParams.delete('ref');
+      return u.toString();
+    } catch (e) {
+      return href;
+    }
+  }
+
   // Social Post / Group Permalink Sniffer
   function findSocialPostPermalink(element) {
-    if (!element) return null;
     const isFb = window.location.hostname.includes('facebook.com') || window.location.hostname.includes('fb.watch');
     if (isFb) {
-      if (window.location.pathname.includes('/videos/') || window.location.pathname.includes('/reel/') || window.location.pathname.includes('/watch')) {
-        return window.location.href;
+      // 1. Direct watch or reel path in current browser tab
+      if (window.location.pathname.includes('/videos/') || window.location.pathname.includes('/reel/') || window.location.pathname.includes('/watch') || window.location.search.includes('v=')) {
+        return cleanSocialUrl(window.location.href);
       }
-      const container = element.closest('article, [role="article"], [data-pagelet], div[data-virtualized="false"], main') || document.body;
-      const links = container.querySelectorAll('a[href]');
-      for (const a of links) {
-        const href = a.href;
-        if (!href) continue;
-        if (href.includes('/posts/') || href.includes('/permalink/') || href.includes('story_fbid=') || href.includes('permalink.php') || href.includes('story.php') || href.includes('/videos/') || href.includes('/reel/') || href.includes('/watch') || href.includes('watch?v=')) {
-          try {
-            const u = new URL(href);
-            u.searchParams.delete('__cft__[0]');
-            u.searchParams.delete('__cft__');
-            u.searchParams.delete('__tn__');
-            u.searchParams.delete('fbclid');
-            return u.toString();
-          } catch (e) {
-            return href;
+
+      if (element) {
+        // 2. Check if element or parent has a direct link
+        const aParent = element.closest('a[href]');
+        if (aParent && aParent.href && (aParent.href.includes('/videos/') || aParent.href.includes('/reel/') || aParent.href.includes('/watch') || aParent.href.includes('watch?v='))) {
+          return cleanSocialUrl(aParent.href);
+        }
+
+        // 3. Search post container hierarchy for video / reel / post link
+        const container = element.closest('article, [role="article"], div[data-pagelet], div[data-virtualized="false"], div[data-ad-preview], div[data-visualcompletion], div[role="dialog"], main') || document.body;
+        const links = container.querySelectorAll('a[href]');
+        for (const a of links) {
+          const href = a.href || '';
+          if (href.includes('/videos/') || href.includes('/reel/') || href.includes('/watch') || href.includes('watch?v=')) {
+            return cleanSocialUrl(href);
           }
         }
+        for (const a of links) {
+          const href = a.href || '';
+          if (href.includes('/posts/') || href.includes('/permalink/') || href.includes('story_fbid=') || href.includes('permalink.php') || href.includes('story.php')) {
+            return cleanSocialUrl(href);
+          }
+        }
+      }
+
+      // 4. Check open dialog or theater mode overlay
+      const dialogLink = document.querySelector('div[role="dialog"] a[href*="/videos/"], div[role="dialog"] a[href*="/reel/"], div[role="dialog"] a[href*="watch?v="]');
+      if (dialogLink && dialogLink.href) return cleanSocialUrl(dialogLink.href);
+
+      // 5. Check canonical og:url
+      const og = document.querySelector('meta[property="og:url"]');
+      if (og && og.content && (og.content.includes('/videos/') || og.content.includes('/reel/') || og.content.includes('/watch') || og.content.includes('/posts/'))) {
+        return cleanSocialUrl(og.content);
+      }
+
+      // 6. Fallback if on a specific Facebook page
+      if (window.location.href && !window.location.href.endsWith('facebook.com/') && !window.location.href.endsWith('facebook.com')) {
+        return cleanSocialUrl(window.location.href);
       }
     }
 
     const isIg = window.location.hostname.includes('instagram.com');
     if (isIg) {
       if (window.location.pathname.includes('/p/') || window.location.pathname.includes('/reel/')) {
-        return window.location.href;
+        return cleanSocialUrl(window.location.href);
       }
-      const container = element.closest('article, main') || document.body;
-      const link = container.querySelector('a[href*="/p/"], a[href*="/reel/"]');
-      if (link && link.href) return link.href;
+      if (element) {
+        const container = element.closest('article, main') || document.body;
+        const link = container.querySelector('a[href*="/p/"], a[href*="/reel/"]');
+        if (link && link.href) return cleanSocialUrl(link.href);
+      }
     }
 
     return null;
@@ -122,52 +163,63 @@
   function detectBestMediaUrl(element) {
     if (!element) return window.location.href;
 
-    // 1. Direct video src check first!
+    // 1. Social Platforms (Facebook, Instagram) - ALWAYS prefer the post/reel/video permalink!
+    // Facebook and Instagram videos are DASH MSE streams; yt-dlp requires the post URL to extract full video+audio!
+    const isFb = window.location.hostname.includes('facebook.com') || window.location.hostname.includes('fb.watch');
+    if (isFb) {
+      const socialUrl = findSocialPostPermalink(element);
+      if (socialUrl) return socialUrl;
+      if (window.location.pathname.includes('/videos/') || window.location.pathname.includes('/reel/') || window.location.pathname.includes('/watch') || window.location.search.includes('v=')) {
+        return cleanSocialUrl(window.location.href);
+      }
+    }
+
+    const isIg = window.location.hostname.includes('instagram.com');
+    if (isIg) {
+      const socialUrl = findSocialPostPermalink(element);
+      if (socialUrl) return socialUrl;
+      if (window.location.pathname.includes('/p/') || window.location.pathname.includes('/reel/')) {
+        return cleanSocialUrl(window.location.href);
+      }
+    }
+
+    // 2. Direct video src check (non-blob)
     let src = element.currentSrc || element.src;
-    if (src && !src.startsWith('blob:') && !src.startsWith('data:') && src.startsWith('http')) {
+    if (src && !src.startsWith('blob:') && !src.startsWith('data:') && src.startsWith('http') && !src.includes('fbcdn.net')) {
       return src;
     }
     const sources = element.querySelectorAll('source');
     for (const s of sources) {
-      if (s.src && !s.src.startsWith('blob:') && !s.src.startsWith('data:') && s.src.startsWith('http')) {
+      if (s.src && !s.src.startsWith('blob:') && !s.src.startsWith('data:') && s.src.startsWith('http') && !s.src.includes('fbcdn.net')) {
         return s.src;
       }
     }
 
-    // 2. Intercepted Main-World Master Stream (.m3u8, .mpd, fbcdn)
-    const masterStream = interceptedStreams.find(s => s.isMaster);
+    // 3. Intercepted Main-World Master Stream (.m3u8, .mpd) - Ignore raw chunk fragments
+    const masterStream = interceptedStreams.find(s => s.isMaster && !s.url.includes('fbcdn.net'));
     if (masterStream) {
       return masterStream.url;
     }
 
-    // 3. Check network performance entries for active fbcdn or m3u8/mpd streams
+    // 4. Check network performance entries for real HLS/DASH master manifests (.m3u8, .mpd)
     try {
       const entries = performance.getEntriesByType('resource');
       for (let i = entries.length - 1; i >= 0 && i >= entries.length - 60; i--) {
         const name = entries[i].name;
         if (!name || typeof name !== 'string') continue;
-        if (name.includes('fbcdn.net') && (name.includes('/v/t') || name.includes('.mp4') || name.includes('.mpd') || name.includes('bytestart'))) {
-          try {
-            const u = new URL(name);
-            u.searchParams.delete('bytestart');
-            u.searchParams.delete('byteend');
-            return u.toString();
-          } catch (e) {
-            return name;
-          }
-        }
         if (/\.(m3u8|mpd)(\?.*)?$/i.test(name)) {
           return name;
         }
       }
     } catch (e) {}
 
-    // 4. Any recent intercepted stream
-    if (interceptedStreams.length > 0) {
-      return interceptedStreams[0].url;
+    // 5. Any recent non-chunk intercepted stream
+    const validStream = interceptedStreams.find(s => !s.url.includes('fbcdn.net') && (s.url.includes('.m3u8') || s.url.includes('.mpd') || s.url.includes('.mp4')));
+    if (validStream) {
+      return validStream.url;
     }
 
-    // 5. Social post permalink
+    // 6. Social post permalink fallback
     const socialUrl = findSocialPostPermalink(element);
     if (socialUrl) {
       return socialUrl;
@@ -191,32 +243,16 @@
       }
     }
 
-    if (url === 'https://www.facebook.com/' || url === 'https://facebook.com/' || url === 'https://www.facebook.com' || (window.location.hostname.includes('facebook.com') && (!url || url.startsWith('blob:') || url === window.location.href))) {
-      // Sniff performance entries again in case it just buffered
-      let fbUrl = null;
-      try {
-        const entries = performance.getEntriesByType('resource');
-        for (let i = entries.length - 1; i >= 0; i--) {
-          const name = entries[i].name;
-          if (name.includes('fbcdn.net') && (name.includes('/v/t') || name.includes('.mp4') || name.includes('.mpd') || name.includes('bytestart'))) {
-            const u = new URL(name);
-            u.searchParams.delete('bytestart');
-            u.searchParams.delete('byteend');
-            fbUrl = u.toString();
-            break;
-          }
-        }
-      } catch (e) {}
-
-      if (fbUrl) {
-        url = fbUrl;
-      } else {
-        const permalink = findSocialPostPermalink(triggerPill ? triggerPill.closest('article, [role="article"], [data-pagelet], div[data-virtualized="false"], main') : null);
+    if (window.location.hostname.includes('facebook.com') || window.location.hostname.includes('fb.watch')) {
+      type = 'video';
+      if (!url || url.includes('fbcdn.net') || url === 'https://www.facebook.com/' || url === 'https://facebook.com/' || url === 'https://www.facebook.com') {
+        const permalink = findSocialPostPermalink(triggerPill ? triggerPill.closest('article, [role="article"], [data-pagelet], div[data-virtualized="false"], div[data-ad-preview], main') : null);
         if (permalink) {
           url = permalink;
+        } else if (window.location.pathname.includes('/videos/') || window.location.pathname.includes('/reel/') || window.location.pathname.includes('/watch') || window.location.search.includes('v=')) {
+          url = cleanSocialUrl(window.location.href);
         } else {
-          showToast('⚠️ Please play the video for 1 second first so Facebook loads the stream!', true);
-          return;
+          url = cleanSocialUrl(window.location.href);
         }
       }
     }
