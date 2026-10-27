@@ -398,6 +398,47 @@
       border-color: rgba(16, 185, 129, 0.4);
       box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
     }
+
+    .btn-titlebar-pill {
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 6px !important;
+      padding: 4px 10px !important;
+      border-radius: 14px !important;
+      font-size: 11.5px !important;
+      font-weight: 500 !important;
+      background: rgba(255, 255, 255, 0.04) !important;
+      border: 1px solid rgba(255, 255, 255, 0.1) !important;
+      color: var(--text-main) !important;
+      cursor: pointer !important;
+      user-select: none !important;
+      transition: all 0.15s ease !important;
+      line-height: 1.2 !important;
+    }
+    .btn-titlebar-pill:hover {
+      background: rgba(255, 255, 255, 0.08) !important;
+      border-color: rgba(255, 255, 255, 0.25) !important;
+    }
+    .btn-titlebar-pill.btn-support {
+      background: rgba(255, 94, 91, 0.1) !important;
+      border-color: rgba(255, 94, 91, 0.3) !important;
+      color: #FF5E5B !important;
+      font-weight: 600 !important;
+    }
+    .btn-titlebar-pill.btn-support:hover {
+      background: rgba(255, 94, 91, 0.2) !important;
+      border-color: rgba(255, 94, 91, 0.5) !important;
+      box-shadow: 0 0 10px rgba(255, 94, 91, 0.25) !important;
+    }
+    [data-theme="light"] .btn-titlebar-pill {
+      background: #F1F5F9 !important;
+      border-color: #CBD5E1 !important;
+      color: #0F172A !important;
+    }
+    [data-theme="light"] .btn-titlebar-pill:hover {
+      background: #E2E8F0 !important;
+      border-color: #94A3B8 !important;
+    }
     [data-theme="light"] .status-pill-unified {
       background: #F1F5F9;
       border-color: #E2E8F0;
@@ -2235,6 +2276,19 @@
       </div>
 
       <div class="engine-status-group">
+        <button class="btn-titlebar-pill" id="themeToggleBtn" onclick="toggleTheme()" title="Toggle Light / Dark Mode (Ctrl+D)">
+          <span id="themeToggleIcon">☀️</span>
+          <span class="btn-label" id="themeToggleText" data-i18n="lightMode">Light</span>
+        </button>
+
+        <button class="btn-titlebar-pill" id="langToggleBtn" onclick="toggleLanguage()" title="Switch Language / تبديل اللغة (Ctrl+L)">
+          🌐 <span class="btn-label">العربية</span>
+        </button>
+
+        <button class="btn-titlebar-pill btn-support" id="supportBtn" onclick="showSupportModal()" title="Support FastDownloader development (Ko-fi)">
+          💖 <span class="btn-label" data-i18n="btnSupport">Support</span>
+        </button>
+
         <div class="status-pill status-pill-unified" id="systemStatusPill" onclick="toggleSystemStatusMenu(event)" title="Engines, Browser & Updates Health (Click to expand)">
           <span class="status-dot" id="systemStatusDot" style="background:#10B981; box-shadow:0 0 8px #10B981;"></span>
           <span id="systemStatusText" style="font-weight:600; font-size:11.5px;">Engines & Updates</span>
@@ -2306,21 +2360,8 @@
         </button>
       </div>
 
-      <!-- RIGHT UTILITY & SEARCH CONTROLS -->
+      <!-- RIGHT SEARCH & CUSTOMIZE CONTROLS -->
       <div class="action-group">
-        <button class="btn" data-tb-item="theme" id="themeToggleBtn" onclick="toggleTheme()" title="Toggle Light / Dark Mode (Ctrl+D)">
-          <span id="themeToggleIcon">☀️</span>
-          <span class="btn-label btn-label-optional" id="themeToggleText" data-i18n="lightMode">Light</span>
-        </button>
-
-        <button class="btn" data-tb-item="language" id="langToggleBtn" onclick="toggleLanguage()" title="Switch Language / تبديل اللغة (Ctrl+L)">
-          🌐 <span class="btn-label">العربية</span>
-        </button>
-
-        <button class="btn btn-support" data-tb-item="support" id="supportBtn" onclick="showSupportModal()" title="Support FastDownloader development (Ko-fi)">
-          💖 <span class="btn-label" data-i18n="btnSupport">Support</span>
-        </button>
-
         <div class="search-input-wrapper" data-tb-item="search">
           <svg class="search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input type="text" class="search-input" id="searchInput" data-i18n-ph="filterTasks" placeholder="Filter tasks..." oninput="renderTable()">
@@ -3814,9 +3855,6 @@
       { id: 'categories', labelEn: 'Categories', labelAr: 'الأقسام', icon: '📖' },
       { id: 'speedLimit', labelEn: 'Speed Limiter', labelAr: 'محدد السرعة', icon: '⚡' },
       { id: 'scheduler', labelEn: 'Scheduler', labelAr: 'المجدول', icon: '⏱' },
-      { id: 'theme', labelEn: 'Theme Toggle', labelAr: 'الوضع الداكن/الفاتح', icon: '☀️' },
-      { id: 'language', labelEn: 'Language Switcher', labelAr: 'تبديل اللغة', icon: '🌐' },
-      { id: 'support', labelEn: 'Support (Ko-fi)', labelAr: 'دعم المشروع', icon: '💖' },
       { id: 'search', labelEn: 'Search Filter', labelAr: 'شريط البحث', icon: '🔍' }
     ];
 
