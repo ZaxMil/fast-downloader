@@ -33,7 +33,7 @@ namespace FastDownloader
             if (string.IsNullOrEmpty(url)) return false;
             string lower = url.ToLowerInvariant();
             return lower.Contains("youtube.com") || lower.Contains("youtu.be") ||
-                   lower.Contains("facebook.com") || lower.Contains("fb.watch") || lower.Contains("fb.com") || lower.Contains("fbcdn.net") ||
+                   lower.Contains("facebook.com") || lower.Contains("fb.watch") || lower.Contains("fb.com") ||
                    lower.Contains("instagram.com") ||
                    lower.Contains("tiktok.com") ||
                    lower.Contains("twitter.com") || lower.Contains("x.com") ||
@@ -1544,9 +1544,20 @@ namespace FastDownloader
             if (!File.Exists(ytExe)) ytExe = Path.Combine(AppDir, "yt-dlp.exe");
             string ffmpegDir = Path.Combine(AppDir, "bin");
 
-            if (url.Contains("fbcdn.net") && !string.IsNullOrEmpty(referer) && (referer.Contains("facebook.com") || referer.Contains("fb.watch")))
+            if (url.Contains("fbcdn.net") && !string.IsNullOrEmpty(referer))
             {
-                url = referer;
+                string rLower = referer.ToLowerInvariant();
+                if (rLower.Contains("/videos/") || rLower.Contains("/reel/") || rLower.Contains("/watch") || rLower.Contains("watch?v=") || rLower.Contains("story_fbid=") || rLower.Contains("/posts/"))
+                {
+                    url = referer;
+                }
+            }
+            string checkFbFeed = (url ?? "").ToLowerInvariant().Trim();
+            if (checkFbFeed == "https://www.facebook.com" || checkFbFeed == "https://www.facebook.com/" ||
+                checkFbFeed.StartsWith("https://www.facebook.com/?") || checkFbFeed == "https://facebook.com" ||
+                checkFbFeed == "https://facebook.com/" || checkFbFeed.StartsWith("https://facebook.com/?"))
+            {
+                return "";
             }
 
             string formatArg = "-S \"vcodec:h264,res,acodec:m4a\" -f \"hd/sd/b[vcodec^=avc1]/bv*[vcodec^=avc1]+ba[acodec^=mp4a]/b/bv*+ba/best\" --merge-output-format mp4";

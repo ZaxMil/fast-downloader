@@ -491,6 +491,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 // 5. AUTOMATIC BROWSER DOWNLOAD INTERCEPTION (IDM MODE)
+const IGNORED_INTERCEPT_EXTENSIONS = new Set([
+  "srt", "vtt", "sub", "sbv", "json", "js", "css", "html", "htm", "xml", "woff", "woff2", "ttf", "eot", "map", "txt"
+]);
+
 function shouldInterceptDownload(url, filename, mime) {
   if (!url || typeof url !== "string") return false;
   if (url.startsWith("blob:") || url.startsWith("data:") || url.startsWith("chrome:") || url.startsWith("edge:") || url.startsWith("brave:")) {
@@ -501,11 +505,19 @@ function shouldInterceptDownload(url, filename, mime) {
   const dotIdx = target.lastIndexOf(".");
   if (dotIdx !== -1) {
     const ext = target.substring(dotIdx + 1).split(/[?#]/)[0];
+    if (IGNORED_INTERCEPT_EXTENSIONS.has(ext)) return false;
     if (INTERCEPT_EXTENSIONS.has(ext)) return true;
   }
   // Check MIME
-  if (mime && (mime.includes("application/zip") || mime.includes("application/x-rar") || mime.includes("application/x-msdownload") || mime.includes("application/x-msi") || mime.includes("application/octet-stream"))) {
+  if (mime && (mime.includes("application/zip") || mime.includes("application/x-rar") || mime.includes("application/x-msdownload") || mime.includes("application/x-msi"))) {
     return true;
+  }
+  if (mime && mime.includes("application/octet-stream")) {
+    if (dotIdx !== -1) {
+      const ext = target.substring(dotIdx + 1).split(/[?#]/)[0];
+      if (INTERCEPT_EXTENSIONS.has(ext)) return true;
+    }
+    return false;
   }
   return false;
 }
