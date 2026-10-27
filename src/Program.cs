@@ -1549,10 +1549,10 @@ namespace FastDownloader
                 url = referer;
             }
 
-            string formatArg = "-f \"bv*[vcodec^=avc1]+ba[acodec^=mp4a]/bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/18/bestvideo*+bestaudio/best\" --merge-output-format mp4";
-            if (quality == "1080p") formatArg = "-f \"bv*[height<=1080][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080]/bv*[height<=1080]+ba/b[height<=1080]/best\" --merge-output-format mp4";
-            else if (quality == "720p") formatArg = "-f \"bv*[height<=720][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720]/bv*[height<=720]+ba/b[height<=720]/best\" --merge-output-format mp4";
-            else if (quality == "480p") formatArg = "-f \"bv*[height<=480][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480]/bv*[height<=480]+ba/b[height<=480]/best\" --merge-output-format mp4";
+            string formatArg = "-S \"vcodec:h264,res,acodec:m4a\" -f \"hd/sd/b[vcodec^=avc1]/bv*[vcodec^=avc1]+ba[acodec^=mp4a]/b/bv*+ba/best\" --merge-output-format mp4";
+            if (quality == "1080p") formatArg = "-S \"vcodec:h264,res:1080,acodec:m4a\" -f \"hd/b[height<=1080][vcodec^=avc1]/bv*[height<=1080][vcodec^=avc1]+ba/b[height<=1080]/bv*[height<=1080]+ba/best\" --merge-output-format mp4";
+            else if (quality == "720p") formatArg = "-S \"vcodec:h264,res:720,acodec:m4a\" -f \"hd/b[height<=720][vcodec^=avc1]/bv*[height<=720][vcodec^=avc1]+ba/b[height<=720]/bv*[height<=720]+ba/best\" --merge-output-format mp4";
+            else if (quality == "480p") formatArg = "-S \"vcodec:h264,res:480,acodec:m4a\" -f \"sd/b[height<=480][vcodec^=avc1]/bv*[height<=480][vcodec^=avc1]+ba/b[height<=480]/bv*[height<=480]+ba/best\" --merge-output-format mp4";
             else if (quality == "audio") formatArg = "-x --audio-format mp3";
 
             string extraHeaders = "";
@@ -1824,7 +1824,11 @@ namespace FastDownloader
                     string ext = Path.GetExtension(cleanName);
                     if (!string.IsNullOrEmpty(ext)) cleanName = Path.GetFileNameWithoutExtension(cleanName);
                     foreach (char c in Path.GetInvalidFileNameChars()) cleanName = cleanName.Replace(c, '_');
-                    outputTemplate = cleanName + ".%(ext)s";
+                    string lowerClean = cleanName.ToLowerInvariant();
+                    if (lowerClean != "main" && lowerClean != "download" && !lowerClean.Contains("unknown_video") && lowerClean != "facebook" && lowerClean != "video")
+                    {
+                        outputTemplate = cleanName + ".%(ext)s";
+                    }
                 }
 
                 ProcessStartInfo psi = new ProcessStartInfo
@@ -3870,9 +3874,19 @@ namespace FastDownloader
             };
 
             string initName = pending != null ? pending.filename : "download";
-            if (string.IsNullOrEmpty(initName) || initName == "Browser Download")
+            string lowerName = (initName ?? "").ToLowerInvariant();
+            if (string.IsNullOrEmpty(initName) || lowerName == "browser download" || lowerName == "main" || lowerName.Contains("unknown_video") || lowerName == "facebook")
             {
-                initName = pending != null && !string.IsNullOrEmpty(pending.title) && pending.title != "Browser Download" ? pending.title : "download";
+                string pTitle = pending != null && !string.IsNullOrEmpty(pending.title) ? pending.title : "";
+                string pTitleLower = pTitle.ToLowerInvariant();
+                if (!string.IsNullOrEmpty(pTitle) && pTitleLower != "browser download" && pTitleLower != "main" && !pTitleLower.Contains("unknown_video") && pTitleLower != "facebook")
+                {
+                    initName = pTitle;
+                }
+                else
+                {
+                    initName = "Video_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                }
             }
             if (string.IsNullOrEmpty(Path.GetExtension(initName)))
             {

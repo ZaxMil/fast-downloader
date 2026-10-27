@@ -245,6 +245,14 @@
 
     if (window.location.hostname.includes('facebook.com') || window.location.hostname.includes('fb.watch')) {
       type = 'video';
+      if (!title || title === 'Facebook' || title === 'Log into Facebook' || title.includes('unknown_video')) {
+        const h1 = document.querySelector('h1, [data-pagelet*="Reel"] h1, [role="main"] h1');
+        if (h1 && h1.textContent.trim()) {
+          title = h1.textContent.trim().substring(0, 60);
+        } else {
+          title = '';
+        }
+      }
       if (!url || url.includes('fbcdn.net') || url === 'https://www.facebook.com/' || url === 'https://facebook.com/' || url === 'https://www.facebook.com') {
         const permalink = findSocialPostPermalink(triggerPill ? triggerPill.closest('article, [role="article"], [data-pagelet], div[data-virtualized="false"], div[data-ad-preview], main') : null);
         if (permalink) {

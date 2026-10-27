@@ -525,6 +525,7 @@ async function handleDownloadIntercept(item, suggest) {
 
     // Extract resolved filename from Chrome (fully populated in onDeterminingFilename)
     let cleanFilename = item.filename ? item.filename.split(/[\\/]/).pop() : "";
+    if (cleanFilename && (cleanFilename.toLowerCase().includes("unknown_video") || cleanFilename.toLowerCase() === "main" || cleanFilename.toLowerCase() === "download")) { cleanFilename = ""; }
     if (!cleanFilename) {
       try {
         const u = new URL(targetUrl);
