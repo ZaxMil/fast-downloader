@@ -2,8 +2,8 @@
 
 .fd-download-btn-container {
   position: absolute !important;
-  top: 14px !important;
-  right: 14px !important;
+  top: 10px !important;
+  right: 10px !important;
   z-index: 2147483647 !important;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   opacity: 1 !important;
@@ -11,55 +11,87 @@
   transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: auto !important;
   user-select: none;
+  touch-action: none;
 }
 
-/* Brighten & scale slightly when hovered or active */
+/* Brighten & subtle pop when hovered or active */
 .fd-parent-hover .fd-download-btn-container,
 .fd-download-btn-container:hover,
 .fd-download-btn-container.fd-menu-open {
   opacity: 1 !important;
-  transform: translateY(0) scale(1.04) !important;
+  transform: translateY(0) scale(1.02) !important;
 }
 
-/* Glassmorphic Main Pill Container */
+.fd-download-btn-container.fd-dragging {
+  transition: none !important;
+  opacity: 0.88 !important;
+  transform: scale(1.03) !important;
+  cursor: grabbing !important;
+}
+
+/* Glassmorphic Compact Main Pill Container */
 .fd-download-pill {
   display: inline-flex;
   align-items: center;
-  background: rgba(15, 23, 42, 0.94) !important;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(16, 185, 129, 0.6) !important;
-  border-radius: 20px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 12px rgba(16, 185, 129, 0.35) !important;
-  padding: 3px;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  background: rgba(15, 23, 42, 0.92) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(16, 185, 129, 0.5) !important;
+  border-radius: 13px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55), 0 0 10px rgba(16, 185, 129, 0.25) !important;
+  padding: 2px 3px 2px 4px;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: auto !important;
   z-index: 2147483647 !important;
+  height: 24px;
+  box-sizing: border-box;
 }
 
 .fd-download-pill:hover,
 .fd-download-btn-container.fd-menu-open .fd-download-pill {
   background: rgba(15, 23, 42, 0.98) !important;
   border-color: #10B981 !important;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.75), 0 0 20px rgba(16, 185, 129, 0.5) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7), 0 0 16px rgba(16, 185, 129, 0.45) !important;
 }
 
-/* Primary Action Area */
+/* Subtle Drag Grip Handle */
+.fd-pill-drag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 9px;
+  height: 18px;
+  color: #64748B;
+  cursor: grab !important;
+  margin-right: 2px;
+  opacity: 0.6;
+  transition: opacity 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.fd-pill-drag:hover,
+.fd-download-btn-container.fd-dragging .fd-pill-drag {
+  opacity: 1;
+  color: #10B981;
+}
+
+/* Primary Action Area (Compact) */
 .fd-pill-action {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 5px 11px 5px 9px;
+  gap: 5px;
+  padding: 2px 6px 2px 4px;
   background: transparent;
   border: none;
   color: #F8FAFC !important;
-  font-size: 12.5px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
   cursor: pointer !important;
-  border-radius: 16px;
+  border-radius: 10px;
   transition: background 0.15s, color 0.15s;
   line-height: 1;
   pointer-events: auto !important;
+  flex-shrink: 0;
 }
 
 .fd-pill-action:hover {
@@ -67,20 +99,20 @@
 }
 
 .fd-pill-action:active {
-  transform: scale(0.98);
+  transform: scale(0.97);
 }
 
 .fd-pill-icon {
-  width: 17px;
-  height: 17px;
-  border-radius: 4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
   flex-shrink: 0;
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.45);
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
   display: block;
 }
 
 .fd-pill-text {
-  font-size: 12px;
+  font-size: 11px;
   letter-spacing: -0.1px;
 }
 
@@ -89,15 +121,17 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 26px;
+  width: 16px;
+  height: 20px;
   background: transparent;
   border: none;
   border-left: 1px solid rgba(255, 255, 255, 0.12);
   color: #94A3B8;
-  cursor: pointer;
-  border-radius: 0 16px 16px 0;
+  cursor: pointer !important;
+  border-radius: 0;
   transition: all 0.15s;
+  padding: 0;
+  flex-shrink: 0;
 }
 
 .fd-pill-arrow:hover,
@@ -112,6 +146,41 @@
 
 .fd-download-btn-container.fd-menu-open .fd-pill-arrow svg {
   transform: rotate(180deg);
+}
+
+/* Close / Dismiss Trigger */
+.fd-pill-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 20px;
+  background: transparent;
+  border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  color: #64748B;
+  cursor: pointer !important;
+  border-radius: 0 10px 10px 0;
+  transition: all 0.15s;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.fd-pill-close:hover {
+  background: rgba(239, 68, 68, 0.18);
+  color: #EF4444;
+}
+
+/* Dimmed Menu Items (for Dismiss / Disable actions) */
+.fd-menu-item-dim {
+  opacity: 0.72;
+  font-size: 11px;
+}
+
+.fd-menu-item-dim:hover {
+  opacity: 1;
+  color: #EF4444 !important;
+  background: rgba(239, 68, 68, 0.12) !important;
 }
 
 /* Dropdown Quality Menu */

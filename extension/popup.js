@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const statusBadge = document.getElementById('statusBadge');
   const openAppBtn = document.getElementById('openAppBtn');
   const interceptToggle = document.getElementById('interceptToggle');
+  const videoBtnToggle = document.getElementById('videoBtnToggle');
 
   const mediaCard = document.getElementById('mediaCard');
   const mediaTitle = document.getElementById('mediaTitle');
@@ -43,10 +44,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (statusBadge) statusBadge.addEventListener('click', openApp);
   if (activityBar) activityBar.addEventListener('click', openApp);
 
-  // 2. AUTO-GRAB SETTING SYNC
-  chrome.storage.local.get({ autoIntercept: true }, (items) => {
+  // 2. AUTO-GRAB & VIDEO BUTTON SETTING SYNC
+  chrome.storage.local.get({ autoIntercept: true, videoButtonEnabled: true }, (items) => {
     if (interceptToggle) interceptToggle.checked = !!items.autoIntercept;
+    if (videoBtnToggle) videoBtnToggle.checked = !!items.videoButtonEnabled;
   });
+
+  if (videoBtnToggle) {
+    videoBtnToggle.addEventListener('change', () => {
+      chrome.storage.local.set({ videoButtonEnabled: videoBtnToggle.checked });
+    });
+  }
 
   if (interceptToggle) {
     interceptToggle.addEventListener('change', () => {
