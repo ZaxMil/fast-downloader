@@ -21,30 +21,41 @@
   // Intercepted Main-World Streams cache (HLS, DASH, Master playlists)
   const interceptedStreams = [];
 
-  // User Setting: Floating Video Button Enabled
+  // User Setting: Floating Video Button Enabled & Remembered Custom Position
   let videoButtonEnabled = true;
+  let globalButtonPos = null;
 
   if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-    chrome.storage.local.get({ videoButtonEnabled: true }, (items) => {
-      if (items && typeof items.videoButtonEnabled === 'boolean') {
-        videoButtonEnabled = items.videoButtonEnabled;
-        if (!videoButtonEnabled) {
-          document.querySelectorAll('.fd-download-btn-container').forEach(el => el.remove());
-          const ytBtn = document.getElementById('fd-yt-action-container');
-          if (ytBtn) ytBtn.remove();
+    chrome.storage.local.get({ videoButtonEnabled: true, savedButtonPos: null }, (items) => {
+      if (items) {
+        if (typeof items.videoButtonEnabled === 'boolean') {
+          videoButtonEnabled = items.videoButtonEnabled;
+          if (!videoButtonEnabled) {
+            document.querySelectorAll('.fd-download-btn-container').forEach(el => el.remove());
+            const ytBtn = document.getElementById('fd-yt-action-container');
+            if (ytBtn) ytBtn.remove();
+          }
+        }
+        if (items.savedButtonPos) {
+          globalButtonPos = items.savedButtonPos;
         }
       }
     });
 
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && changes.videoButtonEnabled !== undefined) {
-        videoButtonEnabled = !!changes.videoButtonEnabled.newValue;
-        if (!videoButtonEnabled) {
-          document.querySelectorAll('.fd-download-btn-container').forEach(el => el.remove());
-          const ytBtn = document.getElementById('fd-yt-action-container');
-          if (ytBtn) ytBtn.remove();
-        } else {
-          scanMedia();
+      if (area === 'local') {
+        if (changes.videoButtonEnabled !== undefined) {
+          videoButtonEnabled = !!changes.videoButtonEnabled.newValue;
+          if (!videoButtonEnabled) {
+            document.querySelectorAll('.fd-download-btn-container').forEach(el => el.remove());
+            const ytBtn = document.getElementById('fd-yt-action-container');
+            if (ytBtn) ytBtn.remove();
+          } else {
+            scanMedia();
+          }
+        }
+        if (changes.savedButtonPos !== undefined) {
+          globalButtonPos = changes.savedButtonPos.newValue;
         }
       }
     });
@@ -780,8 +791,17 @@
 
 
 
-    // 1. Embedded YouTube Player
+    // 0. YouTube Shorts Reel Renderer
+    const reel = targetElement.closest('ytd-reel-video-renderer');
+    if (reel) {
+      // In YouTube Shorts, the overlay renderer sits on top of player-container.
+      // Attaching to the overlay ensures the button sits cleanly in top-left,
+      // completely ABOVE the video and away from the right-side control buttons!
+      const overlay = reel.querySelector('ytd-reel-player-overlay-renderer') || reel;
+      return overlay;
+    }
 
+    // 1. Embedded YouTube Player
     const ytPlayer = targetElement.closest('#movie_player, .html5-video-player');
 
     if (ytPlayer) return ytPlayer;
@@ -891,15 +911,19 @@
     const container = document.createElement('div');
     container.className = 'fd-download-btn-container';
 
-    // Apply remembered custom position if user previously dragged button on this player
+    // Apply remembered custom position if user previously dragged button
     if (anchor._fdCustomPos) {
-      container.style.left = anchor._fdCustomPos.left;
-      container.style.top = anchor._fdCustomPos.top;
-      container.style.right = 'auto';
+      container.style.setProperty('left', anchor._fdCustomPos.left, 'important');
+      container.style.setProperty('top', anchor._fdCustomPos.top, 'important');
+      container.style.setProperty('right', 'auto', 'important');
+    } else if (globalButtonPos && globalButtonPos.left && globalButtonPos.top) {
+      container.style.setProperty('left', globalButtonPos.left, 'important');
+      container.style.setProperty('top', globalButtonPos.top, 'important');
+      container.style.setProperty('right', 'auto', 'important');
     } else {
-      container.style.top = '12px';
-      container.style.left = '12px';
-      container.style.right = 'auto';
+      container.style.setProperty('top', '14px', 'important');
+      container.style.setProperty('left', '14px', 'important');
+      container.style.setProperty('right', 'auto', 'important');
     }
 
     // Stop clicks from bubbling out to Facebook / YouTube background players
@@ -1031,7 +1055,7 @@
       `;
     }
 
-    // DRAGGABLE IMPLEMENTATION (Pointer events)
+    // DRAGGABLE IMPLEMENTATION (Pointer events with window capture)
     let isDragging = false;
     let dragStartX = 0;
     let dragStartY = 0;
@@ -1039,6 +1063,66 @@
     let initialTop = 0;
     let hasDragged = false;
     let suppressClickUntil = 0;
+
+    const onPointerMove = (e) => {
+      if (!isDragging) return;
+      const dx = e.clientX - dragStartX;
+      const dy = e.clientY - dragStartY;
+
+      if (!hasDragged && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+        hasDragged = true;
+        container.classList.add('fd-dragging');
+        menu.classList.remove('fd-show');
+        container.classList.remove('fd-menu-open');
+      }
+
+      if (hasDragged) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const aRect = anchor.getBoundingClientRect();
+        let newLeft = initialLeft + dx;
+        let newTop = initialTop + dy;
+
+        const maxL = Math.max(0, aRect.width - container.offsetWidth);
+        const maxT = Math.max(0, aRect.height - container.offsetHeight);
+        newLeft = Math.max(4, Math.min(newLeft, maxL));
+        newTop = Math.max(4, Math.min(newTop, maxT));
+
+        container.style.setProperty('position', 'absolute', 'important');
+        container.style.setProperty('left', `${newLeft}px`, 'important');
+        container.style.setProperty('top', `${newTop}px`, 'important');
+        container.style.setProperty('right', 'auto', 'important');
+        container.style.setProperty('bottom', 'auto', 'important');
+      }
+    };
+
+    const onPointerUp = (e) => {
+      window.removeEventListener('pointermove', onPointerMove, true);
+      window.removeEventListener('pointerup', onPointerUp, true);
+      window.removeEventListener('pointercancel', onPointerUp, true);
+
+      if (!isDragging) return;
+      isDragging = false;
+      container.classList.remove('fd-dragging');
+      try { container.releasePointerCapture(e.pointerId); } catch (_) {}
+
+      if (hasDragged) {
+        e.preventDefault();
+        e.stopPropagation();
+        suppressClickUntil = Date.now() + 300;
+
+        const pos = {
+          left: container.style.left,
+          top: container.style.top
+        };
+        anchor._fdCustomPos = pos;
+        globalButtonPos = pos;
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+          chrome.storage.local.set({ savedButtonPos: pos });
+        }
+      }
+    };
 
     const startDrag = (e) => {
       if (e.button !== 0) return;
@@ -1055,61 +1139,13 @@
       initialTop = cRect.top - aRect.top;
 
       try { container.setPointerCapture(e.pointerId); } catch (_) {}
-      e.stopPropagation();
-    };
 
-    const doDrag = (e) => {
-      if (!isDragging) return;
-      const dx = e.clientX - dragStartX;
-      const dy = e.clientY - dragStartY;
-
-      if (!hasDragged && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
-        hasDragged = true;
-        container.classList.add('fd-dragging');
-        menu.classList.remove('fd-show');
-        container.classList.remove('fd-menu-open');
-      }
-
-      if (hasDragged) {
-        e.stopPropagation();
-        e.preventDefault();
-        const aRect = anchor.getBoundingClientRect();
-        let newLeft = initialLeft + dx;
-        let newTop = initialTop + dy;
-
-        const maxL = Math.max(0, aRect.width - container.offsetWidth);
-        const maxT = Math.max(0, aRect.height - container.offsetHeight);
-        newLeft = Math.max(0, Math.min(newLeft, maxL));
-        newTop = Math.max(0, Math.min(newTop, maxT));
-
-        container.style.position = 'absolute';
-        container.style.left = newLeft + 'px';
-        container.style.top = newTop + 'px';
-        container.style.right = 'auto';
-        container.style.bottom = 'auto';
-      }
-    };
-
-    const endDrag = (e) => {
-      if (!isDragging) return;
-      isDragging = false;
-      container.classList.remove('fd-dragging');
-      try { container.releasePointerCapture(e.pointerId); } catch (_) {}
-
-      if (hasDragged) {
-        e.stopPropagation();
-        suppressClickUntil = Date.now() + 250;
-        anchor._fdCustomPos = {
-          left: container.style.left,
-          top: container.style.top
-        };
-      }
+      window.addEventListener('pointermove', onPointerMove, { capture: true, passive: false });
+      window.addEventListener('pointerup', onPointerUp, { capture: true });
+      window.addEventListener('pointercancel', onPointerUp, { capture: true });
     };
 
     container.addEventListener('pointerdown', startDrag);
-    container.addEventListener('pointermove', doDrag);
-    container.addEventListener('pointerup', endDrag);
-    container.addEventListener('pointercancel', endDrag);
 
     // Dismiss Button Handler
     const dismissButton = () => {
@@ -1271,6 +1307,14 @@
 
     if (!window.location.hostname.includes(atob('eW91dHViZS5jb20='))) return;
 
+    // NEVER inject into YouTube Shorts!
+    // Shorts uses a vertical action column where horizontal watch-bar buttons break layout.
+    if (window.location.pathname.includes('/shorts/') || document.querySelector('ytd-shorts, ytd-reel-video-renderer')) {
+      const existing = document.getElementById('fd-yt-action-container');
+      if (existing) existing.remove();
+      return;
+    }
+
     if (document.getElementById('fd-yt-action-container')) return;
 
 
@@ -1366,7 +1410,7 @@
 
       const v = ytPlayer.querySelector('video');
 
-      if (v) injectDownloadButton(ytPlayer, false);
+      if (v) injectDownloadButton(v, false);
 
     }
 

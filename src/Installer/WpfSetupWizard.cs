@@ -19,7 +19,7 @@ namespace FastDownloader.Installer
     public class WpfSetupWizard : Application
     {
         private const string AppName = "FastDownloader Pro";
-        private const string AppVersion = "0.1.0 (Beta)";
+        private const string AppVersion = "0.1.1";
         private const string AppPublisher = "ZaxMil";
         private const string NativeHostName = "com.fastdownloader.app";
         private const string GitHubUrl = "https://github.com/ZaxMil/fast-downloader";
@@ -340,7 +340,7 @@ namespace FastDownloader.Installer
         private readonly Brush BrushTextDim = new SolidColorBrush(Color.FromRgb(100, 116, 139));
 
         private const string AppName = "FastDownloader Pro";
-        private const string AppVersion = "0.1.0 (Beta)";
+        private const string AppVersion = "0.1.1";
         private const string AppPublisher = "ZaxMil";
         private const string NativeHostName = "com.fastdownloader.app";
         private const string GitHubUrl = "https://github.com/ZaxMil/fast-downloader";
@@ -1721,7 +1721,7 @@ namespace FastDownloader.Installer
                     if (k != null)
                     {
                         k.SetValue("DisplayName", AppName);
-                        k.SetValue("DisplayVersion", "0.1.0-beta");
+                        k.SetValue("DisplayVersion", "0.1.1");
                         k.SetValue("Publisher", AppPublisher);
                         k.SetValue("DisplayIcon", System.IO.Path.Combine(targetDir, "app.ico") + ",0");
                         k.SetValue("InstallLocation", targetDir);
@@ -1759,7 +1759,7 @@ namespace FastDownloader.Installer
         {
             return
 @"FASTDOWNLOADER PRO - END USER LICENSE & TERMS OF USE
-Version 0.1.0 (Beta) | Last Updated: October 2026
+Version 0.1.1 | Last Updated: October 2026
 
 1. END USER LICENSE AGREEMENT (MIT LICENSE)
 Permission is hereby granted, free of charge, to any person obtaining a copy
