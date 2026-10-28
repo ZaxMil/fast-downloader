@@ -41,6 +41,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   if (openAppBtn) openAppBtn.addEventListener('click', openApp);
+  const reloadExtBtn = document.getElementById('reloadExtBtn');
+  if (reloadExtBtn) {
+    reloadExtBtn.addEventListener('click', () => {
+      reloadExtBtn.style.transform = 'rotate(360deg)';
+      reloadExtBtn.style.transition = 'transform 0.5s ease';
+      chrome.runtime.sendMessage({ type: 'FD_RELOAD_EXTENSION' });
+      setTimeout(() => {
+        try { chrome.runtime.reload(); } catch(e) {}
+        window.close();
+      }, 300);
+    });
+  }
+  const extVerEl = document.getElementById('extVerText');
+  if (extVerEl && chrome.runtime && chrome.runtime.getManifest) {
+    extVerEl.textContent = 'v' + (chrome.runtime.getManifest().version || '0.1.2');
+  }
   if (statusBadge) statusBadge.addEventListener('click', openApp);
   if (activityBar) activityBar.addEventListener('click', openApp);
 

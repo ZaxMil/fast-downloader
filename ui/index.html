@@ -2595,7 +2595,7 @@
           <div style="font-size:10.5px; color:var(--text-dim);" id="sysMenuSub">All core systems healthy</div>
         </div>
       </div>
-      <span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; background:rgba(16, 185, 129, 0.2); color:#10B981;">v0.1.1</span>
+      <span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; background:rgba(16, 185, 129, 0.2); color:#10B981;">v0.1.2</span>
     </div>
 
     <!-- STATUS ITEMS -->
@@ -3011,6 +3011,7 @@
 
       <div class="modal-footer">
         <button class="btn" onclick="openExtensionFolder()" style="margin-right:auto;">📁 Open Extension Folder</button>
+        <button class="btn" id="reloadExtensionBtn" onclick="triggerExtensionReload()" title="Force connected browser extensions to reload runtime code from disk">🔄 Sync & Reload</button>
         <button class="btn btn-primary" onclick="closeModal('extensionModal')">Done</button>
       </div>
     </div>
@@ -3074,7 +3075,7 @@
       <div class="modal-body" style="padding:28px 24px;">
         <img src="/ui/logo.png" style="width:58px;height:58px;border-radius:14px;box-shadow:0 0 25px rgba(16,185,129,0.4);margin-bottom:14px;object-fit:cover;">
         <h3 style="margin:0 0 4px 0; font-size:18px; font-weight:700;">FastDownloader <span class="brand-pro-tag">PRO</span></h3>
-        <p style="margin:0 0 16px 0; font-size:12px; color:var(--text-dim);">Version 0.1.1 • Ultra-Fast Native Acceleration</p>
+        <p style="margin:0 0 16px 0; font-size:12px; color:var(--text-dim);">Version 0.1.2 • Ultra-Fast Native Acceleration</p>
         <div style="background:var(--bg-base); padding:12px; border-radius:8px; border:1px solid var(--border-subtle); text-align:left; font-size:12px; line-height:1.7; color:var(--text-muted); margin-bottom:18px;">
           <div>⚡ <strong>aria2 Core:</strong> 16-chunk parallel multi-source downloading</div>
           <div>🎬 <strong>yt-dlp Engine:</strong> 4K/8K video & live stream extraction</div>
@@ -3153,7 +3154,7 @@
               <div>
                 <div style="font-weight:700; font-size:14px; color:var(--text-main);">FastDownloader <span class="brand-pro-tag">PRO</span></div>
                 <div style="font-size:11.5px; color:var(--text-dim);">
-                  Installed: <strong style="color:var(--text-main);">v0.1.1 (Beta)</strong> • Latest: <strong id="appLatestVerText" style="color:var(--emerald);">v0.1.1 (Beta)</strong>
+                  Installed: <strong style="color:var(--text-main);">v0.1.2 (Beta)</strong> • Latest: <strong id="appLatestVerText" style="color:var(--emerald);">v0.1.2 (Beta)</strong>
                 </div>
               </div>
             </div>
@@ -5818,6 +5819,20 @@
       } catch(e) {}
     }
 
+    async function triggerExtensionReload() {
+      const btn = document.getElementById('reloadExtensionBtn');
+      if (btn) btn.innerHTML = '🔄 Sending signal...';
+      try {
+        const res = await fetch(`${API_BASE}/api/extension/reload`, { method: 'POST' });
+        const data = await res.json();
+        showToast('Extension reload signal sent! Active extensions will refresh immediately.', 'info');
+      } catch (e) {
+        showToast('Failed to trigger extension reload', 'error');
+      } finally {
+        setTimeout(() => { if (btn) btn.innerHTML = '🔄 Sync & Reload'; }, 1500);
+      }
+    }
+
     // Toggle Waveform Graph
     function toggleSpeedGraph() {
       const container = document.getElementById('graphContainer');
@@ -6253,7 +6268,7 @@
       const appDetails = document.getElementById('appUpdateDetails');
       const appNotes = document.getElementById('appReleaseNotesText');
 
-      if (appLatest) appLatest.textContent = 'v' + (app.latestVersion || '0.1.1');
+      if (appLatest) appLatest.textContent = 'v' + (app.latestVersion || '0.1.2');
 
       if (app.updateAvailable) {
         if (appBadge) {

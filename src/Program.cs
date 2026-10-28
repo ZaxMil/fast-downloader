@@ -1975,7 +1975,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.1";
+        public const string CurrentAppVersion = "0.1.2";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -2414,11 +2414,18 @@ namespace FastDownloader
                 string tempDir = Path.Combine(Path.GetTempPath(), "FastDownloader_Update");
                 if (!Directory.Exists(tempDir)) Directory.CreateDirectory(tempDir);
                 string newExe = Path.Combine(tempDir, "FastDownloader.exe");
+                string extZip = Path.Combine(tempDir, "extension.zip");
 
                 using (WebClient wc = new WebClient())
                 {
                     wc.Headers["User-Agent"] = "FastDownloader-App/" + CurrentAppVersion;
                     wc.DownloadFile(url, newExe);
+                    try
+                    {
+                        string extUrl = "https://github.com/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases/latest/download/fast-downloader-extension.zip";
+                        wc.DownloadFile(extUrl, extZip);
+                    }
+                    catch { }
                 }
 
                 if (!File.Exists(newExe) || new FileInfo(newExe).Length < 50000)
@@ -2428,6 +2435,8 @@ namespace FastDownloader
                 }
 
                 string currentExe = Process.GetCurrentProcess().MainModule.FileName;
+                string appDir = engine != null ? engine.AppDir : Path.GetDirectoryName(currentExe);
+                string extTargetDir = Path.Combine(appDir, "extension");
                 string batPath = Path.Combine(tempDir, "apply_update.bat");
                 string batScript =
                     "@echo off\r\n" +
@@ -2438,6 +2447,9 @@ namespace FastDownloader
                     "if errorlevel 1 (\r\n" +
                     "    timeout /t 1 /nobreak > nul\r\n" +
                     "    goto retry\r\n" +
+                    ")\r\n" +
+                    "if exist \"" + extZip + "\" (\r\n" +
+                    "    powershell -NoProfile -Command \"Expand-Archive -Path '" + extZip.Replace("'", "''") + "' -DestinationPath '" + extTargetDir.Replace("'", "''") + "' -Force\" > nul 2>&1\r\n" +
                     ")\r\n" +
                     "start \"\" \"" + currentExe + "\"\r\n" +
                     "del \"%~f0\"\r\n";
@@ -2515,6 +2527,7 @@ namespace FastDownloader
         private Action<string> onNotification;
         private UpdateManager updateManager;
         private DateTime lastExtensionPing = DateTime.MinValue;
+        private volatile bool forceExtensionReload = false;
 
         public HttpBridgeServer(EngineManager engine, Action<string> onNotification, UpdateManager updateManager = null)
         {
@@ -3134,13 +3147,30 @@ namespace FastDownloader
                     if (urlPath == "/api/extension/ping")
                     {
                         lastExtensionPing = DateTime.UtcNow;
+                        bool shouldReload = forceExtensionReload;
+                        forceExtensionReload = false;
                         var pingResp = new
                         {
                             ok = true,
                             connected = true,
-                            autoCapture = engine.AutoCaptureEnabled
+                            autoCapture = engine.AutoCaptureEnabled,
+                            appVersion = UpdateManager.CurrentAppVersion,
+                            reloadExtension = shouldReload
                         };
                         string ok = JsonHelper.Serialize(pingResp);
+                        byte[] okBytes = Encoding.UTF8.GetBytes(ok);
+                        SendHeaders(writer, 200, "OK", "application/json", okBytes.Length);
+                        writer.Write(ok);
+                        writer.Flush();
+                        return;
+                    }
+
+                    // 9b. FORCE RELOAD EXTENSION API
+                    if (urlPath == "/api/extension/reload" && method == "POST")
+                    {
+                        forceExtensionReload = true;
+                        var reloadResp = new { ok = true, message = "Extension reload queued for next heartbeat" };
+                        string ok = JsonHelper.Serialize(reloadResp);
                         byte[] okBytes = Encoding.UTF8.GetBytes(ok);
                         SendHeaders(writer, 200, "OK", "application/json", okBytes.Length);
                         writer.Write(ok);
@@ -5362,7 +5392,7 @@ namespace FastDownloader
                         // Note: --app creates the dedicated standalone window; omitting --new-window prevents regular browser tabs.
                         Arguments = string.Format("--app=http://127.0.0.1:6801/ --user-data-dir=\"{0}\" --window-size=1240,800 --no-first-run --no-default-browser-check --disable-features=Translate,OptimizationHints --disable-extensions --disable-background-mode", profileDir),
                         CreateNoWindow = false,
-                        UseShellExecute = false
+                        UseShellExecute = true
                     };
                     Process p = Process.Start(psi);
                     if (p != null)

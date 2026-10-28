@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FastDownloader Pro - Turbo Download Manager",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Ultra-fast multi-threaded download manager integration with 1-click video and stream capture for FastDownloader.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0NX+lcxlIM3pqASgxWQQ76KjoNpdG4bPLKpzkxpbuXWe+agb38CA2sgpb3o639OTBB0oW1vtljxPM30gIYyPw1YT8Tqm61eSRKLxYkpeHqxT75wl1Tv//GNVIUaIkdu+qMKMf/X1jFB6udXUFMNJoTraTA8vIQz5GRt+Q4/QdMgdY8tHO1XDK2sjLsya65HU795xCucCHkm1ARsTAAMJN0R6Pym13ht5k9CYTedZ+Hv8VzqopvxUU8IFTvtE7yqCHm44+LFmZvUqXxaac6N+58xXgh+eszjwPL3qOwbp7A13DIojuoJxf1gwrTrMFRfnM4ZW5sBZQDplQoInNSivqwIDAQAB",
   "permissions": [
@@ -21,16 +21,26 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["inject.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "inject.js"
+      ],
       "all_frames": true,
       "world": "MAIN",
       "run_at": "document_start"
     },
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "css": ["content.css"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
       "all_frames": true,
       "run_at": "document_idle"
     }
@@ -60,7 +70,9 @@
         "icons/icon48.png",
         "icons/icon128.png"
       ],
-      "matches": ["<all_urls>"]
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }

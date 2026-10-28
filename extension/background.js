@@ -607,13 +607,18 @@ chrome.downloads.onCreated.addListener((item) => {
   }
 });
 
-// 6. PERIODIC HEARTBEAT TO FASTDOWNLOADER DAEMON (Syncs auto-grab setting)
+// 6. PERIODIC HEARTBEAT TO FASTDOWNLOADER DAEMON (Syncs auto-grab setting & auto-reloads on updates)
+let isReloadingExtension = false;
+
 function sendHeartbeat() {
+  const manifest = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getManifest) ? chrome.runtime.getManifest() : null;
+  const currentVer = manifest ? manifest.version : "0.1.2";
+
   fetch(`${FD_API_BASE}/api/extension/ping`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      version: "0.1.0",
+      version: currentVer,
       userAgent: navigator.userAgent
     })
   })
@@ -625,9 +630,36 @@ function sendHeartbeat() {
         chrome.storage.local.set({ autoIntercept: data.autoCapture });
       }
     }
+
+    // Auto-reload extension when daemon notifies files were updated or reload is requested
+    if (data && (data.reloadExtension === true || (data.appVersion && data.appVersion !== currentVer))) {
+      if (!isReloadingExtension) {
+        isReloadingExtension = true;
+        console.log(`[FastDownloader] Version update or reload requested (${currentVer} -> ${data.appVersion || 'reload'}). Applying updated extension files...`);
+        setTimeout(() => {
+          try {
+            chrome.runtime.reload();
+          } catch (e) {
+            console.error("[FastDownloader] Failed to reload runtime:", e);
+            isReloadingExtension = false;
+          }
+        }, 600);
+      }
+    }
   })
   .catch(() => {});
 }
+
+// Listen for explicit reload message from extension popup
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg && msg.type === "FD_RELOAD_EXTENSION") {
+    sendResponse({ ok: true });
+    setTimeout(() => {
+      try { chrome.runtime.reload(); } catch(e) {}
+    }, 200);
+    return true;
+  }
+});
 
 sendHeartbeat();
 setInterval(sendHeartbeat, 10000);
