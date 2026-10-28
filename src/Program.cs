@@ -868,8 +868,8 @@ namespace FastDownloader
             YtTasks = new List<YtTaskInfo>();
             PendingDownloads = new Dictionary<string, PendingDownloadInfo>();
             Queues = new Dictionary<string, QueueConfig>();
-            Queues["MainQueue"] = new QueueConfig { Enabled = false, StartTime = "02:00", StopTime = "07:00", MaxConcurrent = 3, Shutdown = false, Active = true };
-            Queues["NightQueue"] = new QueueConfig { Enabled = true, StartTime = "02:00", StopTime = "07:00", MaxConcurrent = 1, Shutdown = true, Active = false };
+            Queues["MainQueue"] = new QueueConfig { Enabled = false, StartTime = "02:00", StopTime = "07:00", MaxConcurrent = 3, Shutdown = false, Active = false };
+            Queues["NightQueue"] = new QueueConfig { Enabled = false, StartTime = "02:00", StopTime = "07:00", MaxConcurrent = 1, Shutdown = false, Active = false };
         }
 
         public void LoadSettings()
@@ -3000,6 +3000,26 @@ namespace FastDownloader
                         }
 
                         string ok = "{\"ok\":true}";
+                        byte[] okBytes = Encoding.UTF8.GetBytes(ok);
+                        SendHeaders(writer, 200, "OK", "application/json", okBytes.Length);
+                        writer.Write(ok);
+                        writer.Flush();
+                        return;
+                    }
+
+                    // 7.1 ABORT SHUTDOWN API
+                    if (urlPath == "/api/shutdown/abort" && method == "POST")
+                    {
+                        try { Process.Start("shutdown.exe", "/a"); } catch { }
+                        lock (engine.Queues)
+                        {
+                            foreach (var q in engine.Queues.Values)
+                            {
+                                q.Shutdown = false;
+                                q.Active = false;
+                            }
+                        }
+                        string ok = "{\"ok\":true,\"message\":\"Shutdown aborted\"}";
                         byte[] okBytes = Encoding.UTF8.GetBytes(ok);
                         SendHeaders(writer, 200, "OK", "application/json", okBytes.Length);
                         writer.Write(ok);
@@ -5391,10 +5411,11 @@ namespace FastDownloader
                 }
 
                 // Check auto-shutdown
-                if (cfg.Shutdown && cfg.Active)
+                if (cfg.Shutdown && cfg.Active && cfg.Enabled)
                 {
                     var tasks = engine.GetAriaTasks();
                     bool anyActive = false;
+                    int queueCompletedCount = 0;
                     foreach (var t in tasks)
                     {
                         if (t.ContainsKey("status") && t["status"].ToString() == "active")
@@ -5402,12 +5423,18 @@ namespace FastDownloader
                             anyActive = true;
                             break;
                         }
+                        if (t.ContainsKey("status") && (t["status"].ToString() == "complete" || t["status"].ToString() == "completed"))
+                        {
+                            queueCompletedCount++;
+                        }
                     }
 
-                    if (!anyActive && tasks.Count > 0)
+                    // Only shutdown if enabled, currently active, and actually completed scheduled tasks
+                    if (!anyActive && queueCompletedCount > 0 && cfg.Active)
                     {
                         cfg.Shutdown = false;
-                        trayIcon.ShowBalloonTip(5000, "Auto-Shutdown", "All downloads finished! PC will shut down in 60 seconds.", ToolTipIcon.Warning);
+                        cfg.Active = false;
+                        trayIcon.ShowBalloonTip(5000, "Auto-Shutdown", "All scheduled downloads finished! PC will shut down in 60 seconds.", ToolTipIcon.Warning);
                         Process.Start("shutdown.exe", "/s /t 60");
                     }
                 }

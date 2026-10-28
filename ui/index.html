@@ -2447,7 +2447,7 @@
           <span>🌙</span>
           <span data-i18n="nightQueue">Night Queue</span>
         </div>
-        <span class="queue-status-tag" id="nightQueueStatus" style="color:#A78BFA; background:rgba(139,92,246,0.15)">02:00</span>
+        <span class="queue-status-tag" id="nightQueueStatus" style="color:#94A3B8; background:rgba(148,163,184,0.12)">Off</span>
       </div>
 
       <div class="sidebar-footer">
@@ -2923,11 +2923,12 @@
           </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-checkbox-label">
+        <div class="form-group" style="padding:10px 12px; background:rgba(239, 68, 68, 0.08); border:1px solid rgba(239, 68, 68, 0.25); border-radius:6px;">
+          <label class="form-checkbox-label" style="display:flex; align-items:center; gap:8px;">
             <input type="checkbox" id="schedShutdown">
-            <span>Turn off computer (Shutdown) when all downloads in this queue finish</span>
+            <span style="font-weight:600; color:#F87171;">Turn off computer (Shutdown) when all downloads in this queue finish</span>
           </label>
+          <div style="font-size:11px; color:var(--text-dim); margin-top:4px; margin-left:24px;">Default is OFF. When disabled, your computer will stay on.</div>
         </div>
 
         <div class="form-group">
@@ -2939,8 +2940,9 @@
       </div>
 
       <div class="modal-footer">
-        <button class="btn" onclick="triggerQueueManual(true)" style="background:#065F46; color:#34D399; margin-right:auto;">▶ Start Queue Now</button>
-        <button class="btn" onclick="triggerQueueManual(false)" style="color:#F87171; margin-right:auto;">⏸ Pause Queue</button>
+        <button class="btn" onclick="abortShutdownNow()" style="color:#EF4444; border:1px solid rgba(239,68,68,0.4); background:rgba(239,68,68,0.1); margin-right:auto;" title="Immediately cancels any pending Windows shutdown and turns off auto-shutdown">🛑 Cancel Auto-Shutdown</button>
+        <button class="btn" onclick="triggerQueueManual(true)" style="background:#065F46; color:#34D399;">▶ Start Queue Now</button>
+        <button class="btn" onclick="triggerQueueManual(false)" style="color:#F87171;">⏸ Pause Queue</button>
         <button class="btn" onclick="closeModal('schedulerModal')">Cancel</button>
         <button class="btn btn-primary" onclick="saveSchedulerSettings()">Save Settings</button>
       </div>
@@ -3439,9 +3441,25 @@
 
     // Queue Config Store
     let queuesConfig = {
-      MainQueue: { enabled: false, startTime: "02:00", stopTime: "07:00", maxConcurrent: 3, shutdown: false, active: true },
-      NightQueue: { enabled: true, startTime: "02:00", stopTime: "07:00", maxConcurrent: 1, shutdown: true, active: false }
+      MainQueue: { enabled: false, startTime: "02:00", stopTime: "07:00", maxConcurrent: 3, shutdown: false, active: false },
+      NightQueue: { enabled: false, startTime: "02:00", stopTime: "07:00", maxConcurrent: 1, shutdown: false, active: false }
     };
+
+    // Sanitize any stale local storage queues config that had auto-shutdown enabled
+    try {
+      const savedQ = localStorage.getItem('fast_queues_config');
+      if (savedQ) {
+        const parsed = JSON.parse(savedQ);
+        if (parsed.NightQueue && parsed.NightQueue.shutdown) {
+          parsed.NightQueue.shutdown = false;
+          parsed.NightQueue.enabled = false;
+        }
+        if (parsed.MainQueue && parsed.MainQueue.shutdown) {
+          parsed.MainQueue.shutdown = false;
+        }
+        queuesConfig = Object.assign(queuesConfig, parsed);
+      }
+    } catch(e) {}
 
     // Task to Queue Mapping
     let taskQueueMap = JSON.parse(localStorage.getItem('fast_task_queues') || '{}');
@@ -5458,6 +5476,19 @@
       }
     }
 
+    async function abortShutdownNow() {
+      try {
+        await fetch(`${API_BASE}/api/shutdown/abort`, { method: 'POST' });
+        if (queuesConfig.MainQueue) queuesConfig.MainQueue.shutdown = false;
+        if (queuesConfig.NightQueue) queuesConfig.NightQueue.shutdown = false;
+        localStorage.setItem('fast_queues_config', JSON.stringify(queuesConfig));
+        loadQueueSettingsToForm();
+        showToast("🛑 Auto-Shutdown cancelled and disabled!");
+      } catch(e) {
+        showToast("⚠️ Could not reach app backend to abort shutdown.");
+      }
+    }
+
     async function saveSchedulerSettings() {
       const q = document.getElementById('schedQueueSelect').value;
       queuesConfig[q] = {
@@ -5474,6 +5505,19 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ queue: q, config: queuesConfig[q] })
         });
+        localStorage.setItem('fast_queues_config', JSON.stringify(queuesConfig));
+        const badge = document.getElementById('nightQueueStatus');
+        if (badge) {
+          if (queuesConfig.NightQueue && queuesConfig.NightQueue.enabled) {
+            badge.textContent = queuesConfig.NightQueue.startTime;
+            badge.style.color = '#A78BFA';
+            badge.style.background = 'rgba(139,92,246,0.15)';
+          } else {
+            badge.textContent = 'Off';
+            badge.style.color = '#94A3B8';
+            badge.style.background = 'rgba(148,163,184,0.12)';
+          }
+        }
         closeModal('schedulerModal');
         showToast("Queue & Scheduler Settings Saved!");
       } catch(e) {}
