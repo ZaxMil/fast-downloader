@@ -810,6 +810,13 @@
 
       }
 
+      // Never attach inside a player control bar or bottom toolbar
+      const className = typeof current.className === 'string' ? current.className.toLowerCase() : '';
+      if (className.includes('controls') || className.includes('toolbar') || role === 'toolbar') {
+        current = current.parentElement;
+        continue;
+      }
+
 
 
       const rect = current.getBoundingClientRect();
@@ -888,6 +895,10 @@
     if (anchor._fdCustomPos) {
       container.style.left = anchor._fdCustomPos.left;
       container.style.top = anchor._fdCustomPos.top;
+      container.style.right = 'auto';
+    } else {
+      container.style.top = '12px';
+      container.style.left = '12px';
       container.style.right = 'auto';
     }
 
@@ -1181,6 +1192,16 @@
       e.preventDefault();
       const isOpen = menu.classList.toggle('fd-show');
       container.classList.toggle('fd-menu-open', isOpen);
+      if (isOpen) {
+        const cRect = container.getBoundingClientRect();
+        if (window.innerWidth - cRect.right < 240) {
+          menu.style.left = 'auto';
+          menu.style.right = '0';
+        } else {
+          menu.style.left = '0';
+          menu.style.right = 'auto';
+        }
+      }
     });
 
     // Close menu when clicking outside

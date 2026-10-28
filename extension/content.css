@@ -2,8 +2,9 @@
 
 .fd-download-btn-container {
   position: absolute !important;
-  top: 10px !important;
-  right: 10px !important;
+  top: 12px !important;
+  left: 12px !important;
+  right: auto !important;
   z-index: 2147483647 !important;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   opacity: 1 !important;
@@ -24,21 +25,19 @@
 
 .fd-download-btn-container.fd-dragging {
   transition: none !important;
-  opacity: 0.88 !important;
+  opacity: 0.92 !important;
   transform: scale(1.03) !important;
   cursor: grabbing !important;
 }
 
-/* Glassmorphic Compact Main Pill Container */
+/* Solid Opaque Compact Main Pill Container */
 .fd-download-pill {
   display: inline-flex;
   align-items: center;
-  background: rgba(15, 23, 42, 0.92) !important;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(16, 185, 129, 0.5) !important;
+  background: #0F172A !important;
+  border: 1px solid rgba(16, 185, 129, 0.6) !important;
   border-radius: 13px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55), 0 0 10px rgba(16, 185, 129, 0.25) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.75), 0 0 10px rgba(16, 185, 129, 0.3) !important;
   padding: 2px 3px 2px 4px;
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: auto !important;
@@ -49,9 +48,9 @@
 
 .fd-download-pill:hover,
 .fd-download-btn-container.fd-menu-open .fd-download-pill {
-  background: rgba(15, 23, 42, 0.98) !important;
+  background: #0B0F19 !important;
   border-color: #10B981 !important;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7), 0 0 16px rgba(16, 185, 129, 0.45) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.85), 0 0 16px rgba(16, 185, 129, 0.5) !important;
 }
 
 /* Subtle Drag Grip Handle */
@@ -187,18 +186,18 @@
 .fd-download-menu {
   position: absolute;
   top: calc(100% + 8px);
-  right: 0;
-  background: rgba(15, 23, 42, 0.96);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  left: 0;
+  right: auto;
+  background: #0F172A !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
   border-radius: 12px;
   padding: 6px;
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6), 0 0 1px rgba(255, 255, 255, 0.2);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.8), 0 0 1px rgba(255, 255, 255, 0.2);
   display: none;
   flex-direction: column;
   min-width: 220px;
   animation: fdMenuDrop 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 2147483647;
 }
 
 @keyframes fdMenuDrop {
