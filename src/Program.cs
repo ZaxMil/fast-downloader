@@ -2842,6 +2842,7 @@ namespace FastDownloader
                     int contentLength = 0;
                     string requestOrigin = "";
                     string requestHost = "";
+                    string secFetchSite = "";
                     string headerLine;
                     while (!string.IsNullOrEmpty(headerLine = reader.ReadLine()))
                     {
@@ -2857,6 +2858,10 @@ namespace FastDownloader
                         {
                             requestHost = headerLine.Substring(5).Trim();
                         }
+                        else if (headerLine.StartsWith("Sec-Fetch-Site:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            secFetchSite = headerLine.Substring(15).Trim();
+                        }
                     }
 
                     // DNS rebinding protection: Host header must be loopback
@@ -2871,6 +2876,16 @@ namespace FastDownloader
                         byte[] errBytes = Encoding.UTF8.GetBytes("{\"error\":\"Invalid Host header\"}");
                         SendHeaders(writer, 400, "Bad Request", "application/json", errBytes.Length, null);
                         writer.Write("{\"error\":\"Invalid Host header\"}");
+                        writer.Flush();
+                        return;
+                    }
+
+                    // Defense-in-depth: reject any cross-site request indicated by Sec-Fetch-Site
+                    if (secFetchSite.Equals("cross-site", StringComparison.OrdinalIgnoreCase))
+                    {
+                        byte[] errBytes = Encoding.UTF8.GetBytes("{\"error\":\"Cross-site requests forbidden\"}");
+                        SendHeaders(writer, 403, "Forbidden", "application/json", errBytes.Length, null);
+                        writer.Write("{\"error\":\"Cross-site requests forbidden\"}");
                         writer.Flush();
                         return;
                     }
@@ -3354,10 +3369,13 @@ namespace FastDownloader
                         string ef2Text = Ef2Helper.Write(ef2Items);
                         byte[] bytes = Encoding.UTF8.GetBytes(ef2Text);
                         writer.WriteLine("HTTP/1.1 200 OK");
+                        if (!string.IsNullOrEmpty(currentAllowedOrigin))
+                        {
+                            writer.WriteLine("Access-Control-Allow-Origin: " + currentAllowedOrigin);
+                        }
                         writer.WriteLine("Content-Type: text/plain; charset=utf-8");
                         writer.WriteLine("Content-Disposition: attachment; filename=\"FastDownloader_Export.ef2\"");
                         writer.WriteLine("Content-Length: " + bytes.Length);
-                        writer.WriteLine("Access-Control-Allow-Origin: *");
                         writer.WriteLine("Connection: close");
                         writer.WriteLine();
                         writer.Flush();

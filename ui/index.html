@@ -4745,6 +4745,16 @@
     }
 
     // Format bytes to human readable
+    function escapeHtml(str) {
+      if (str == null) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     function formatBytes(bytes, decimals = 1) {
       if (!bytes || bytes <= 0) return currentLang === 'ar' ? '0 بايت' : '0 B';
       const k = 1024;
@@ -4980,15 +4990,15 @@
           (currentLang === 'ar' ? '📋 الرئيسية' : '📋 Main');
 
         html += `
-          <tr class="${isSelected ? 'selected' : ''}" onclick="toggleSelect('${t.gid}', event)" ondblclick="showSegmentModal('${t.gid}')" oncontextmenu="handleRowContextMenu(event, '${t.gid}')" title="Right-click for options | Double click for Multi-Segment Inspector">
+          <tr class="${isSelected ? 'selected' : ''}" onclick="toggleSelect('${escapeHtml(t.gid)}', event)" ondblclick="showSegmentModal('${escapeHtml(t.gid)}')" oncontextmenu="handleRowContextMenu(event, '${escapeHtml(t.gid)}')" title="Right-click for options | Double click for Multi-Segment Inspector">
             <td data-col="select" style="text-align:center;" onclick="event.stopPropagation()">
-              <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleSelect('${t.gid}', null, this.checked)">
+              <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleSelect('${escapeHtml(t.gid)}', null, this.checked)">
             </td>
             <td data-col="name">
               <div class="file-cell">
                 <div class="file-icon-box">${icon}</div>
                 <div class="file-meta">
-                  <div class="file-name" title="${t.name}">${t.name}</div>
+                  <div class="file-name" title="${escapeHtml(t.name)}">${escapeHtml(t.name)}</div>
                   <div class="file-subtext">
                     <span>${t.engine === 'torrent' || t.isTorrent ? (currentLang === 'ar' ? '🧲 تورنت (P2P + DHT)' : '🧲 BitTorrent (P2P + DHT)') : (t.engine === 'yt-dlp' ? 'yt-dlp + ffmpeg' : (currentLang === 'ar' ? 'aria2 ١٦ اتصالاً' : 'aria2 16-connections'))}</span>
                   </div>
@@ -5797,7 +5807,7 @@
       } else {
         listEl.innerHTML = queueTasks.map((t, idx) => `
           <div class="queue-order-item">
-            <span class="queue-order-name">${idx + 1}. ${t.name}</span>
+            <span class="queue-order-name">${idx + 1}. ${escapeHtml(t.name)}</span>
             <div class="queue-order-controls">
               <button class="icon-action-btn" onclick="moveQueuePriority('${t.gid}', -1)">▲</button>
               <button class="icon-action-btn" onclick="moveQueuePriority('${t.gid}', 1)">▼</button>
@@ -6076,7 +6086,7 @@
             <div class="browser-card-left">
               <span class="browser-icon">${b.icon || '🌐'}</span>
               <div>
-                <div class="browser-title">${b.name} <span style="font-size:10px; font-weight:700; color:var(--emerald); background:rgba(16,185,129,0.15); padding:1px 6px; border-radius:4px; margin-left:6px;">Detected</span></div>
+                <div class="browser-title">${escapeHtml(b.name)} <span style="font-size:10px; font-weight:700; color:var(--emerald); background:rgba(16,185,129,0.15); padding:1px 6px; border-radius:4px; margin-left:6px;">Detected</span></div>
                 <div class="browser-subtext">Click install to register in Registry & launch with extension</div>
               </div>
             </div>
