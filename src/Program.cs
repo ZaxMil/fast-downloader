@@ -340,6 +340,16 @@ namespace FastDownloader
 
             url = url.Trim();
 
+            if (!url.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
+            {
+                Uri testUri;
+                if (!Uri.TryCreate(url, UriKind.Absolute, out testUri) || (testUri.Scheme != Uri.UriSchemeHttp && testUri.Scheme != Uri.UriSchemeHttps))
+                {
+                    res.error = "Invalid or unsupported URL scheme";
+                    return res;
+                }
+            }
+
             if (url.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
             {
                 res.ok = true;
@@ -404,7 +414,7 @@ namespace FastDownloader
                         ProcessStartInfo psi = new ProcessStartInfo
                         {
                             FileName = ytExe,
-                            Arguments = string.Format("{0} \"{1}\"", extraArgs, url),
+                            Arguments = string.Format("{0} -- \"{1}\"", extraArgs, url.Replace("\"", "\\\"")),
                             CreateNoWindow = true,
                             UseShellExecute = false,
                             RedirectStandardOutput = true,
@@ -938,6 +948,8 @@ namespace FastDownloader
         private readonly object queueLock = new object();
         public List<YtTaskInfo> YtTasks { get; private set; }
         public Dictionary<string, QueueConfig> Queues { get; private set; }
+        private string ariaRpcSecret = Guid.NewGuid().ToString("N");
+        public string AriaRpcSecret { get { return ariaRpcSecret; } }
 
         public List<YtTaskInfo> GetYtTasksSnapshot()
         {
@@ -1027,7 +1039,7 @@ namespace FastDownloader
                 req.ContentType = "application/json";
                 var delUris = !string.IsNullOrEmpty(oldUrl) ? new string[] { oldUrl } : new string[0];
                 var addUris = new string[] { newUrl };
-                var payload = new { jsonrpc = "2.0", id = "changeUri", method = "aria2.changeUri", @params = new object[] { gid, 1, delUris, addUris } };
+                var payload = new { jsonrpc = "2.0", id = "changeUri", method = "aria2.changeUri", @params = new object[] { "token:" + ariaRpcSecret, gid, 1, delUris, addUris } };
                 byte[] data = Encoding.UTF8.GetBytes(JsonHelper.Serialize(payload));
                 req.ContentLength = data.Length;
                 using (var s = req.GetRequestStream()) s.Write(data, 0, data.Length);
@@ -1043,7 +1055,7 @@ namespace FastDownloader
                     reqOpt.Method = "POST";
                     reqOpt.ContentType = "application/json";
                     var options = new Dictionary<string, object> { { "header", headers.ToArray() } };
-                    var optPayload = new { jsonrpc = "2.0", id = "changeOpt", method = "aria2.changeOption", @params = new object[] { gid, options } };
+                    var optPayload = new { jsonrpc = "2.0", id = "changeOpt", method = "aria2.changeOption", @params = new object[] { "token:" + ariaRpcSecret, gid, options } };
                     byte[] optData = Encoding.UTF8.GetBytes(JsonHelper.Serialize(optPayload));
                     reqOpt.ContentLength = optData.Length;
                     using (var s = reqOpt.GetRequestStream()) s.Write(optData, 0, optData.Length);
@@ -1161,12 +1173,12 @@ namespace FastDownloader
                 {
                     FileName = ariaExe,
                     Arguments = string.Format(
-                        "--enable-rpc --rpc-listen-all=false --rpc-listen-port=6800 --disable-ipv6=true " +
+                        "--enable-rpc --rpc-listen-all=false --rpc-listen-port=6800 --rpc-secret=\"{1}\" --disable-ipv6=true " +
                         "--async-dns-server=8.8.8.8,1.1.1.1 --file-allocation=none " +
                         "--max-connection-per-server=16 --split=16 --min-split-size=1M " +
                         "--max-concurrent-downloads=5 --continue=true --dir=\"{0}\" " +
                         "--enable-dht=true --enable-peer-exchange=true --bt-enable-lpd=true --bt-max-peers=55 --seed-time=0 --bt-save-metadata=true --bt-stop-timeout=300",
-                        safeDir),
+                        safeDir, ariaRpcSecret),
                     CreateNoWindow = true,
                     UseShellExecute = false,
                     WindowStyle = ProcessWindowStyle.Hidden
@@ -1305,15 +1317,20 @@ namespace FastDownloader
                 }
                 if (!string.IsNullOrEmpty(filename))
                 {
-                    options["out"] = filename;
+                    filename = Path.GetFileName(filename);
+                    foreach (char c in Path.GetInvalidFileNameChars()) filename = filename.Replace(c, '_');
+                    if (!string.IsNullOrEmpty(filename))
+                    {
+                        options["out"] = filename;
+                    }
                 }
                 if (!string.IsNullOrEmpty(customDir) && Directory.Exists(customDir))
                 {
-                    options["dir"] = customDir;
+                    options["dir"] = Path.GetFullPath(customDir);
                 }
                 else if (!string.IsNullOrEmpty(category) && Directory.Exists(category))
                 {
-                    options["dir"] = category;
+                    options["dir"] = Path.GetFullPath(category);
                 }
                 else if (!string.IsNullOrEmpty(category) && category != "General" && category != "Default")
                 {
@@ -1334,7 +1351,7 @@ namespace FastDownloader
                     options["header"] = headers.ToArray();
                 }
 
-                var payload = new { jsonrpc = "2.0", id = Guid.NewGuid().ToString(), method = "aria2.addUri", @params = new object[] { new string[] { url }, options } };
+                var payload = new { jsonrpc = "2.0", id = Guid.NewGuid().ToString(), method = "aria2.addUri", @params = new object[] { "token:" + ariaRpcSecret, new string[] { url }, options } };
                 byte[] data = Encoding.UTF8.GetBytes(JsonHelper.Serialize(payload));
                 req.ContentLength = data.Length;
                 using (var stream = req.GetRequestStream()) stream.Write(data, 0, data.Length);
@@ -1361,7 +1378,7 @@ namespace FastDownloader
                     req.Method = "POST";
                     req.ContentType = "application/json";
                     req.Timeout = 1200;
-                    object[] prms = method == "aria2.tellActive" ? new object[] { } : new object[] { 0, 100 };
+                    object[] prms = method == "aria2.tellActive" ? new object[] { "token:" + ariaRpcSecret } : new object[] { "token:" + ariaRpcSecret, 0, 100 };
                     var payload = new { jsonrpc = "2.0", id = "poll", method = method, @params = prms };
                     byte[] data = Encoding.UTF8.GetBytes(JsonHelper.Serialize(payload));
                     req.ContentLength = data.Length;
@@ -1438,7 +1455,7 @@ namespace FastDownloader
                     jsonrpc = "2.0",
                     id = "status",
                     method = "aria2.tellStatus",
-                    @params = new object[] { gid, new string[] { "gid", "status", "totalLength", "completedLength", "downloadSpeed", "files", "connections" } }
+                    @params = new object[] { "token:" + ariaRpcSecret, gid, new string[] { "gid", "status", "totalLength", "completedLength", "downloadSpeed", "files", "connections" } }
                 };
                 byte[] data = Encoding.UTF8.GetBytes(JsonHelper.Serialize(payload));
                 req.ContentLength = data.Length;
@@ -1664,7 +1681,7 @@ namespace FastDownloader
                 req.Method = "POST";
                 req.ContentType = "application/json";
                 var options = new Dictionary<string, string> { { "max-overall-download-limit", limit } };
-                var payload = new { jsonrpc = "2.0", id = "speed_limit", method = "aria2.changeGlobalOption", @params = new object[] { options } };
+                var payload = new { jsonrpc = "2.0", id = "speed_limit", method = "aria2.changeGlobalOption", @params = new object[] { "token:" + ariaRpcSecret, options } };
                 byte[] data = Encoding.UTF8.GetBytes(JsonHelper.Serialize(payload));
                 req.ContentLength = data.Length;
                 using (var s = req.GetRequestStream()) s.Write(data, 0, data.Length);
@@ -1681,7 +1698,7 @@ namespace FastDownloader
                 req.Method = "POST";
                 req.ContentType = "application/json";
                 var options = new Dictionary<string, string> { { "max-concurrent-downloads", max.ToString() } };
-                var payload = new { jsonrpc = "2.0", id = "max_active", method = "aria2.changeGlobalOption", @params = new object[] { options } };
+                var payload = new { jsonrpc = "2.0", id = "max_active", method = "aria2.changeGlobalOption", @params = new object[] { "token:" + ariaRpcSecret, options } };
                 byte[] data = Encoding.UTF8.GetBytes(JsonHelper.Serialize(payload));
                 req.ContentLength = data.Length;
                 using (var s = req.GetRequestStream()) s.Write(data, 0, data.Length);
@@ -1697,7 +1714,7 @@ namespace FastDownloader
                 HttpWebRequest req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:6800/jsonrpc");
                 req.Method = "POST";
                 req.ContentType = "application/json";
-                var payload = new { jsonrpc = "2.0", id = "action", method = method, @params = new object[] { gid } };
+                var payload = new { jsonrpc = "2.0", id = "action", method = method, @params = new object[] { "token:" + ariaRpcSecret, gid } };
                 byte[] data = Encoding.UTF8.GetBytes(JsonHelper.Serialize(payload));
                 req.ContentLength = data.Length;
                 using (var s = req.GetRequestStream()) s.Write(data, 0, data.Length);
@@ -1713,7 +1730,7 @@ namespace FastDownloader
                 HttpWebRequest req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:6800/jsonrpc");
                 req.Method = "POST";
                 req.ContentType = "application/json";
-                var payload = new { jsonrpc = "2.0", id = "action_all", method = method, @params = new object[] { } };
+                var payload = new { jsonrpc = "2.0", id = "action_all", method = method, @params = new object[] { "token:" + ariaRpcSecret } };
                 byte[] data = Encoding.UTF8.GetBytes(JsonHelper.Serialize(payload));
                 req.ContentLength = data.Length;
                 using (var s = req.GetRequestStream()) s.Write(data, 0, data.Length);
@@ -2051,11 +2068,14 @@ namespace FastDownloader
                     }
                 }
 
+                string safeUrl = url.Replace("\"", "\\\"");
+                string safeSaveDir = saveDir.Replace("\"", "\\\"");
+                string safeOutputTemplate = outputTemplate.Replace("\"", "\\\"");
                 ProcessStartInfo psi = new ProcessStartInfo
                 {
                     FileName = ytExe,
-                    Arguments = string.Format("--ffmpeg-location \"{0}\" {1}{2} -o \"{3}\" --windows-filenames --downloader dash:native --downloader m3u8:native --downloader http:aria2c --downloader https:aria2c --downloader-args \"aria2c:-x 16 -s 16 -k 1M --disable-ipv6=true --async-dns-server=8.8.8.8,1.1.1.1 --summary-interval=1\" -P \"{4}\" \"{5}\"",
-                        ffmpegDir, formatArg, extraHeaders, outputTemplate, saveDir, url),
+                    Arguments = string.Format("--ffmpeg-location \"{0}\" {1}{2} -o \"{3}\" --windows-filenames --downloader dash:native --downloader m3u8:native --downloader http:aria2c --downloader https:aria2c --downloader-args \"aria2c:-x 16 -s 16 -k 1M --disable-ipv6=true --async-dns-server=8.8.8.8,1.1.1.1 --summary-interval=1\" -P \"{4}\" -- \"{5}\"",
+                        ffmpegDir, formatArg, extraHeaders, safeOutputTemplate, safeSaveDir, safeUrl),
                     CreateNoWindow = true,
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
@@ -2752,6 +2772,7 @@ namespace FastDownloader
         private DateTime lastExtensionPing = DateTime.MinValue;
         private string lastExtensionVersion = "";
         private volatile bool forceExtensionReload = true;
+        [ThreadStatic] private static string currentAllowedOrigin;
 
         public HttpBridgeServer(EngineManager engine, Action<string> onNotification, UpdateManager updateManager = null)
         {
@@ -2820,6 +2841,7 @@ namespace FastDownloader
 
                     int contentLength = 0;
                     string requestOrigin = "";
+                    string requestHost = "";
                     string headerLine;
                     while (!string.IsNullOrEmpty(headerLine = reader.ReadLine()))
                     {
@@ -2831,28 +2853,52 @@ namespace FastDownloader
                         {
                             requestOrigin = headerLine.Substring(7).Trim();
                         }
+                        else if (headerLine.StartsWith("Host:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            requestHost = headerLine.Substring(5).Trim();
+                        }
                     }
 
-                    bool isTrustedOrigin = IsTrustedOrigin(requestOrigin);
-                    string allowedOrigin = isTrustedOrigin ? (string.IsNullOrEmpty(requestOrigin) ? "*" : requestOrigin) : null;
+                    // DNS rebinding protection: Host header must be loopback
+                    bool isHostValid = string.IsNullOrEmpty(requestHost) ||
+                                       requestHost.Equals("127.0.0.1:6801", StringComparison.OrdinalIgnoreCase) ||
+                                       requestHost.Equals("localhost:6801", StringComparison.OrdinalIgnoreCase) ||
+                                       requestHost.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+                                       requestHost.Equals("localhost", StringComparison.OrdinalIgnoreCase);
 
-                    if (method == "OPTIONS")
+                    if (!isHostValid)
                     {
-                        SendHeaders(writer, 200, "OK", "text/plain", 0);
+                        byte[] errBytes = Encoding.UTF8.GetBytes("{\"error\":\"Invalid Host header\"}");
+                        SendHeaders(writer, 400, "Bad Request", "application/json", errBytes.Length, null);
+                        writer.Write("{\"error\":\"Invalid Host header\"}");
+                        writer.Flush();
                         return;
                     }
 
-                    // Security guard: Deny cross-origin attacks from external websites
-                    if (!string.IsNullOrEmpty(requestOrigin) && !isTrustedOrigin)
+                    bool isTrustedOrigin = IsTrustedOrigin(requestOrigin);
+                    string allowedOrigin = (isTrustedOrigin && !string.IsNullOrEmpty(requestOrigin)) ? requestOrigin : null;
+                    currentAllowedOrigin = allowedOrigin;
+
+                    // Handle CORS Preflight
+                    if (method == "OPTIONS")
                     {
-                        if (urlPath.StartsWith("/api/"))
+                        if (!string.IsNullOrEmpty(requestOrigin) && !isTrustedOrigin)
                         {
-                            byte[] errBytes = Encoding.UTF8.GetBytes("{\"error\":\"Origin forbidden\"}");
-                            SendHeaders(writer, 403, "Forbidden", "application/json", errBytes.Length, null);
-                            writer.Write("{\"error\":\"Origin forbidden\"}");
-                            writer.Flush();
+                            SendHeaders(writer, 403, "Forbidden", "text/plain", 0, null);
                             return;
                         }
+                        SendHeaders(writer, 200, "OK", "text/plain", 0, currentAllowedOrigin);
+                        return;
+                    }
+
+                    // Strict Origin check: reject all cross-origin requests from external web origins
+                    if (!string.IsNullOrEmpty(requestOrigin) && !isTrustedOrigin)
+                    {
+                        byte[] errBytes = Encoding.UTF8.GetBytes("{\"error\":\"Origin forbidden\"}");
+                        SendHeaders(writer, 403, "Forbidden", "application/json", errBytes.Length, null);
+                        writer.Write("{\"error\":\"Origin forbidden\"}");
+                        writer.Flush();
+                        return;
                     }
 
                     // READ POST BODY
@@ -3538,8 +3584,17 @@ namespace FastDownloader
                                 if (fullPath.StartsWith(fullDownloads, StringComparison.OrdinalIgnoreCase))
                                 {
                                     string ext = Path.GetExtension(fullPath).ToLowerInvariant();
-                                    bool isBlockedScript = ext == ".bat" || ext == ".cmd" || ext == ".vbs" || ext == ".ps1" || ext == ".reg" || ext == ".hta" || ext == ".scr";
-                                    if (!isBlockedScript)
+                                    bool isExecutable = ext == ".exe" || ext == ".msi" || ext == ".bat" || ext == ".cmd" ||
+                                                        ext == ".vbs" || ext == ".ps1" || ext == ".reg" || ext == ".hta" ||
+                                                        ext == ".scr" || ext == ".com" || ext == ".cpl" || ext == ".jar" ||
+                                                        ext == ".iso" || ext == ".pif" || ext == ".dll";
+                                    if (isExecutable)
+                                    {
+                                        // For executable/dangerous files, open Windows Explorer with file selected to require user confirmation
+                                        Process.Start("explorer.exe", "/select,\"" + fullPath + "\"");
+                                        launched = true;
+                                    }
+                                    else
                                     {
                                         Process.Start(new ProcessStartInfo
                                         {
@@ -4048,6 +4103,7 @@ namespace FastDownloader
             }
             finally
             {
+                currentAllowedOrigin = null;
                 try { client.Close(); } catch { }
             }
         }
@@ -4061,18 +4117,30 @@ namespace FastDownloader
         private static bool IsTrustedOrigin(string origin)
         {
             if (string.IsNullOrEmpty(origin)) return true;
-            origin = origin.ToLowerInvariant();
-            return origin.StartsWith("chrome-extension://") ||
-                   origin.StartsWith("http://127.0.0.1") ||
-                   origin.StartsWith("http://localhost");
+            origin = origin.Trim();
+            if (origin.StartsWith("chrome-extension://", StringComparison.OrdinalIgnoreCase)) return true;
+            Uri uri;
+            if (Uri.TryCreate(origin, UriKind.Absolute, out uri))
+            {
+                if (uri.Scheme.Equals("http", StringComparison.OrdinalIgnoreCase) || uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
+                {
+                    string host = uri.Host.ToLowerInvariant();
+                    if (host == "127.0.0.1" || host == "localhost")
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
         }
 
-        private void SendHeaders(StreamWriter writer, int code, string status, string contentType, int length, string allowedOrigin = "*")
+        private void SendHeaders(StreamWriter writer, int code, string status, string contentType, int length, string allowedOrigin = null)
         {
+            string originToSend = allowedOrigin != null ? allowedOrigin : currentAllowedOrigin;
             writer.Write(string.Format("HTTP/1.1 {0} {1}\r\n", code, status));
-            if (!string.IsNullOrEmpty(allowedOrigin))
+            if (!string.IsNullOrEmpty(originToSend))
             {
-                writer.Write("Access-Control-Allow-Origin: " + allowedOrigin + "\r\n");
+                writer.Write("Access-Control-Allow-Origin: " + originToSend + "\r\n");
                 writer.Write("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n");
                 writer.Write("Access-Control-Allow-Headers: Content-Type\r\n");
             }
