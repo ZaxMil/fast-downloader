@@ -2624,6 +2624,7 @@ namespace FastDownloader
                 if (!Directory.Exists(tempDir)) Directory.CreateDirectory(tempDir);
                 string newExe = Path.Combine(tempDir, "FastDownloader.exe");
                 string extZip = Path.Combine(tempDir, "extension.zip");
+                string uiZip = Path.Combine(tempDir, "ui.zip");
 
                 using (WebClient wc = new WebClient())
                 {
@@ -2633,6 +2634,12 @@ namespace FastDownloader
                     {
                         string extUrl = "https://github.com/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases/latest/download/fast-downloader-extension.zip";
                         wc.DownloadFile(extUrl, extZip);
+                    }
+                    catch { }
+                    try
+                    {
+                        string uiUrl = "https://github.com/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases/latest/download/fast-downloader-ui.zip";
+                        wc.DownloadFile(uiUrl, uiZip);
                     }
                     catch { }
                 }
@@ -2646,6 +2653,7 @@ namespace FastDownloader
                 string currentExe = Process.GetCurrentProcess().MainModule.FileName;
                 string appDir = engine != null ? engine.AppDir : Path.GetDirectoryName(currentExe);
                 string extTargetDir = Path.Combine(appDir, "extension");
+                string uiTargetDir = Path.Combine(appDir, "ui");
                 string batPath = Path.Combine(tempDir, "apply_update.bat");
                 string batScript =
                     "@echo off\r\n" +
@@ -2660,6 +2668,11 @@ namespace FastDownloader
                     "if exist \"" + extZip + "\" (\r\n" +
                     "    powershell -NoProfile -Command \"Expand-Archive -Path '" + extZip.Replace("'", "''") + "' -DestinationPath '" + extTargetDir.Replace("'", "''") + "' -Force\" > nul 2>&1\r\n" +
                     ")\r\n" +
+                    "if exist \"" + uiZip + "\" (\r\n" +
+                    "    powershell -NoProfile -Command \"Expand-Archive -Path '" + uiZip.Replace("'", "''") + "' -DestinationPath '" + uiTargetDir.Replace("'", "''") + "' -Force\" > nul 2>&1\r\n" +
+                    ")\r\n" +
+                    "rmdir /s /q \"" + Path.Combine(appDir, ".app_profile", "Default", "Cache") + "\" > nul 2>&1\r\n" +
+                    "rmdir /s /q \"" + Path.Combine(appDir, ".app_profile", "Default", "Code Cache") + "\" > nul 2>&1\r\n" +
                     "start \"\" \"" + currentExe + "\"\r\n" +
                     "del \"%~f0\"\r\n";
 
