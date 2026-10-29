@@ -4,14 +4,17 @@
   <meta charset="utf-8">
   <style>
     :root {
-      --bg: #101012;
-      --card-bg: #18181b;
-      --card-border: #27272a;
-      --text: #f4f4f5;
-      --text-muted: #a1a1aa;
-      --accent: #10b981;
+      --bg: #090B10;
+      --card-bg: #111520;
+      --card-border: rgba(255, 255, 255, 0.08);
+      --card-hover: rgba(255, 255, 255, 0.04);
+      --text: #F8FAFC;
+      --text-muted: #94A3B8;
+      --text-dim: #64748B;
+      --accent: #10B981;
       --accent-hover: #059669;
       --accent-glow: rgba(16, 185, 129, 0.25);
+      --danger: #EF4444;
     }
     * {
       box-sizing: border-box;
@@ -19,8 +22,8 @@
       padding: 0;
     }
     body {
-      width: 275px;
-      padding: 9px;
+      width: 336px;
+      padding: 13px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
       background: var(--bg);
       color: var(--text);
@@ -28,154 +31,206 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    /* TOP NAV */
+    /* TOP HEADER */
     .top-nav {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding-bottom: 7px;
+      padding-bottom: 11px;
       border-bottom: 1px solid var(--card-border);
-      margin-bottom: 8px;
+      margin-bottom: 11px;
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
     }
     .brand-logo {
-      width: 17px;
-      height: 17px;
-      border-radius: 4px;
-      box-shadow: 0 0 8px var(--accent-glow);
-    }
-    .brand-info {
-      display: flex;
-      flex-direction: column;
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      box-shadow: 0 0 10px var(--accent-glow);
     }
     .brand-title {
-      font-size: 11.5px;
+      font-size: 13px;
       font-weight: 700;
       color: var(--text);
-      line-height: 1.1;
       letter-spacing: -0.2px;
-    }
-    .status-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 3.5px;
-      font-size: 8.5px;
-      color: var(--text-muted);
-      cursor: pointer;
-      margin-top: 1.5px;
-    }
-    .status-badge:hover {
-      color: var(--text);
-    }
-    .dot {
-      width: 5px;
-      height: 5px;
-      border-radius: 50%;
-      background: #ef4444;
-      transition: all 0.2s;
-    }
-    .dot.connected {
-      background: var(--accent);
-      box-shadow: 0 0 5px var(--accent);
-    }
-    .nav-actions {
       display: flex;
       align-items: center;
       gap: 5px;
     }
+    .pro-pill {
+      font-size: 8.5px;
+      font-weight: 800;
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 1px 4px;
+      border-radius: 4px;
+      letter-spacing: 0.3px;
+    }
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
 
-    /* MINI TOGGLE SWITCH */
-    .switch-wrap {
+    /* STATUS PILL BUTTON */
+    .status-badge {
       display: inline-flex;
       align-items: center;
-      gap: 3px;
-      cursor: pointer;
-      font-size: 9px;
+      gap: 5px;
+      font-size: 10px;
+      font-weight: 600;
       color: var(--text-muted);
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      padding: 4px 8px;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .status-badge:hover {
+      background: var(--card-hover);
+      color: var(--text);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--danger);
+      transition: all 0.2s;
+    }
+    .dot.connected {
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent);
+    }
+
+    /* ICON BUTTON (APP LAUNCH) */
+    .btn-icon-nav {
+      width: 24px;
+      height: 24px;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      border-radius: 6px;
+      color: var(--accent);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn-icon-nav:hover {
+      background: var(--accent);
+      color: #090B10;
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+
+    /* CONTROLS STRIP (TOGGLES ROW) */
+    .controls-strip {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 11px;
+    }
+    .control-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 7px 9px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .control-card:hover {
+      border-color: rgba(255, 255, 255, 0.16);
+      background: var(--card-hover);
+    }
+    .control-info {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .control-icon {
+      font-size: 12px;
+      opacity: 0.9;
+    }
+
+    /* MODERN SWITCH */
+    .switch-wrap {
+      position: relative;
+      display: inline-block;
+      width: 26px;
+      height: 15px;
+      cursor: pointer;
+      flex-shrink: 0;
     }
     .switch-wrap input {
-      display: none;
+      opacity: 0;
+      width: 0;
+      height: 0;
     }
     .slider {
-      position: relative;
-      width: 22px;
-      height: 13px;
-      background: #27272a;
-      border-radius: 8px;
-      transition: 0.2s;
-      border: 1px solid #3f3f46;
+      position: absolute;
+      inset: 0;
+      background: #232734;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 20px;
+      transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
     .slider:before {
-      content: "";
       position: absolute;
-      width: 7px;
-      height: 7px;
+      content: "";
+      height: 9px;
+      width: 9px;
       left: 2px;
       bottom: 2px;
-      background: #71717a;
+      background: #94A3B8;
       border-radius: 50%;
-      transition: 0.2s;
+      transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
     input:checked + .slider {
       background: var(--accent);
       border-color: var(--accent);
     }
     input:checked + .slider:before {
-      transform: translateX(9px);
-      background: #fff;
-    }
-
-    /* OPEN APP BUTTON */
-    .btn-app {
-      padding: 2.5px 5.5px;
-      background: rgba(16, 185, 129, 0.12);
-      border: 1px solid rgba(16, 185, 129, 0.35);
-      border-radius: 4px;
-      color: var(--accent);
-      font-size: 9.5px;
-      font-weight: 600;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 2.5px;
-      transition: all 0.15s;
-    }
-    .btn-app:hover {
-      background: var(--accent);
-      color: #fff;
-      box-shadow: 0 0 6px var(--accent-glow);
+      transform: translateX(11px);
+      background: #FFFFFF;
     }
 
     /* PAGE MEDIA SNIFFER CARD */
     .media-card {
-      background: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(24, 24, 27, 0.8));
-      border: 1px solid rgba(16, 185, 129, 0.25);
-      border-radius: 6px;
-      padding: 6px 7px;
-      margin-bottom: 7px;
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(17, 21, 32, 0.95));
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      border-radius: 8px;
+      padding: 9px 10px;
+      margin-bottom: 11px;
     }
     .media-header {
       display: flex;
       align-items: center;
-      gap: 4px;
-      margin-bottom: 5px;
+      gap: 6px;
+      margin-bottom: 7px;
     }
     .media-tag {
-      font-size: 8px;
-      font-weight: 700;
+      font-size: 8.5px;
+      font-weight: 800;
       text-transform: uppercase;
-      padding: 1px 4px;
-      border-radius: 3px;
+      padding: 1.5px 5px;
+      border-radius: 4px;
       background: var(--accent);
-      color: #000;
-      letter-spacing: 0.3px;
+      color: #090B10;
+      letter-spacing: 0.4px;
     }
     .media-title {
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--text);
       white-space: nowrap;
@@ -186,187 +241,186 @@
     .media-actions {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr auto;
-      gap: 4px;
+      gap: 5px;
     }
     .pill-btn {
-      padding: 4px 2px;
-      background: #27272a;
-      border: 1px solid #3f3f46;
-      border-radius: 4px;
+      padding: 5px 3px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
       color: var(--text);
-      font-size: 9px;
+      font-size: 9.5px;
       font-weight: 600;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 2px;
+      gap: 3px;
       transition: all 0.15s;
     }
     .pill-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
       border-color: var(--accent);
       color: var(--accent);
-      background: rgba(16, 185, 129, 0.1);
     }
     .pill-primary {
-      background: var(--accent);
-      color: #000;
-      border-color: var(--accent);
-      font-weight: 700;
+      background: rgba(16, 185, 129, 0.16);
+      border-color: rgba(16, 185, 129, 0.4);
+      color: #34D399;
     }
     .pill-primary:hover {
-      background: var(--accent-hover);
-      color: #fff;
+      background: var(--accent);
+      color: #090B10;
     }
     .pill-icon {
-      padding: 4px 6px;
+      padding: 5px 7px;
     }
 
-    /* INPUT ROW */
+    /* URL INPUT ROW */
     .input-wrap {
       position: relative;
       display: flex;
       align-items: center;
-      margin-bottom: 7px;
-    }
-    .url-input {
-      width: 100%;
-      height: 29px;
-      padding: 5px 24px 5px 8px;
       background: var(--card-bg);
       border: 1px solid var(--card-border);
-      border-radius: 5px;
-      color: #fff;
-      font-size: 10.5px;
-      outline: none;
-      transition: border-color 0.15s;
+      border-radius: 8px;
+      padding: 2px 5px 2px 9px;
+      margin-bottom: 9px;
+      transition: all 0.15s ease;
     }
-    .url-input:focus {
+    .input-wrap:focus-within {
       border-color: var(--accent);
-      box-shadow: 0 0 0 2px var(--accent-glow);
+      box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+    }
+    .url-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-size: 11.5px;
+      padding: 7px 4px 7px 0;
+      font-family: inherit;
+    }
+    .url-input::placeholder {
+      color: var(--text-dim);
     }
     .paste-btn {
-      position: absolute;
-      right: 3px;
-      background: none;
-      border: none;
-      padding: 3px 4px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
       color: var(--text-muted);
       cursor: pointer;
+      padding: 4px 7px;
       display: flex;
       align-items: center;
-      justify-content: center;
-      border-radius: 3px;
-      transition: color 0.15s;
+      gap: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      transition: all 0.15s;
     }
     .paste-btn:hover {
-      color: var(--accent);
-      background: rgba(255, 255, 255, 0.05);
+      background: rgba(255, 255, 255, 0.14);
+      color: var(--text);
+      border-color: rgba(255, 255, 255, 0.2);
     }
 
     /* PROBE PREVIEW CARD */
     .probe-card {
-      background: rgba(255, 255, 255, 0.02);
-      border: 1px solid rgba(16, 185, 129, 0.25);
-      border-radius: 5px;
-      padding: 5px 7px;
-      margin-bottom: 7px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 7px 9px;
+      margin-bottom: 9px;
     }
     .probe-name {
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 600;
-      color: var(--accent);
+      color: var(--text);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      margin-bottom: 3px;
+      margin-bottom: 4px;
     }
     .probe-badges {
       display: flex;
       align-items: center;
-      gap: 4px;
+      gap: 5px;
     }
     .badge {
-      font-size: 8.5px;
-      padding: 1.5px 4px;
-      border-radius: 3px;
-      background: #27272a;
+      font-size: 9px;
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.06);
       color: var(--text-muted);
-      border: 1px solid #3f3f46;
     }
     .badge-cat {
-      margin-left: auto;
+      background: rgba(16, 185, 129, 0.15);
       color: var(--accent);
-      background: rgba(16, 185, 129, 0.1);
-      border-color: rgba(16, 185, 129, 0.3);
     }
 
-    /* DOWNLOAD BUTTON */
+    /* MAIN DOWNLOAD CTA BUTTON */
     .btn-download {
       width: 100%;
-      height: 31px;
-      padding: 0;
-      background: var(--accent);
+      padding: 9px 12px;
+      background: linear-gradient(135deg, #10B981 0%, #059669 100%);
       border: none;
-      border-radius: 5px;
-      color: #042f1a;
+      border-radius: 8px;
+      color: #090B10;
+      font-size: 12px;
       font-weight: 700;
-      font-size: 11px;
+      font-family: inherit;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 5px;
-      box-shadow: 0 2px 8px var(--accent-glow);
-      transition: all 0.15s;
+      gap: 6px;
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.28);
+      transition: all 0.15s ease;
+      margin-bottom: 9px;
     }
     .btn-download:hover {
-      background: var(--accent-hover);
-      color: #fff;
+      box-shadow: 0 6px 18px rgba(16, 185, 129, 0.4);
+      filter: brightness(1.05);
     }
     .btn-download:active {
-      transform: scale(0.98);
+      transform: scale(0.985);
     }
 
-    /* LIVE ACTIVITY STRIP */
+    /* ACTIVITY STRIP */
     .activity-bar {
-      margin-top: 7px;
-      padding: 4px 7px;
-      background: rgba(255, 255, 255, 0.02);
-      border: 1px solid var(--card-border);
-      border-radius: 5px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      font-size: 9px;
+      padding: 6px 9px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 7px;
+      font-size: 10px;
       color: var(--text-muted);
       cursor: pointer;
-      transition: background 0.15s;
+      transition: all 0.15s;
     }
     .activity-bar:hover {
-      background: rgba(255, 255, 255, 0.04);
-      border-color: #3f3f46;
+      background: var(--card-hover);
+      border-color: rgba(255, 255, 255, 0.15);
     }
     .activity-status {
       display: flex;
       align-items: center;
-      gap: 4px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      gap: 5px;
     }
     .activity-dot {
-      width: 4.5px;
-      height: 4.5px;
+      width: 5px;
+      height: 5px;
       border-radius: 50%;
       background: var(--accent);
+      box-shadow: 0 0 5px var(--accent);
     }
     .activity-link {
-      font-size: 8.5px;
-      color: var(--accent);
+      font-size: 10px;
       font-weight: 600;
-      flex-shrink: 0;
-      margin-left: 4px;
+      color: var(--accent);
     }
 
     /* FOOTER */
@@ -374,18 +428,35 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-top: 7px;
-      padding-top: 5px;
-      font-size: 8.5px;
-      color: #71717a;
+      margin-top: 9px;
+      padding-top: 7px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      font-size: 9.5px;
+      color: var(--text-dim);
     }
-    .footer a {
-      color: #a1a1aa;
+    .footer-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .footer a, .footer button {
+      color: var(--text-dim);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 9.5px;
       text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 3.5px;
       transition: color 0.15s;
     }
     .footer a:hover {
-      color: #ff5e5b;
+      color: #FF5E5B;
+    }
+    .footer button:hover {
+      color: var(--text);
     }
   </style>
 </head>
@@ -394,34 +465,45 @@
   <header class="top-nav">
     <div class="brand">
       <img src="icons/icon32.png" class="brand-logo" alt="Logo">
-      <div class="brand-info">
-        <div class="brand-title">FastDownloader</div>
-        <div id="statusBadge" class="status-badge" title="Click to open app">
-          <span id="dot" class="dot"></span>
-          <span id="statusText">Checking...</span>
-        </div>
+      <div class="brand-title">
+        <span>FastDownloader</span>
+        <span class="pro-pill">PRO</span>
       </div>
     </div>
     <div class="nav-actions">
-      <label class="switch-wrap" title="Auto-intercept browser downloads (IDM mode)">
-        <input type="checkbox" id="interceptToggle" checked>
-        <span class="slider"></span>
-        <span>Auto</span>
-      </label>
-      <label class="switch-wrap" title="Show video download button on web pages">
-        <input type="checkbox" id="videoBtnToggle" checked>
-        <span class="slider"></span>
-        <span>Video</span>
-      </label>
-      <button id="reloadExtBtn" class="btn-app" title="Sync & Reload Extension (Refreshes runtime from disk)" style="padding: 3px 6px;">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-      </button>
-      <button id="openAppBtn" class="btn-app" title="Open Desktop App Window">
-        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-        <span>App</span>
+      <div id="statusBadge" class="status-badge" title="Click to open desktop app">
+        <span id="dot" class="dot"></span>
+        <span id="statusText">Checking...</span>
+      </div>
+      <button id="openAppBtn" class="btn-icon-nav" title="Open Desktop App Window">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
       </button>
     </div>
   </header>
+
+  <!-- QUICK CONTROLS STRIP (BALANCED TOGGLES ROW) -->
+  <div class="controls-strip">
+    <div class="control-card" id="cardAutoGrab">
+      <div class="control-info">
+        <span class="control-icon">⚡</span>
+        <span>Auto-Catch</span>
+      </div>
+      <label class="switch-wrap">
+        <input type="checkbox" id="interceptToggle" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="control-card" id="cardVideoBar">
+      <div class="control-info">
+        <span class="control-icon">🎬</span>
+        <span>In-Page Bar</span>
+      </div>
+      <label class="switch-wrap">
+        <input type="checkbox" id="videoBtnToggle" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+  </div>
 
   <!-- FOUND ON PAGE CARD (Auto-detects active tab video / media) -->
   <section id="mediaCard" class="media-card" style="display: none;">
@@ -431,7 +513,7 @@
     </div>
     <div class="media-actions">
       <button class="pill-btn pill-primary" data-quality="best" title="Best Quality (1080p/4K)">
-        <span>🎬 Best</span>
+        <span>✨ Best</span>
       </button>
       <button class="pill-btn" data-quality="720p" title="Fast 720p HD">
         <span>720p</span>
@@ -447,9 +529,11 @@
 
   <!-- URL INPUT ROW -->
   <div class="input-wrap">
-    <input type="text" id="urlInput" class="url-input" placeholder="Paste link or magnet URL..." autocomplete="off">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-dim); margin-right:5px; flex-shrink:0;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+    <input type="text" id="urlInput" class="url-input" placeholder="Paste link, video or magnet URL..." autocomplete="off">
     <button id="pasteBtn" class="paste-btn" title="Paste from clipboard">
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+      <span>Paste</span>
     </button>
   </div>
 
@@ -465,23 +549,29 @@
 
   <!-- MAIN DOWNLOAD CTA -->
   <button id="downloadBtn" class="btn-download">
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-    <span>Turbo Download (16x)</span>
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+    <span>Turbo Download (16x Streams)</span>
   </button>
 
   <!-- LIVE ACTIVITY STRIP -->
   <div id="activityBar" class="activity-bar">
     <div class="activity-status">
       <span class="activity-dot"></span>
-      <span id="activityText">Ready • Idle</span>
+      <span id="activityText">Ready · 16x Active</span>
     </div>
-    <span class="activity-link">App ➔</span>
+    <span class="activity-link">Dashboard ↗</span>
   </div>
 
   <!-- FOOTER -->
   <footer class="footer">
     <span id="extVerText">v0.1.4</span>
-    <a href="https://ko-fi.com/zaxmi" target="_blank">💖 Ko-fi</a>
+    <div class="footer-actions">
+      <button id="reloadExtBtn" title="Sync & Reload Extension (Refreshes runtime from disk)">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        <span>Reload</span>
+      </button>
+      <a href="https://ko-fi.com/zaxmi" target="_blank">💖 Ko-fi</a>
+    </div>
   </footer>
 
   <script src="popup.js"></script>

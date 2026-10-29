@@ -61,6 +61,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (activityBar) activityBar.addEventListener('click', openApp);
 
   // 2. AUTO-GRAB & VIDEO BUTTON SETTING SYNC
+
+  const cardAutoGrab = document.getElementById('cardAutoGrab');
+  if (cardAutoGrab && interceptToggle) {
+    cardAutoGrab.addEventListener('click', (e) => {
+      if (e.target !== interceptToggle && !e.target.closest('.switch-wrap')) {
+        interceptToggle.checked = !interceptToggle.checked;
+        interceptToggle.dispatchEvent(new Event('change'));
+      }
+    });
+  }
+
+  const cardVideoBar = document.getElementById('cardVideoBar');
+  if (cardVideoBar && videoBtnToggle) {
+    cardVideoBar.addEventListener('click', (e) => {
+      if (e.target !== videoBtnToggle && !e.target.closest('.switch-wrap')) {
+        videoBtnToggle.checked = !videoBtnToggle.checked;
+        videoBtnToggle.dispatchEvent(new Event('change'));
+      }
+    });
+  }
+
   chrome.storage.local.get({ autoIntercept: true, videoButtonEnabled: true }, (items) => {
     if (interceptToggle) interceptToggle.checked = !!items.autoIntercept;
     if (videoBtnToggle) videoBtnToggle.checked = !!items.videoButtonEnabled;
