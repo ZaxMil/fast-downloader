@@ -632,23 +632,7 @@ function sendHeartbeat() {
       }
     }
 
-    // Explicit one-time reload only if requested, strictly throttled to prevent reload loops
-    if (data && data.reloadExtension === true) {
-      const now = Date.now();
-      if (!isReloadingExtension && (now - lastExtensionReloadAt > 60000)) {
-        isReloadingExtension = true;
-        lastExtensionReloadAt = now;
-        console.log("[FastDownloader] One-time reload requested by desktop app.");
-        setTimeout(() => {
-          try {
-            chrome.runtime.reload();
-          } catch (e) {
-            console.error("[FastDownloader] Failed to reload runtime:", e);
-            isReloadingExtension = false;
-          }
-        }, 600);
-      }
-    }
+    // Automatic reloading on heartbeat removed to prevent unexpected popup/extension closure
   })
   .catch(() => {});
 }

@@ -1677,7 +1677,7 @@ namespace FastDownloader.Installer
                     "  \"path\": \"" + exe + "\",\n" +
                     "  \"type\": \"stdio\",\n" +
                     "  \"allowed_origins\": [\n" +
-                    "    \"chrome-extension://knedhffekcklfpbgmghgclgnhpehmjkn/\"\n" +
+                    "    \"chrome-extension://gofdohcbjeiggejfkdhbpgddoejjdafg/\"\n" +
                     "  ]\n" +
                     "}";
                 File.WriteAllText(path, manifest, System.Text.Encoding.UTF8);

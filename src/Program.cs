@@ -2678,11 +2678,11 @@ namespace FastDownloader
                 string batScript =
                     "@echo off\r\n" +
                     "chcp 65001 > nul\r\n" +
-                    "timeout /t 1 /nobreak > nul\r\n" +
+                    "ping 127.0.0.1 -n 2 > nul\r\n" +
                     ":retry\r\n" +
                     "copy /y \"" + newExe + "\" \"" + currentExe + "\" > nul 2>&1\r\n" +
                     "if errorlevel 1 (\r\n" +
-                    "    timeout /t 1 /nobreak > nul\r\n" +
+                    "    ping 127.0.0.1 -n 2 > nul\r\n" +
                     "    goto retry\r\n" +
                     ")\r\n" +
                     "if exist \"" + extZip + "\" (\r\n" +
@@ -3528,6 +3528,10 @@ namespace FastDownloader
                         var data = JsonHelper.ParseDict(requestBody);
                         string rawPath = data != null && data.ContainsKey("path") ? data["path"].ToString() : "";
                         string filePath = !string.IsNullOrEmpty(rawPath) ? rawPath.Trim('"', ' ').Replace('/', '\\') : "";
+                        if (string.IsNullOrEmpty(filePath) && (rawUrl.Contains("target=extension") || rawPath == "extension"))
+                        {
+                            filePath = Path.Combine(engine.AppDir, "extension");
+                        }
 
                         if (!string.IsNullOrEmpty(filePath))
                         {
@@ -3638,24 +3642,26 @@ namespace FastDownloader
                     if (urlPath == "/api/extension/ping")
                     {
                         lastExtensionPing = DateTime.UtcNow;
+                        string extVer = "";
                         try
                         {
                             var pingData = JsonHelper.ParseDict(requestBody);
                             if (pingData != null && pingData.ContainsKey("version"))
                             {
-                                lastExtensionVersion = pingData["version"].ToString();
+                                extVer = pingData["version"].ToString();
+                                lastExtensionVersion = extVer;
                             }
                         }
                         catch { }
-                        bool shouldReload = forceExtensionReload;
-                        forceExtensionReload = false;
+
                         var pingResp = new
                         {
                             ok = true,
                             connected = true,
                             autoCapture = engine.AutoCaptureEnabled,
-                            appVersion = UpdateManager.CurrentAppVersion,
-                            reloadExtension = shouldReload
+                            // Echo back the caller's version so older extensions on other PCs never enter infinite reload loops
+                            appVersion = !string.IsNullOrEmpty(extVer) ? extVer : UpdateManager.CurrentAppVersion,
+                            reloadExtension = false
                         };
                         string ok = JsonHelper.Serialize(pingResp);
                         byte[] okBytes = Encoding.UTF8.GetBytes(ok);
@@ -4067,19 +4073,21 @@ namespace FastDownloader
 
                         ThreadPool.QueueUserWorkItem(_ =>
                         {
-                            Thread.Sleep(300);
+                            Thread.Sleep(200);
                             try
                             {
                                 string currentExe = Process.GetCurrentProcess().MainModule.FileName;
+                                if (engine != null) engine.StopAria2();
+                                Program.ReleaseSingleInstanceMutex();
+
                                 ProcessStartInfo psi = new ProcessStartInfo
                                 {
-                                    FileName = "cmd.exe",
-                                    Arguments = "/c timeout /t 1 /nobreak > nul & start \"\" \"" + currentExe + "\"",
+                                    FileName = "powershell.exe",
+                                    Arguments = "-NoProfile -WindowStyle Hidden -Command \"Start-Sleep -Milliseconds 1200; Start-Process -FilePath '" + currentExe.Replace("'", "''") + "'\"",
                                     CreateNoWindow = true,
                                     UseShellExecute = false
                                 };
                                 Process.Start(psi);
-                                if (engine != null) engine.StopAria2();
                             }
                             catch { }
                             finally
@@ -6413,11 +6421,17 @@ namespace FastDownloader
             }
             finally
             {
-                if (appMutex != null)
-                {
-                    try { appMutex.ReleaseMutex(); } catch { }
-                    appMutex.Close();
-                }
+                ReleaseSingleInstanceMutex();
+            }
+        }
+
+        public static void ReleaseSingleInstanceMutex()
+        {
+            if (appMutex != null)
+            {
+                try { appMutex.ReleaseMutex(); } catch { }
+                try { appMutex.Close(); } catch { }
+                appMutex = null;
             }
         }
     }
