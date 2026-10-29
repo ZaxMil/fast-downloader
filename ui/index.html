@@ -3391,7 +3391,7 @@
               <div>
                 <div style="font-weight:700; font-size:14px; color:var(--text-main);">FastDownloader <span class="brand-pro-tag">PRO</span></div>
                 <div style="font-size:11.5px; color:var(--text-dim);">
-                  Installed: <strong id="appCurrentVerText" style="color:var(--text-main);">v0.1.6 (Beta)</strong> • Latest: <strong id="appLatestVerText" style="color:var(--emerald);">v0.1.6 (Beta)</strong>
+                  Installed: <strong id="appCurrentVerText" style="color:var(--text-main);">v0.1.7 (Beta)</strong> • Latest: <strong id="appLatestVerText" style="color:var(--emerald);">v0.1.7 (Beta)</strong>
                 </div>
               </div>
             </div>
@@ -6665,7 +6665,7 @@
         appCurrent.textContent = 'v' + app.currentVersion + ' (Beta)';
       }
       if (appLatest) {
-        appLatest.textContent = 'v' + (app.latestVersion || app.currentVersion || '0.1.6') + ' (Beta)';
+        appLatest.textContent = 'v' + (app.latestVersion || app.currentVersion || '0.1.7') + ' (Beta)';
       }
 
       if (app.updateAvailable) {
@@ -6782,6 +6782,23 @@
           const data = await res.json();
           logToUpdateConsole(`[Success] ${data.message || 'App restarting...'}`, true);
           showToast('⚡ Updating FastDownloader Pro... App will restart momentarily.');
+          let attempts = 0;
+          setTimeout(() => {
+            const pollTimer = setInterval(async () => {
+              attempts++;
+              try {
+                const checkRes = await fetch(`${API_BASE}/api/status?_t=${Date.now()}`);
+                if (checkRes.ok) {
+                  clearInterval(pollTimer);
+                  window.location.reload(true);
+                }
+              } catch (err) {}
+              if (attempts > 30) {
+                clearInterval(pollTimer);
+                window.location.reload(true);
+              }
+            }, 1000);
+          }, 3000);
         } else {
           logToUpdateConsole('[Error] Failed to initiate in-place update.');
           if (btn) { btn.disabled = false; btn.textContent = '⚡ Install & Restart App Now'; }

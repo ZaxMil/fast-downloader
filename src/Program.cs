@@ -2204,7 +2204,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.6";
+        public const string CurrentAppVersion = "0.1.7";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -2682,6 +2682,7 @@ namespace FastDownloader
                     ":retry\r\n" +
                     "copy /y \"" + newExe + "\" \"" + currentExe + "\" > nul 2>&1\r\n" +
                     "if errorlevel 1 (\r\n" +
+                    "    taskkill /F /IM FastDownloader.exe > nul 2>&1\r\n" +
                     "    ping 127.0.0.1 -n 2 > nul\r\n" +
                     "    goto retry\r\n" +
                     ")\r\n" +
@@ -2693,7 +2694,7 @@ namespace FastDownloader
                     ")\r\n" +
                     "rmdir /s /q \"" + Path.Combine(appDir, ".app_profile", "Default", "Cache") + "\" > nul 2>&1\r\n" +
                     "rmdir /s /q \"" + Path.Combine(appDir, ".app_profile", "Default", "Code Cache") + "\" > nul 2>&1\r\n" +
-                    "start \"\" \"" + currentExe + "\"\r\n" +
+                    "start \"\" /D \"" + appDir + "\" \"" + currentExe + "\"\r\n" +
                     "del \"%~f0\"\r\n";
 
                 File.WriteAllText(batPath, batScript, Encoding.Default);
@@ -2710,6 +2711,7 @@ namespace FastDownloader
                 ThreadPool.QueueUserWorkItem(_ =>
                 {
                     try { if (engine != null) engine.StopAria2(); } catch { }
+                    Program.ReleaseSingleInstanceMutex();
                     Thread.Sleep(300);
                     Environment.Exit(0);
                 });
@@ -2880,8 +2882,12 @@ namespace FastDownloader
                         return;
                     }
 
-                    // Defense-in-depth: reject any cross-site request indicated by Sec-Fetch-Site
-                    if (secFetchSite.Equals("cross-site", StringComparison.OrdinalIgnoreCase))
+                    bool isTrustedOrigin = IsTrustedOrigin(requestOrigin);
+                    string allowedOrigin = (isTrustedOrigin && !string.IsNullOrEmpty(requestOrigin)) ? requestOrigin : null;
+                    currentAllowedOrigin = allowedOrigin;
+
+                    // Defense-in-depth: reject any cross-site request unless from a trusted origin (e.g. extension)
+                    if (secFetchSite.Equals("cross-site", StringComparison.OrdinalIgnoreCase) && !isTrustedOrigin)
                     {
                         byte[] errBytes = Encoding.UTF8.GetBytes("{\"error\":\"Cross-site requests forbidden\"}");
                         SendHeaders(writer, 403, "Forbidden", "application/json", errBytes.Length, null);
@@ -2889,10 +2895,6 @@ namespace FastDownloader
                         writer.Flush();
                         return;
                     }
-
-                    bool isTrustedOrigin = IsTrustedOrigin(requestOrigin);
-                    string allowedOrigin = (isTrustedOrigin && !string.IsNullOrEmpty(requestOrigin)) ? requestOrigin : null;
-                    currentAllowedOrigin = allowedOrigin;
 
                     // Handle CORS Preflight
                     if (method == "OPTIONS")
@@ -3660,12 +3662,12 @@ namespace FastDownloader
                             connected = true,
                             autoCapture = engine.AutoCaptureEnabled,
                             // Echo back the caller's version so older extensions on other PCs never enter infinite reload loops
-                            appVersion = !string.IsNullOrEmpty(extVer) ? extVer : UpdateManager.CurrentAppVersion,
+                            appVersion = !string.IsNullOrEmpty(extVer) ? extVer : "0.1.0",
                             reloadExtension = false
                         };
                         string ok = JsonHelper.Serialize(pingResp);
                         byte[] okBytes = Encoding.UTF8.GetBytes(ok);
-                        SendHeaders(writer, 200, "OK", "application/json", okBytes.Length);
+                        SendHeaders(writer, 200, "OK", "application/json", okBytes.Length, allowedOrigin);
                         writer.Write(ok);
                         writer.Flush();
                         return;
@@ -4080,10 +4082,11 @@ namespace FastDownloader
                                 if (engine != null) engine.StopAria2();
                                 Program.ReleaseSingleInstanceMutex();
 
+                                string appDir = engine != null ? engine.AppDir : Path.GetDirectoryName(currentExe);
                                 ProcessStartInfo psi = new ProcessStartInfo
                                 {
                                     FileName = "powershell.exe",
-                                    Arguments = "-NoProfile -WindowStyle Hidden -Command \"Start-Sleep -Milliseconds 1200; Start-Process -FilePath '" + currentExe.Replace("'", "''") + "'\"",
+                                    Arguments = "-NoProfile -WindowStyle Hidden -Command \"Start-Sleep -Milliseconds 1200; Start-Process -FilePath '" + currentExe.Replace("'", "''") + "' -WorkingDirectory '" + appDir.Replace("'", "''") + "'\"",
                                     CreateNoWindow = true,
                                     UseShellExecute = false
                                 };
