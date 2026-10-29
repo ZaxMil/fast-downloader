@@ -10,11 +10,7 @@
 
   const processedElements = new WeakSet();
 
-  const iconUrl = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) 
-
-    ? chrome.runtime.getURL('icons/icon32.png') 
-
-    : '';
+  const fdLightningSvg = `<svg class="fd-pill-icon" width="15" height="15" viewBox="0 0 24 24" fill="#10B981" stroke="#10B981" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(16,185,129,0.5));"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
 
 
 
@@ -110,17 +106,7 @@
   // Inject main-world script fallback
 
   try {
-
-    const s = document.createElement('script');
-
-    s.src = chrome.runtime.getURL('inject.js');
-
-    s.onload = () => s.remove();
-
-    (document.head || document.documentElement).appendChild(s);
-
     window.postMessage({ source: 'FD_CONTENT_QUERY', type: 'GET_STREAMS' }, '*');
-
   } catch (e) {}
 
 
@@ -149,7 +135,7 @@
 
         <div style="display:flex; align-items:center; gap:8px;">
 
-          <img src="${iconUrl}" style="width:18px;height:18px;border-radius:4px;flex-shrink:0;">
+          ${fdLightningSvg}
 
           <span>${message}</span>
 
@@ -659,60 +645,11 @@
 
 
 
-    // Direct fallback if extension channel was interrupted
-
-    try {
-
-      const response = await fetch(`http://127.0.0.1:${FD_PORT}/api/intercept`, {
-
-        method: 'POST',
-
-        headers: { 'Content-Type': 'application/json' },
-
-        body: JSON.stringify({
-
-          url: url || window.location.href,
-
-          title: title || document.title,
-
-          type: type,
-
-          quality: quality,
-
-          referer: window.location.href
-
-        })
-
-      });
-
-
-
-      if (response.ok) {
-
-        const qualityName = quality === 'audio' ? 'MP3 Audio' : quality === '720p' ? '720p HD' : 'Best Quality (MP4)';
-
-        showToast(`⚡ Sent to FastDownloader: <strong>${qualityName}</strong>`);
-
-        if (triggerPill) {
-
-          const textSpan = triggerPill.querySelector('.fd-pill-text');
-
-          if (textSpan) textSpan.textContent = '✓ Sent!';
-
-        }
-
-      } else {
-
-        showToast('⚠️ FastDownloader is running, but failed to start task.', true);
-
-      }
-
-    } catch (err) {
-
-      showToast('⚠️ FastDownloader app is not running. Launch FastDownloader.exe on port 6801.', true);
-
+    if (contextInvalidated) {
+      showToast('⚠️ Extension context was reloaded. Please refresh this tab (F5).', true);
+    } else {
+      showToast('⚠️ Could not communicate with FastDownloader. Ensure app is open.', true);
     }
-
   }
 
 
@@ -958,7 +895,7 @@
     mainAction.className = 'fd-pill-action';
     mainAction.title = isCanvas ? 'Record Canvas Animation' : 'Download with FastDownloader (16x Turbo)';
     mainAction.innerHTML = `
-      ${iconUrl ? `<img src="${iconUrl}" class="fd-pill-icon" alt="FD">` : `<span>⚡</span>`}
+      ${fdLightningSvg}
       <span class="fd-pill-text">${isCanvas ? 'Record' : 'Download'}</span>
     `;
 
@@ -1347,7 +1284,7 @@
 
     btn.innerHTML = `
 
-      <img src="${iconUrl}" alt="FD">
+      ${fdLightningSvg}
 
       <span>FastDownload</span>
 
