@@ -55,7 +55,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   const extVerEl = document.getElementById('extVerText');
   if (extVerEl && chrome.runtime && chrome.runtime.getManifest) {
-    extVerEl.textContent = 'v' + (chrome.runtime.getManifest().version || '0.1.3');
+    extVerEl.textContent = 'v' + (chrome.runtime.getManifest().version || '0.1.4');
   }
   if (statusBadge) statusBadge.addEventListener('click', openApp);
   if (activityBar) activityBar.addEventListener('click', openApp);

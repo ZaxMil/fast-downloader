@@ -174,7 +174,7 @@ namespace FastDownloader.Installer
         private static readonly Color ColTextDim = Color.FromArgb(100, 116, 139);   // #64748B
 
         private const string AppName = "FastDownloader Pro";
-        private const string AppVersion = "0.1.3";
+        private const string AppVersion = "0.1.4";
         private const string AppPublisher = "FastDownloader Contributors";
         private const string NativeHostName = "com.fastdownloader.app";
 
@@ -1508,7 +1508,7 @@ namespace FastDownloader.Installer
             return
 @"FASTDOWNLOADER PRO - END USER LICENSE & TERMS OF USE
 ====================================================
-Version 0.1.3 | Last Updated: October 2026
+Version 0.1.4 | Last Updated: October 2026
 
 PLEASE READ THIS AGREEMENT CAREFULLY BEFORE INSTALLING OR USING FASTDOWNLOADER PRO. BY SELECTING 'I ACCEPT', YOU AGREE TO BE BOUND BY THE FOLLOWING TERMS AND CONDITIONS.
 

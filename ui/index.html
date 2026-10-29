@@ -2595,7 +2595,7 @@
           <div style="font-size:10.5px; color:var(--text-dim);" id="sysMenuSub">All core systems healthy</div>
         </div>
       </div>
-      <span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; background:rgba(16, 185, 129, 0.2); color:#10B981;">v0.1.3</span>
+      <span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; background:rgba(16, 185, 129, 0.2); color:#10B981;">v0.1.4</span>
     </div>
 
     <!-- STATUS ITEMS -->
@@ -3075,7 +3075,7 @@
       <div class="modal-body" style="padding:28px 24px;">
         <img src="/ui/logo.png" style="width:58px;height:58px;border-radius:14px;box-shadow:0 0 25px rgba(16,185,129,0.4);margin-bottom:14px;object-fit:cover;">
         <h3 style="margin:0 0 4px 0; font-size:18px; font-weight:700;">FastDownloader <span class="brand-pro-tag">PRO</span></h3>
-        <p style="margin:0 0 16px 0; font-size:12px; color:var(--text-dim);">Version 0.1.3 • Ultra-Fast Native Acceleration</p>
+        <p style="margin:0 0 16px 0; font-size:12px; color:var(--text-dim);">Version 0.1.4 • Ultra-Fast Native Acceleration</p>
         <div style="background:var(--bg-base); padding:12px; border-radius:8px; border:1px solid var(--border-subtle); text-align:left; font-size:12px; line-height:1.7; color:var(--text-muted); margin-bottom:18px;">
           <div>⚡ <strong>aria2 Core:</strong> 16-chunk parallel multi-source downloading</div>
           <div>🎬 <strong>yt-dlp Engine:</strong> 4K/8K video & live stream extraction</div>
@@ -3120,10 +3120,10 @@
         </div>
 
         <div style="display:flex; flex-direction:column; gap:10px;">
-          <a href="https://ko-fi.com/zaxmi" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="background:#FF5E5B !important; border-color:#FF5E5B !important; padding:12px 20px; font-size:13.5px; font-weight:700; box-shadow:0 4px 16px rgba(255,94,91,0.35); display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none; color:#FFFFFF;" onclick="closeModal('supportModal')">
+          <button class="btn btn-primary" style="background:#FF5E5B !important; border-color:#FF5E5B !important; padding:12px 20px; font-size:13.5px; font-weight:700; box-shadow:0 4px 16px rgba(255,94,91,0.35); display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none; color:#FFFFFF; cursor:pointer;" onclick="openKofi(); closeModal('supportModal');">
             <span>☕</span>
             <span data-i18n="supportBtnDonate">Buy us a Coffee on Ko-fi (ko-fi.com/zaxmi)</span>
-          </a>
+          </button>
           <button class="btn" onclick="closeModal('supportModal')" style="font-size:12px; color:var(--text-dim);" data-i18n="supportBtnLater">
             Maybe Later
           </button>
@@ -3154,12 +3154,17 @@
               <div>
                 <div style="font-weight:700; font-size:14px; color:var(--text-main);">FastDownloader <span class="brand-pro-tag">PRO</span></div>
                 <div style="font-size:11.5px; color:var(--text-dim);">
-                  Installed: <strong style="color:var(--text-main);">v0.1.3 (Beta)</strong> • Latest: <strong id="appLatestVerText" style="color:var(--emerald);">v0.1.3 (Beta)</strong>
+                  Installed: <strong style="color:var(--text-main);">v0.1.4 (Beta)</strong> • Latest: <strong id="appLatestVerText" style="color:var(--emerald);">v0.1.4 (Beta)</strong>
                 </div>
               </div>
             </div>
-            <div id="appUpdateBadge" style="font-size:11px; padding:3px 9px; border-radius:12px; font-weight:700; background:rgba(16,185,129,0.15); color:var(--emerald); border:1px solid rgba(16,185,129,0.3);">
-              Up to date
+            <div style="display:flex; align-items:center; gap:8px;">
+              <button class="btn" onclick="restartApp()" style="font-size:11.5px; padding:4px 10px;" title="Restart FastDownloader Pro">
+                🔁 Restart App
+              </button>
+              <div id="appUpdateBadge" style="font-size:11px; padding:3px 9px; border-radius:12px; font-weight:700; background:rgba(16,185,129,0.15); color:var(--emerald); border:1px solid rgba(16,185,129,0.3);">
+                Up to date
+              </div>
             </div>
           </div>
           <div id="appUpdateDetails" style="display:none; margin-top:10px; padding:10px 12px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25); border-radius:8px;">
@@ -3261,6 +3266,9 @@
           </button>
           <button class="btn" onclick="updateEngine('all')" style="font-size:12px;">
             ⚡ Update All Engines
+          </button>
+          <button class="btn" id="btnRestartApp" onclick="restartApp()" style="font-size:12px;" title="Restart FastDownloader Pro">
+            🔁 Restart App
           </button>
           <button class="btn" onclick="closeModal('updateModal')" style="font-size:12px;">
             Close
@@ -6268,7 +6276,7 @@
       const appDetails = document.getElementById('appUpdateDetails');
       const appNotes = document.getElementById('appReleaseNotesText');
 
-      if (appLatest) appLatest.textContent = 'v' + (app.latestVersion || '0.1.3');
+      if (appLatest) appLatest.textContent = 'v' + (app.latestVersion || '0.1.4');
 
       if (app.updateAvailable) {
         if (appBadge) {
@@ -6622,15 +6630,38 @@
     function showSupportModal() { closeAllMenus(); showModal('supportModal'); }
     function closeSupportModal() { closeModal('supportModal'); }
 
-    function openKofi() {
-      const url = "https://ko-fi.com/zaxmi";
-      fetch(`${API_BASE}/api/openurl`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url })
-      }).catch(() => {});
-      try { window.open(url, '_blank'); } catch(e) {}
+    async function openExternalUrl(url) {
+      if (!url) return;
+      try {
+        await fetch(`${API_BASE}/api/openurl`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: url })
+        });
+      } catch(e) {}
     }
+
+    function openKofi() {
+      openExternalUrl("https://ko-fi.com/zaxmi");
+    }
+
+    async function restartApp() {
+      const btn = document.getElementById('btnRestartApp');
+      if (btn) btn.textContent = '🔁 Restarting...';
+      showToast('Restarting FastDownloader Pro...', 'info');
+      try {
+        await fetch(`${API_BASE}/api/restart`, { method: 'POST' });
+      } catch(e) {}
+    }
+
+    // Intercept any clicked links to open in the user's default browser session
+    document.addEventListener('click', (e) => {
+      const a = e.target.closest('a[href^="http"]');
+      if (a && !a.href.includes('127.0.0.1:6801')) {
+        e.preventDefault();
+        openExternalUrl(a.href);
+      }
+    });
 
     function exitApp() {
       closeAllMenus();

@@ -1976,7 +1976,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.3";
+        public const string CurrentAppVersion = "0.1.4";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -3528,6 +3528,69 @@ namespace FastDownloader
 
                         var statusDict = updateManager != null ? updateManager.GetStatusDict() : new Dictionary<string, object>();
                         string json = JsonHelper.Serialize(statusDict);
+                        byte[] bytes = Encoding.UTF8.GetBytes(json);
+                        SendHeaders(writer, 200, "OK", "application/json; charset=utf-8", bytes.Length);
+                        writer.Write(json);
+                        writer.Flush();
+                        return;
+                    }
+
+                    // 24. RESTART APPLICATION API (POST)
+                    if (urlPath == "/api/restart" && method == "POST")
+                    {
+                        var okResp = new { ok = true, message = "Restarting..." };
+                        string json = JsonHelper.Serialize(okResp);
+                        byte[] bytes = Encoding.UTF8.GetBytes(json);
+                        SendHeaders(writer, 200, "OK", "application/json; charset=utf-8", bytes.Length);
+                        writer.Write(json);
+                        writer.Flush();
+
+                        ThreadPool.QueueUserWorkItem(_ =>
+                        {
+                            Thread.Sleep(300);
+                            try
+                            {
+                                string currentExe = Process.GetCurrentProcess().MainModule.FileName;
+                                string batPath = Path.Combine(Path.GetTempPath(), "restart_fd.bat");
+                                string batScript =
+                                    "@echo off\r\n" +
+                                    "timeout /t 1 /nobreak > nul\r\n" +
+                                    "start \"\" \"" + currentExe + "\"\r\n" +
+                                    "del \"%~f0\"\r\n";
+                                File.WriteAllText(batPath, batScript, Encoding.Default);
+                                ProcessStartInfo psi = new ProcessStartInfo
+                                {
+                                    FileName = batPath,
+                                    CreateNoWindow = true,
+                                    UseShellExecute = false
+                                };
+                                Process.Start(psi);
+                                if (engine != null) engine.StopAria2();
+                            }
+                            catch { }
+                            finally
+                            {
+                                Environment.Exit(0);
+                            }
+                        });
+                        return;
+                    }
+
+                    // 25. OPEN EXTERNAL URL IN SYSTEM DEFAULT BROWSER (POST)
+                    if (urlPath == "/api/openurl" && method == "POST")
+                    {
+                        var data = JsonHelper.ParseDict(requestBody);
+                        string targetUrl = data != null && data.ContainsKey("url") ? data["url"].ToString() : "";
+                        if (!string.IsNullOrEmpty(targetUrl) && (targetUrl.StartsWith("http://") || targetUrl.StartsWith("https://")))
+                        {
+                            try
+                            {
+                                Process.Start(new ProcessStartInfo(targetUrl) { UseShellExecute = true });
+                            }
+                            catch { }
+                        }
+                        var okResp = new { ok = true };
+                        string json = JsonHelper.Serialize(okResp);
                         byte[] bytes = Encoding.UTF8.GetBytes(json);
                         SendHeaders(writer, 200, "OK", "application/json; charset=utf-8", bytes.Length);
                         writer.Write(json);
