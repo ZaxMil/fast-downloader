@@ -2184,7 +2184,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.5";
+        public const string CurrentAppVersion = "0.1.6";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -6234,9 +6234,32 @@ namespace FastDownloader
         private static Mutex appMutex;
 
         [STAThread]
+                public static void EnsureUiAssets(string appDir)
+        {
+            try
+            {
+                using (var stream = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("FastDownloader.ui.index.html"))
+                {
+                    if (stream != null)
+                    {
+                        string uiDir = Path.Combine(appDir, "ui");
+                        if (!Directory.Exists(uiDir)) Directory.CreateDirectory(uiDir);
+                        string uiPath = Path.Combine(uiDir, "index.html");
+                        using (var reader = new StreamReader(stream, Encoding.UTF8))
+                        {
+                            string content = reader.ReadToEnd();
+                            File.WriteAllText(uiPath, content, Encoding.UTF8);
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
         static void Main(string[] args)
         {
             string appDir = AppDomain.CurrentDomain.BaseDirectory;
+            EnsureUiAssets(appDir);
 
             if (args != null && args.Length > 0)
             {

@@ -3391,7 +3391,7 @@
               <div>
                 <div style="font-weight:700; font-size:14px; color:var(--text-main);">FastDownloader <span class="brand-pro-tag">PRO</span></div>
                 <div style="font-size:11.5px; color:var(--text-dim);">
-                  Installed: <strong style="color:var(--text-main);">v0.1.5 (Beta)</strong> • Latest: <strong id="appLatestVerText" style="color:var(--emerald);">v0.1.5 (Beta)</strong>
+                  Installed: <strong id="appCurrentVerText" style="color:var(--text-main);">v0.1.6 (Beta)</strong> • Latest: <strong id="appLatestVerText" style="color:var(--emerald);">v0.1.6 (Beta)</strong>
                 </div>
               </div>
             </div>
@@ -6645,12 +6645,18 @@
 
       // 1. App status
       const app = data.app || {};
+      const appCurrent = document.getElementById('appCurrentVerText');
       const appLatest = document.getElementById('appLatestVerText');
       const appBadge = document.getElementById('appUpdateBadge');
       const appDetails = document.getElementById('appUpdateDetails');
       const appNotes = document.getElementById('appReleaseNotesText');
 
-      if (appLatest) appLatest.textContent = 'v' + (app.latestVersion || '0.1.4');
+      if (appCurrent && app.currentVersion) {
+        appCurrent.textContent = 'v' + app.currentVersion + ' (Beta)';
+      }
+      if (appLatest) {
+        appLatest.textContent = 'v' + (app.latestVersion || app.currentVersion || '0.1.6') + ' (Beta)';
+      }
 
       if (app.updateAvailable) {
         if (appBadge) {

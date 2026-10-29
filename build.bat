@@ -17,7 +17,7 @@ if not exist "%CSC_PATH%" (
 )
 
 echo [1/2] Compiling src\Program.cs...
-"%CSC_PATH%" /target:winexe /out:"FastDownloader.exe" /r:System.dll,System.Core.dll,System.Drawing.dll,System.Windows.Forms.dll,System.Web.Extensions.dll /win32icon:"app.ico" src\Program.cs
+"%CSC_PATH%" /target:winexe /out:"FastDownloader.exe" /r:System.dll,System.Core.dll,System.Drawing.dll,System.Windows.Forms.dll,System.Web.Extensions.dll /resource:ui\index.html,FastDownloader.ui.index.html /win32icon:"app.ico" src\Program.cs
 
 if %ERRORLEVEL% equ 0 (
     echo [2/2] Build successful! Created FastDownloader.exe
