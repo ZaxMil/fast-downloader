@@ -1561,6 +1561,118 @@
       background-color: var(--emerald);
     }
 
+    /* DRAGGABLE & SWITCHABLE COLUMN HEADERS */
+    th[data-col] {
+      cursor: grab;
+      user-select: none;
+      transition: background-color 0.15s, box-shadow 0.15s;
+    }
+    th[data-col]:active {
+      cursor: grabbing;
+    }
+    th.dragging-header {
+      opacity: 0.45;
+      background: rgba(16, 185, 129, 0.15) !important;
+    }
+    th.drag-over-left {
+      box-shadow: inset 4px 0 0 0 var(--emerald) !important;
+    }
+    th.drag-over-right {
+      box-shadow: inset -4px 0 0 0 var(--emerald) !important;
+    }
+
+    /* COLUMN CUSTOMIZER SWITCHES & REORDER BUTTONS */
+    .col-customizer-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 10px;
+      border-radius: 6px;
+      transition: background 0.15s ease;
+    }
+    .col-customizer-row:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+    [data-theme="light"] .col-customizer-row:hover {
+      background: rgba(0, 0, 0, 0.05);
+    }
+    .col-reorder-btn {
+      background: transparent;
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      width: 22px;
+      height: 20px;
+      border-radius: 4px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 9px;
+      padding: 0;
+      line-height: 1;
+      transition: all 0.15s;
+    }
+    .col-reorder-btn:hover:not(:disabled) {
+      background: var(--bg-hover);
+      color: var(--emerald);
+      border-color: var(--emerald);
+    }
+    .col-reorder-btn:disabled {
+      opacity: 0.2;
+      cursor: not-allowed;
+    }
+
+    /* MODERN TOGGLE SWITCH */
+    .col-toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 30px;
+      height: 17px;
+      flex-shrink: 0;
+      margin: 0;
+      cursor: pointer;
+    }
+    .col-toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+      position: absolute;
+    }
+    .col-switch-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: rgba(255, 255, 255, 0.14);
+      border-radius: 17px;
+      transition: 0.2s;
+      border: 1px solid var(--border-subtle);
+    }
+    [data-theme="light"] .col-switch-slider {
+      background-color: rgba(0, 0, 0, 0.14);
+    }
+    .col-switch-slider:before {
+      position: absolute;
+      content: "";
+      height: 11px;
+      width: 11px;
+      left: 2px;
+      bottom: 2px;
+      background-color: #fff;
+      border-radius: 50%;
+      transition: 0.2s;
+    }
+    .col-toggle-switch input:checked + .col-switch-slider {
+      background-color: var(--emerald);
+      border-color: var(--emerald);
+    }
+    .col-toggle-switch input:checked + .col-switch-slider:before {
+      transform: translateX(13px);
+    }
+    .col-toggle-switch input:disabled + .col-switch-slider {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
     /* DYNAMIC COLUMN VISIBILITY */
     #downloadsTable.hide-col-name th[data-col="name"], #downloadsTable.hide-col-name td[data-col="name"],
     #downloadsTable.hide-col-queue th[data-col="queue"], #downloadsTable.hide-col-queue td[data-col="queue"],
@@ -2916,7 +3028,7 @@
   </div>
 
   <!-- TABLE HEADER / COLUMN EDITOR CONTEXT MENU -->
-  <div id="headerContextMenu" class="context-menu" style="display:none; min-width: 240px;">
+  <div id="headerContextMenu" class="context-menu" style="display:none; min-width: 270px;">
     <div style="padding: 7px 14px 5px; font-size: 11px; font-weight: 700; color: var(--emerald); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border-subtle); display:flex; justify-content:space-between; align-items:center;">
       <span data-i18n="headerCustomizerTitle">Columns & Table Setup</span>
       <span style="font-size:13px;">⚙️</span>
@@ -4248,6 +4360,134 @@
     };
 
     let headerContextMenuCol = null;
+    let wasHeaderDragged = false;
+    let draggedColId = null;
+
+    const DEFAULT_COLUMN_ORDER = ['name', 'queue', 'size', 'progress', 'speed', 'eta', 'status', 'actions'];
+
+    function getColumnOrder() {
+      const saved = localStorage.getItem('fast_col_order');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const valid = DEFAULT_COLUMN_ORDER.slice();
+            const res = parsed.filter(c => valid.includes(c));
+            valid.forEach(c => { if (!res.includes(c)) res.push(c); });
+            return res;
+          }
+        } catch(e) {}
+      }
+      return DEFAULT_COLUMN_ORDER.slice();
+    }
+
+    function setColumnOrder(newOrder) {
+      localStorage.setItem('fast_col_order', JSON.stringify(newOrder));
+      applyColumnOrder();
+      renderTable();
+    }
+
+    function applyColumnOrder() {
+      const table = document.getElementById('downloadsTable');
+      if (!table) return;
+      const theadTr = table.querySelector('thead tr');
+      if (!theadTr) return;
+
+      const order = getColumnOrder();
+      order.forEach(colId => {
+        const th = theadTr.querySelector(`th[data-col="${colId}"]`);
+        if (th) {
+          theadTr.appendChild(th);
+        }
+      });
+    }
+
+    function moveColumnOrder(colId, dir) {
+      const order = getColumnOrder();
+      const idx = order.indexOf(colId);
+      if (idx === -1) return;
+      const newIdx = idx + dir;
+      if (newIdx < 0 || newIdx >= order.length) return;
+
+      const temp = order[idx];
+      order[idx] = order[newIdx];
+      order[newIdx] = temp;
+
+      setColumnOrder(order);
+      renderColumnCustomizerList();
+      showToast(currentLang === 'ar' ? 'تم تبديل مكان العمود' : `Switched column: ${getCustomColumnLabel(colId)}`);
+    }
+
+    function initHeaderDragAndDrop() {
+      const table = document.getElementById('downloadsTable');
+      if (!table) return;
+      const headers = table.querySelectorAll('th[data-col]');
+
+      headers.forEach(th => {
+        th.setAttribute('draggable', 'true');
+
+        th.addEventListener('dragstart', (e) => {
+          if (e.target.closest('.resizer') || e.target.closest('.header-settings-btn') || e.target.closest('input')) {
+            e.preventDefault();
+            return;
+          }
+          wasHeaderDragged = true;
+          draggedColId = th.getAttribute('data-col');
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', draggedColId);
+          th.classList.add('dragging-header');
+        });
+
+        th.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          const targetCol = th.getAttribute('data-col');
+          if (!draggedColId || draggedColId === targetCol) return;
+
+          const rect = th.getBoundingClientRect();
+          const midX = rect.left + rect.width / 2;
+          if (e.clientX < midX) {
+            th.classList.add('drag-over-left');
+            th.classList.remove('drag-over-right');
+          } else {
+            th.classList.add('drag-over-right');
+            th.classList.remove('drag-over-left');
+          }
+        });
+
+        th.addEventListener('dragleave', () => {
+          th.classList.remove('drag-over-left', 'drag-over-right');
+        });
+
+        th.addEventListener('drop', (e) => {
+          e.preventDefault();
+          th.classList.remove('drag-over-left', 'drag-over-right');
+          const targetCol = th.getAttribute('data-col');
+          if (!draggedColId || draggedColId === targetCol) return;
+
+          const rect = th.getBoundingClientRect();
+          const insertBefore = e.clientX < (rect.left + rect.width / 2);
+
+          const order = getColumnOrder();
+          const fromIdx = order.indexOf(draggedColId);
+          if (fromIdx === -1) return;
+          order.splice(fromIdx, 1);
+
+          let toIdx = order.indexOf(targetCol);
+          if (!insertBefore) toIdx++;
+          order.splice(toIdx, 0, draggedColId);
+
+          setColumnOrder(order);
+          showToast(currentLang === 'ar' ? 'تم تبديل ترتيب الأعمدة بنجاح' : `Switched column order: ${getCustomColumnLabel(draggedColId)}`);
+        });
+
+        th.addEventListener('dragend', () => {
+          draggedColId = null;
+          setTimeout(() => { wasHeaderDragged = false; }, 80);
+          headers.forEach(h => h.classList.remove('dragging-header', 'drag-over-left', 'drag-over-right'));
+        });
+      });
+    }
 
     function getColumnVisibility() {
       const saved = localStorage.getItem('fast_col_visibility');
@@ -4404,6 +4644,8 @@
       localStorage.removeItem('fast_col_widths');
       localStorage.removeItem('fast_col_visibility');
       localStorage.removeItem('fast_col_labels');
+      localStorage.removeItem('fast_col_order');
+      applyColumnOrder();
 
       const defaultWidths = {
         name: '',
@@ -4436,6 +4678,7 @@
     }
 
     function handleHeaderClick(e, colId) {
+      if (wasHeaderDragged) return;
       if (e.target.closest('.resizer') || e.target.closest('.header-settings-btn') || e.target.closest('input')) {
         return;
       }
@@ -4533,30 +4776,31 @@
       if (!container) return;
 
       const vis = getColumnVisibility();
-      const cols = [
-        { id: 'name', required: true },
-        { id: 'queue' },
-        { id: 'size' },
-        { id: 'progress' },
-        { id: 'speed' },
-        { id: 'eta' },
-        { id: 'status' },
-        { id: 'actions' }
-      ];
+      const order = getColumnOrder();
 
       let html = '';
-      cols.forEach(col => {
-        const label = getCustomColumnLabel(col.id);
-        const isChecked = vis[col.id] !== false;
-        const isDisabled = !!col.required;
+      order.forEach((colId, index) => {
+        const label = getCustomColumnLabel(colId);
+        const isChecked = vis[colId] !== false;
+        const isRequired = colId === 'name';
+        const isFirst = index === 0;
+        const isLast = index === order.length - 1;
+
         html += `
-          <label class="menu-action" style="cursor:pointer; padding:5px 14px;" onclick="event.stopPropagation()">
-            <span class="menu-action-label" style="gap:10px;">
-              <input type="checkbox" ${isChecked ? 'checked' : ''} ${isDisabled ? 'disabled' : ''} onchange="toggleColumnVisibility('${col.id}', this.checked)">
-              <span style="font-size:12px; font-weight:500;">${label}</span>
-            </span>
-            ${isDisabled ? '<span style="font-size:10px; color:var(--text-dim);">(Req)</span>' : ''}
-          </label>
+          <div class="col-customizer-row" onclick="event.stopPropagation()">
+            <div style="display:flex; align-items:center; gap:8px; overflow:hidden; flex:1;">
+              <div style="display:flex; gap:3px;">
+                <button class="col-reorder-btn" title="Move Left / Earlier" onclick="moveColumnOrder('${colId}', -1)" ${isFirst ? 'disabled' : ''}>◀</button>
+                <button class="col-reorder-btn" title="Move Right / Later" onclick="moveColumnOrder('${colId}', 1)" ${isLast ? 'disabled' : ''}>▶</button>
+              </div>
+              <span style="font-size:12px; font-weight:500; color:var(--text-main); text-overflow:ellipsis; overflow:hidden; white-space:nowrap;" title="${label}">${label}</span>
+              ${isRequired ? '<span style="font-size:9.5px; color:var(--text-dim); margin-left:auto; padding-right:4px;">(Req)</span>' : ''}
+            </div>
+            <label class="col-toggle-switch" title="${isChecked ? 'Switch column OFF (hide)' : 'Switch column ON (show)'}" style="margin-left:8px;">
+              <input type="checkbox" ${isChecked ? 'checked' : ''} ${isRequired ? 'disabled' : ''} onchange="toggleColumnVisibility('${colId}', this.checked)">
+              <span class="col-switch-slider"></span>
+            </label>
+          </div>
         `;
       });
 
@@ -4961,61 +5205,71 @@
           (currentLang === 'ar' ? '🌙 الليلية' : '🌙 Night') : 
           (currentLang === 'ar' ? '📋 الرئيسية' : '📋 Main');
 
+        const colCells = {
+          name: `<td data-col="name">
+            <div class="file-cell">
+              <div class="file-icon-box">${icon}</div>
+              <div class="file-meta">
+                <div class="file-name" title="${escapeHtml(t.name)}">${escapeHtml(t.name)}</div>
+                <div class="file-subtext">
+                  <span>${t.engine === 'torrent' || t.isTorrent ? (currentLang === 'ar' ? '🧲 تورنت (P2P + DHT)' : '🧲 BitTorrent (P2P + DHT)') : (t.engine === 'yt-dlp' ? 'yt-dlp + ffmpeg' : (currentLang === 'ar' ? 'aria2 ١٦ اتصالاً' : 'aria2 16-connections'))}</span>
+                </div>
+              </div>
+            </div>
+          </td>`,
+          queue: `<td data-col="queue">
+            <span class="queue-badge ${queueClass}" onclick="cycleQueue('${t.gid}', event)" title="Click to switch queue">
+              ${queueLabel}
+            </span>
+          </td>`,
+          size: `<td data-col="size"><strong>${formatBytes(t.totalLength)}</strong></td>`,
+          progress: `<td data-col="progress">
+            <div class="progress-cell">
+              <div class="progress-container">
+                <div class="progress-track">
+                  <div class="progress-fill ${isPaused ? 'paused' : ''} ${isError ? 'error' : ''}" style="width: ${percent}%;"></div>
+                </div>
+                <div class="progress-labels">
+                  <span>${percent}%</span>
+                  <span>${formatBytes(t.completedLength)}</span>
+                </div>
+              </div>
+            </div>
+          </td>`,
+          speed: `<td data-col="speed">
+            ${t.downloadSpeed > 0 ? `<span class="speed-pill">⚡ ${formatBytes(t.downloadSpeed)}/s</span>` : `<span style="color:var(--text-dim)">--</span>`}
+          </td>`,
+          eta: `<td data-col="eta" style="color:var(--text-muted); font-size:12px;">${isDone ? (currentLang === 'ar' ? 'مكتمل' : 'Done') : formatEta(t.eta)}</td>`,
+          status: `<td data-col="status">
+            <span class="status-tag ${statusClass}">
+              <span style="font-size:8px;">●</span> ${statusText}
+            </span>
+          </td>`,
+          actions: `<td data-col="actions" style="text-align:center;" onclick="event.stopPropagation()">
+            <div class="row-actions" style="justify-content:center;">
+              <button class="icon-action-btn" onclick="showSegmentModal('${t.gid}')" title="Multi-Segment & Connection Inspector">📊</button>
+              ${isPaused || isError ? 
+                `<button class="icon-action-btn" onclick="taskAction('${t.gid}', 'resume')" title="Resume / Retry">▶</button>` :
+                `<button class="icon-action-btn" onclick="taskAction('${t.gid}', 'pause')" title="Pause">⏸</button>`
+              }
+              <button class="icon-action-btn" onclick="revealFile('${t.gid}')" title="Reveal in Folder">📁</button>
+              <button class="icon-action-btn" onclick="taskAction('${t.gid}', 'remove')" title="Delete" style="color:var(--rose)">🗑</button>
+            </div>
+          </td>`
+        };
+
+        const currentOrder = getColumnOrder();
+        let orderedCells = `<td data-col="select" style="text-align:center;" onclick="event.stopPropagation()">
+          <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleSelect('${escapeHtml(t.gid)}', null, this.checked)">
+        </td>`;
+
+        currentOrder.forEach(cid => {
+          if (colCells[cid]) orderedCells += colCells[cid];
+        });
+
         html += `
           <tr class="${isSelected ? 'selected' : ''}" onclick="toggleSelect('${escapeHtml(t.gid)}', event)" ondblclick="showSegmentModal('${escapeHtml(t.gid)}')" oncontextmenu="handleRowContextMenu(event, '${escapeHtml(t.gid)}')" title="Right-click for options | Double click for Multi-Segment Inspector">
-            <td data-col="select" style="text-align:center;" onclick="event.stopPropagation()">
-              <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleSelect('${escapeHtml(t.gid)}', null, this.checked)">
-            </td>
-            <td data-col="name">
-              <div class="file-cell">
-                <div class="file-icon-box">${icon}</div>
-                <div class="file-meta">
-                  <div class="file-name" title="${escapeHtml(t.name)}">${escapeHtml(t.name)}</div>
-                  <div class="file-subtext">
-                    <span>${t.engine === 'torrent' || t.isTorrent ? (currentLang === 'ar' ? '🧲 تورنت (P2P + DHT)' : '🧲 BitTorrent (P2P + DHT)') : (t.engine === 'yt-dlp' ? 'yt-dlp + ffmpeg' : (currentLang === 'ar' ? 'aria2 ١٦ اتصالاً' : 'aria2 16-connections'))}</span>
-                  </div>
-                </div>
-              </div>
-            </td>
-            <td data-col="queue">
-              <span class="queue-badge ${queueClass}" onclick="cycleQueue('${t.gid}', event)" title="Click to switch queue">
-                ${queueLabel}
-              </span>
-            </td>
-            <td data-col="size"><strong>${formatBytes(t.totalLength)}</strong></td>
-            <td data-col="progress">
-              <div class="progress-cell">
-                <div class="progress-container">
-                  <div class="progress-track">
-                    <div class="progress-fill ${isPaused ? 'paused' : ''} ${isError ? 'error' : ''}" style="width: ${percent}%;"></div>
-                  </div>
-                  <div class="progress-labels">
-                    <span>${percent}%</span>
-                    <span>${formatBytes(t.completedLength)}</span>
-                  </div>
-                </div>
-              </div>
-            </td>
-            <td data-col="speed">
-              ${t.downloadSpeed > 0 ? `<span class="speed-pill">⚡ ${formatBytes(t.downloadSpeed)}/s</span>` : `<span style="color:var(--text-dim)">--</span>`}
-            </td>
-            <td data-col="eta" style="color:var(--text-muted); font-size:12px;">${isDone ? (currentLang === 'ar' ? 'مكتمل' : 'Done') : formatEta(t.eta)}</td>
-            <td data-col="status">
-              <span class="status-tag ${statusClass}">
-                <span style="font-size:8px;">●</span> ${statusText}
-              </span>
-            </td>
-            <td data-col="actions" style="text-align:center;" onclick="event.stopPropagation()">
-              <div class="row-actions" style="justify-content:center;">
-                <button class="icon-action-btn" onclick="showSegmentModal('${t.gid}')" title="Multi-Segment & Connection Inspector">📊</button>
-                ${isPaused || isError ? 
-                  `<button class="icon-action-btn" onclick="taskAction('${t.gid}', 'resume')" title="Resume / Retry">▶</button>` :
-                  `<button class="icon-action-btn" onclick="taskAction('${t.gid}', 'pause')" title="Pause">⏸</button>`
-                }
-                <button class="icon-action-btn" onclick="revealFile('${t.gid}')" title="Reveal in Folder">📁</button>
-                <button class="icon-action-btn" onclick="taskAction('${t.gid}', 'remove')" title="Delete" style="color:var(--rose)">🗑</button>
-              </div>
-            </td>
+            ${orderedCells}
           </tr>
         `;
       });
@@ -7144,9 +7398,11 @@
     restoreSidebarState();
     restoreGraphState();
     applyToolbarVisibility();
+    applyColumnOrder();
     applyColumnVisibility();
     applyColumnLabels();
     initColumnResizers();
+    initHeaderDragAndDrop();
     setupHeaderDblClickEdit();
 
     // Start Polling Loop
