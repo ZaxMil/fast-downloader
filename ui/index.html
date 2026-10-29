@@ -2126,6 +2126,9 @@
           <div class="menu-action" onclick="exportTasksJson()">
             <span class="menu-action-label" data-i18n="menuExport">Export Downloads (JSON)...</span>
           </div>
+          <div class="menu-action" onclick="exportTasksEf2()">
+            <span class="menu-action-label" data-i18n="menuExportEf2">Export to IDM (.ef2)...</span>
+          </div>
           <div class="menu-action" onclick="showImportModal()">
             <span class="menu-action-label" data-i18n="menuImport">Import Downloads...</span>
           </div>
@@ -2724,6 +2727,10 @@
     <div class="menu-action" id="ctxItemRestart" onclick="ctxRestart()">
       <span class="menu-action-label"><span>🔄</span> <span data-i18n="ctxRestart">Redownload / Restart</span></span>
     </div>
+    <div class="menu-action" id="ctxItemRefreshAddress" onclick="ctxRefreshAddress()">
+      <span class="menu-action-label"><span style="color:#f59e0b;">🔄</span> <span data-i18n="ctxRefreshAddress">Refresh Download Address</span></span>
+      <span class="menu-shortcut">IDM</span>
+    </div>
     <div class="menu-action" id="ctxItemCopyUrl" onclick="ctxCopyUrl()">
       <span class="menu-action-label"><span>📋</span> <span data-i18n="ctxCopyUrl">Copy Download Link</span></span>
     </div>
@@ -2833,6 +2840,7 @@
               <option value="Videos">🎬 Videos (downloads/Videos/)</option>
               <option value="Music">🎵 Music (downloads/Music/)</option>
               <option value="Documents">📄 Documents (downloads/Documents/)</option>
+              <option value="Torrents">🧲 Torrents (downloads/Torrents/)</option>
             </select>
           </div>
 
@@ -3400,6 +3408,7 @@
           <div style="display:flex; gap:8px;">
             <button class="btn btn-secondary btn-sm" id="detailPauseResumeBtn" onclick="toggleDetailTaskPause()">⏸ Pause</button>
             <button class="btn btn-secondary btn-sm" onclick="restartDetailTask()" style="color:var(--cyan);">🔄 Restart</button>
+            <button class="btn btn-secondary btn-sm" onclick="refreshDetailTaskAddress()" title="Refresh download address for expired links without losing progress" style="color:#f59e0b;">🔄 Refresh Link</button>
             <button class="btn btn-danger btn-sm" onclick="deleteDetailTask()">🗑 Remove</button>
           </div>
         </div>
@@ -3609,6 +3618,8 @@
         ctxPause: "Pause Download",
         ctxResume: "Resume Download",
         ctxRestart: "Redownload / Restart",
+        ctxRefreshAddress: "Refresh Download Address",
+        menuExportEf2: "Export to IDM (.ef2)...",
         ctxCopyUrl: "Copy Download Link",
         ctxSegments: "Multi-Segment Inspector",
         ctxMoveNight: "Move to Night Queue",
@@ -3752,6 +3763,8 @@
         ctxPause: "إيقاف مؤقت",
         ctxResume: "استئناف التحميل",
         ctxRestart: "إعادة التحميل من البداية",
+        ctxRefreshAddress: "تحديث عنوان التحميل (الرابط منتهي الصلاحية)",
+        menuExportEf2: "تصدير إلى قائمة IDM (.ef2)...",
         ctxCopyUrl: "نسخ رابط التحميل",
         ctxSegments: "مستكشف المسارات الـ 16 والاتصال",
         ctxMoveNight: "نقل إلى القائمة الليلية",
@@ -4503,9 +4516,13 @@
     // Determine category from filename / task
     function getFileCategory(task) {
       const name = (task.name || '').toLowerCase();
-      if (task.engine === 'yt-dlp' || name.endsWith('.mp4') || name.endsWith('.mkv') || name.endsWith('.webm') || name.endsWith('.mov')) return 'videos';
-      if (name.endsWith('.zip') || name.endsWith('.rar') || name.endsWith('.7z') || name.endsWith('.tar') || name.endsWith('.gz') || name.endsWith('.iso')) return 'archives';
-      if (name.endsWith('.torrent') || (task.url && task.url.startsWith('magnet:'))) return 'torrents';
+      const url = (task.url || '').toLowerCase();
+      if (task.engine === 'torrent' || task.isTorrent || name.endsWith('.torrent') || url.startsWith('magnet:')) return 'torrents';
+      if (task.engine === 'yt-dlp' || name.endsWith('.mp4') || name.endsWith('.mkv') || name.endsWith('.webm') || name.endsWith('.mov') || name.endsWith('.avi') || name.endsWith('.flv') || name.endsWith('.wmv')) return 'videos';
+      if (name.endsWith('.mp3') || name.endsWith('.wav') || name.endsWith('.flac') || name.endsWith('.m4a') || name.endsWith('.aac') || name.endsWith('.ogg')) return 'music';
+      if (name.endsWith('.zip') || name.endsWith('.rar') || name.endsWith('.7z') || name.endsWith('.tar') || name.endsWith('.gz') || name.endsWith('.iso') || name.endsWith('.bz2') || name.endsWith('.xz')) return 'archives';
+      if (name.endsWith('.exe') || name.endsWith('.msi') || name.endsWith('.apk') || name.endsWith('.dmg') || name.endsWith('.bin') || name.endsWith('.bat') || name.endsWith('.cmd')) return 'programs';
+      if (name.endsWith('.pdf') || name.endsWith('.doc') || name.endsWith('.docx') || name.endsWith('.xls') || name.endsWith('.xlsx') || name.endsWith('.ppt') || name.endsWith('.pptx') || name.endsWith('.txt')) return 'documents';
       return 'other';
     }
 
@@ -4717,7 +4734,7 @@
                 <div class="file-meta">
                   <div class="file-name" title="${t.name}">${t.name}</div>
                   <div class="file-subtext">
-                    <span>${t.engine === 'yt-dlp' ? 'yt-dlp + ffmpeg' : (currentLang === 'ar' ? 'aria2 ١٦ اتصالاً' : 'aria2 16-connections')}</span>
+                    <span>${t.engine === 'torrent' || t.isTorrent ? (currentLang === 'ar' ? '🧲 تورنت (P2P + DHT)' : '🧲 BitTorrent (P2P + DHT)') : (t.engine === 'yt-dlp' ? 'yt-dlp + ffmpeg' : (currentLang === 'ar' ? 'aria2 ١٦ اتصالاً' : 'aria2 16-connections'))}</span>
                   </div>
                 </div>
               </div>
@@ -4940,6 +4957,52 @@
     function ctxTogglePause() { if (contextMenuGid) toggleTaskPause(contextMenuGid); }
     function ctxRestart() { if (contextMenuGid) restartTask(contextMenuGid); }
     function ctxCopyUrl() { if (contextMenuGid) copyTaskUrl(contextMenuGid); }
+    async function ctxRefreshAddress() {
+      if (!contextMenuGid) return;
+      const gid = contextMenuGid;
+      closeAllContextMenus();
+      const t = tasks.find(x => x.gid === gid);
+      const name = t ? t.name : gid;
+      try {
+        const resp = await fetch(`${API_BASE}/api/task/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gid: gid })
+        });
+        const res = await resp.json();
+        if (res.ok) {
+          playChime(true);
+          showToast(`🔄 Refresh armed for "${name}"! Click the new download link in your browser to resume.`, 9000);
+        } else {
+          showToast(`⚠️ Could not arm refresh: ${res.error || 'Unknown error'}`, 4000);
+        }
+      } catch (err) {
+        showToast('⚠️ Error contacting backend', 3000);
+      }
+    }
+
+    async function refreshDetailTaskAddress() {
+      if (!currentDetailGid) return;
+      const gid = currentDetailGid;
+      const t = tasks.find(x => x.gid === gid);
+      const name = t ? t.name : gid;
+      try {
+        const resp = await fetch(`${API_BASE}/api/task/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gid: gid })
+        });
+        const res = await resp.json();
+        if (res.ok) {
+          playChime(true);
+          showToast(`🔄 Refresh armed for "${name}"! Click the new download link in your browser to resume.`, 9000);
+        } else {
+          showToast(`⚠️ Could not arm refresh: ${res.error || 'Unknown error'}`, 4000);
+        }
+      } catch (err) {
+        showToast('⚠️ Error contacting backend', 3000);
+      }
+    }
     function ctxShowSegments() { if (contextMenuGid) { const g = contextMenuGid; closeAllContextMenus(); showSegmentModal(g); } }
     function ctxCycleQueue() { if (contextMenuGid) { const g = contextMenuGid; closeAllContextMenus(); cycleQueue(g); } }
     function ctxDeleteTask() { if (contextMenuGid) { const g = contextMenuGid; closeAllContextMenus(); taskAction(g, 'remove'); } }
@@ -6085,6 +6148,12 @@
     }
 
     // EXPORT DOWNLOADS TO JSON
+    function exportTasksEf2() {
+      closeAllMenus();
+      window.location.href = `${API_BASE}/api/tasks/export/ef2`;
+      showToast('📄 IDM .ef2 download list exported!');
+    }
+
     function exportTasksJson() {
       closeAllMenus();
       const exportData = {
@@ -6115,7 +6184,7 @@
       closeAllMenus();
       const input = document.createElement('input');
       input.type = 'file';
-      input.accept = '.json,.txt';
+      input.accept = '.json,.txt,.ef2';
       input.onchange = (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -6123,6 +6192,23 @@
         reader.onload = async (evt) => {
           try {
             const content = evt.target.result;
+            if (file.name.endsWith('.ef2')) {
+              showToast('Importing IDM .ef2 list...');
+              const resp = await fetch(`${API_BASE}/api/tasks/import/ef2`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: content })
+              });
+              const res = await resp.json();
+              if (res.ok) {
+                playChime(true);
+                showToast(`🎉 Imported ${res.importedCount} downloads from IDM list!`);
+                pollBackend();
+              } else {
+                showToast('⚠️ Failed to import .ef2 list', true);
+              }
+              return;
+            }
             let urlsToImport = [];
             if (file.name.endsWith('.json')) {
               const data = JSON.parse(content);

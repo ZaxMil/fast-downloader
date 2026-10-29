@@ -3160,6 +3160,195 @@ namespace FastDownloader
                         return;
                     }
 
+                    // REFRESH DOWNLOAD ADDRESS API
+                    if (urlPath == "/api/task/refresh" && method == "POST")
+                    {
+                        var data = JsonHelper.ParseDict(requestBody);
+                        string gid = SafeGetString(data, "gid");
+                        if (!string.IsNullOrEmpty(gid))
+                        {
+                            var tasks = engine.GetAriaTasks();
+                            Dictionary<string, object> target = null;
+                            if (tasks != null)
+                            {
+                                foreach (var t in tasks)
+                                {
+                                    if (t.ContainsKey("gid") && t["gid"] != null && t["gid"].ToString() == gid)
+                                    {
+                                        target = t;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            string oldUrl = "";
+                            string filename = "";
+                            string referer = "";
+
+                            if (target != null)
+                            {
+                                if (target.ContainsKey("files"))
+                                {
+                                    var files = target["files"] as ArrayList;
+                                    if (files != null && files.Count > 0)
+                                    {
+                                        var f = files[0] as Dictionary<string, object>;
+                                        if (f != null)
+                                        {
+                                            if (f.ContainsKey("uris"))
+                                            {
+                                                var uris = f["uris"] as ArrayList;
+                                                if (uris != null && uris.Count > 0)
+                                                {
+                                                    var u = uris[0] as Dictionary<string, object>;
+                                                    if (u != null && u.ContainsKey("uri")) oldUrl = u["uri"].ToString();
+                                                }
+                                            }
+                                            if (f.ContainsKey("path") && f["path"] != null)
+                                            {
+                                                filename = Path.GetFileName(f["path"].ToString());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            engine.PauseTask(gid);
+                            engine.ArmRefresh(gid, oldUrl, filename, referer);
+
+                            string pageToOpen = !string.IsNullOrEmpty(referer) ? referer : oldUrl;
+                            if (!string.IsNullOrEmpty(pageToOpen) && (pageToOpen.StartsWith("http://") || pageToOpen.StartsWith("https://")))
+                            {
+                                try
+                                {
+                                    Process.Start(new ProcessStartInfo(pageToOpen) { UseShellExecute = true });
+                                }
+                                catch { }
+                            }
+
+                            var res = new Dictionary<string, object>
+                            {
+                                { "ok", true },
+                                { "gid", gid },
+                                { "filename", filename },
+                                { "armed", true },
+                                { "message", "Refresh armed. Please generate and click the new download link in your browser!" }
+                            };
+                            string json = JsonHelper.Serialize(res);
+                            byte[] bytes = Encoding.UTF8.GetBytes(json);
+                            SendHeaders(writer, 200, "OK", "application/json", bytes.Length, allowedOrigin);
+                            writer.Write(json);
+                            writer.Flush();
+                            return;
+                        }
+                    }
+
+                    // EXPORT IDM .EF2 LIST API
+                    if (urlPath == "/api/tasks/export/ef2" && method == "GET")
+                    {
+                        var tasks = engine.GetAriaTasks();
+                        var ytTasks = engine.GetYtTasksSnapshot();
+                        var ef2Items = new List<Ef2Item>();
+
+                        if (tasks != null)
+                        {
+                            foreach (var t in tasks)
+                            {
+                                string url = "";
+                                string fname = "";
+                                if (t.ContainsKey("files"))
+                                {
+                                    var files = t["files"] as ArrayList;
+                                    if (files != null && files.Count > 0)
+                                    {
+                                        var f = files[0] as Dictionary<string, object>;
+                                        if (f != null)
+                                        {
+                                            if (f.ContainsKey("path") && f["path"] != null) fname = Path.GetFileName(f["path"].ToString());
+                                            if (f.ContainsKey("uris"))
+                                            {
+                                                var uris = f["uris"] as ArrayList;
+                                                if (uris != null && uris.Count > 0)
+                                                {
+                                                    var u = uris[0] as Dictionary<string, object>;
+                                                    if (u != null && u.ContainsKey("uri")) url = u["uri"].ToString();
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if (!string.IsNullOrEmpty(url))
+                                {
+                                    ef2Items.Add(new Ef2Item { Url = url, FileName = fname });
+                                }
+                            }
+                        }
+
+                        foreach (var yt in ytTasks)
+                        {
+                            if (!string.IsNullOrEmpty(yt.Url))
+                            {
+                                ef2Items.Add(new Ef2Item { Url = yt.Url, FileName = yt.Name });
+                            }
+                        }
+
+                        string ef2Text = Ef2Helper.Write(ef2Items);
+                        byte[] bytes = Encoding.UTF8.GetBytes(ef2Text);
+                        writer.WriteLine("HTTP/1.1 200 OK");
+                        writer.WriteLine("Content-Type: text/plain; charset=utf-8");
+                        writer.WriteLine("Content-Disposition: attachment; filename=\"FastDownloader_Export.ef2\"");
+                        writer.WriteLine("Content-Length: " + bytes.Length);
+                        writer.WriteLine("Access-Control-Allow-Origin: *");
+                        writer.WriteLine("Connection: close");
+                        writer.WriteLine();
+                        writer.Flush();
+                        stream.Write(bytes, 0, bytes.Length);
+                        stream.Flush();
+                        return;
+                    }
+
+                    // IMPORT IDM .EF2 LIST API
+                    if (urlPath == "/api/tasks/import/ef2" && method == "POST")
+                    {
+                        string ef2Content = "";
+                        if (requestBody.TrimStart().StartsWith("{"))
+                        {
+                            var dict = JsonHelper.ParseDict(requestBody);
+                            ef2Content = SafeGetString(dict, "content");
+                        }
+                        else
+                        {
+                            ef2Content = requestBody;
+                        }
+
+                        var items = Ef2Helper.Parse(ef2Content);
+                        int imported = 0;
+                        foreach (var item in items)
+                        {
+                            if (!string.IsNullOrEmpty(item.Url))
+                            {
+                                try
+                                {
+                                    engine.AddAriaUri(item.Url, false, item.Cookies, item.UserAgent, item.Referer, item.FileName, null);
+                                    imported++;
+                                }
+                                catch { }
+                            }
+                        }
+
+                        var res = new Dictionary<string, object>
+                        {
+                            { "ok", true },
+                            { "importedCount", imported }
+                        };
+                        string json = JsonHelper.Serialize(res);
+                        byte[] bytes = Encoding.UTF8.GetBytes(json);
+                        SendHeaders(writer, 200, "OK", "application/json", bytes.Length, allowedOrigin);
+                        writer.Write(json);
+                        writer.Flush();
+                        return;
+                    }
+
                     // 5. TASK ACTION API
                     if (urlPath == "/api/action" && method == "POST")
                     {
@@ -3526,6 +3715,27 @@ namespace FastDownloader
                     if (urlPath == "/api/intercept" && method == "POST")
                     {
                         var data = JsonHelper.ParseDict(requestBody);
+                        string checkUrl = data != null && data.ContainsKey("url") ? data["url"].ToString().Trim() : "";
+                        var pendingRef = engine.GetPendingRefresh();
+                        if (pendingRef != null && !string.IsNullOrEmpty(checkUrl))
+                        {
+                            string iCookies = data != null && data.ContainsKey("cookies") ? data["cookies"].ToString() : "";
+                            string iUserAgent = data != null && data.ContainsKey("userAgent") ? data["userAgent"].ToString() : "";
+                            string iReferer = data != null && data.ContainsKey("referer") ? data["referer"].ToString() : "";
+                            bool refSuccess = engine.ChangeAriaUri(pendingRef.Gid, pendingRef.OldUrl, checkUrl, iCookies, iUserAgent, iReferer);
+                            engine.ClearPendingRefresh();
+                            if (refSuccess)
+                            {
+                                if (onNotification != null) onNotification("Download address refreshed: " + pendingRef.Filename);
+                                var refResult = new { ok = true, refreshed = true, gid = pendingRef.Gid, filename = pendingRef.Filename, message = "Download address successfully refreshed and resumed!" };
+                                string refJson = JsonHelper.Serialize(refResult);
+                                byte[] refBytes = Encoding.UTF8.GetBytes(refJson);
+                                SendHeaders(writer, 200, "OK", "application/json; charset=utf-8", refBytes.Length);
+                                writer.Write(refJson);
+                                writer.Flush();
+                                return;
+                            }
+                        }
                         string url = data != null && data.ContainsKey("url") ? data["url"].ToString().Trim() : "";
                         string title = data != null && data.ContainsKey("title") ? data["title"].ToString() : "";
                         string filename = data != null && data.ContainsKey("filename") ? data["filename"].ToString() : "";
