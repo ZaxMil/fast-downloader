@@ -2459,7 +2459,8 @@ namespace FastDownloader
 
                 ProcessStartInfo psi = new ProcessStartInfo
                 {
-                    FileName = batPath,
+                    FileName = "cmd.exe",
+                    Arguments = "/c \"" + batPath + "\"",
                     CreateNoWindow = true,
                     UseShellExecute = false
                 };
@@ -2528,6 +2529,7 @@ namespace FastDownloader
         private Action<string> onNotification;
         private UpdateManager updateManager;
         private DateTime lastExtensionPing = DateTime.MinValue;
+        private string lastExtensionVersion = "";
         private volatile bool forceExtensionReload = true;
 
         public HttpBridgeServer(EngineManager engine, Action<string> onNotification, UpdateManager updateManager = null)
@@ -2718,12 +2720,15 @@ namespace FastDownloader
                     if (urlPath == "/api/status")
                     {
                         bool extConnected = (DateTime.UtcNow - lastExtensionPing).TotalSeconds < 35;
+                        bool extOutdated = extConnected && !string.IsNullOrEmpty(lastExtensionVersion) && lastExtensionVersion != UpdateManager.CurrentAppVersion;
                         var statusObj = new
                         {
                             status = "running",
                             engine = "aria2+yt-dlp",
                             downloads = engine.DownloadsFolder,
                             extensionConnected = extConnected,
+                            extensionVersion = lastExtensionVersion,
+                            extensionOutdated = extOutdated,
                             autoCapture = engine.AutoCaptureEnabled,
                             appUpdateAvailable = updateManager != null && updateManager.AppUpdateAvailable,
                             latestAppVersion = updateManager != null ? updateManager.LatestAppVersion : "0.1.0-beta",
@@ -3148,7 +3153,16 @@ namespace FastDownloader
                     if (urlPath == "/api/extension/ping")
                     {
                         lastExtensionPing = DateTime.UtcNow;
-                        bool shouldReload = forceExtensionReload;
+                        try
+                        {
+                            var pingData = JsonHelper.ParseDict(requestBody);
+                            if (pingData != null && pingData.ContainsKey("version"))
+                            {
+                                lastExtensionVersion = pingData["version"].ToString();
+                            }
+                        }
+                        catch { }
+                        bool shouldReload = forceExtensionReload || (!string.IsNullOrEmpty(lastExtensionVersion) && lastExtensionVersion != UpdateManager.CurrentAppVersion);
                         forceExtensionReload = false;
                         var pingResp = new
                         {
@@ -3551,16 +3565,10 @@ namespace FastDownloader
                             try
                             {
                                 string currentExe = Process.GetCurrentProcess().MainModule.FileName;
-                                string batPath = Path.Combine(Path.GetTempPath(), "restart_fd.bat");
-                                string batScript =
-                                    "@echo off\r\n" +
-                                    "timeout /t 1 /nobreak > nul\r\n" +
-                                    "start \"\" \"" + currentExe + "\"\r\n" +
-                                    "del \"%~f0\"\r\n";
-                                File.WriteAllText(batPath, batScript, Encoding.Default);
                                 ProcessStartInfo psi = new ProcessStartInfo
                                 {
-                                    FileName = batPath,
+                                    FileName = "cmd.exe",
+                                    Arguments = "/c timeout /t 1 /nobreak > nul & start \"\" \"" + currentExe + "\"",
                                     CreateNoWindow = true,
                                     UseShellExecute = false
                                 };

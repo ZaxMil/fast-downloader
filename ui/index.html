@@ -5600,8 +5600,10 @@
         if (res.ok) {
           const data = await res.json();
           isExtensionConnected = !!data.extensionConnected;
-          updateExtensionPill(isExtensionConnected);
-          updateExtensionModalBanner(isExtensionConnected);
+          const isOutdated = !!data.extensionOutdated;
+          const extVer = data.extensionVersion || '';
+          updateExtensionPill(isExtensionConnected, isOutdated);
+          updateExtensionModalBanner(isExtensionConnected, isOutdated, extVer);
           if (typeof data.autoCapture === 'boolean' && data.autoCapture !== isAutoGrabEnabled) {
             updateAutoGrabUI(data.autoCapture);
           }
@@ -5659,17 +5661,29 @@
       }
     }
 
-    function updateExtensionPill(connected) {
+    function updateExtensionPill(connected, isOutdated) {
       g_extConnected = !!connected;
       const extBadge = document.getElementById('sysExtBadge');
       const extDesc = document.getElementById('sysExtDesc');
       if (extBadge) {
         if (connected) {
-          extBadge.className = 'sys-badge sys-badge-active';
-          extBadge.textContent = '● Connected';
-          if (extDesc) extDesc.textContent = 'Sniffer & Downloader Active';
+          if (isOutdated) {
+            extBadge.className = 'sys-badge sys-badge-warning';
+            extBadge.style.background = 'rgba(245, 158, 11, 0.2)';
+            extBadge.style.color = '#F59E0B';
+            extBadge.textContent = 'Update Ready (Reload)';
+            if (extDesc) extDesc.textContent = 'Click to reload extension';
+          } else {
+            extBadge.className = 'sys-badge sys-badge-active';
+            extBadge.style.background = '';
+            extBadge.style.color = '';
+            extBadge.textContent = '✔ Connected';
+            if (extDesc) extDesc.textContent = 'Sniffer & Downloader Active';
+          }
         } else {
           extBadge.className = 'sys-badge sys-badge-info';
+          extBadge.style.background = '';
+          extBadge.style.color = '';
           extBadge.textContent = '1-Click Install';
           if (extDesc) extDesc.textContent = 'Click to connect browser';
         }
@@ -5677,7 +5691,7 @@
       refreshUnifiedSystemStatus();
     }
 
-    function updateExtensionModalBanner(connected) {
+    function updateExtensionModalBanner(connected, isOutdated, extVer) {
       const banner = document.getElementById('extStatusBanner');
       const dot = document.getElementById('extBannerDot');
       const title = document.getElementById('extBannerTitle');
@@ -5685,13 +5699,23 @@
       if (!banner) return;
 
       if (connected) {
-        banner.style.borderColor = 'rgba(16, 185, 129, 0.4)';
-        banner.style.background = 'rgba(16, 185, 129, 0.08)';
-        dot.style.background = '#10B981';
-        dot.style.boxShadow = '0 0 8px #10B981';
-        title.textContent = '✅ Extension Active & Connected!';
-        title.style.color = '#34D399';
-        sub.textContent = 'Floating download buttons are active in your browser. YouTube, TikTok, Canvas LMS downloads ready.';
+        if (isOutdated) {
+          banner.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+          banner.style.background = 'rgba(245, 158, 11, 0.08)';
+          dot.style.background = '#F59E0B';
+          dot.style.boxShadow = '0 0 8px #F59E0B';
+          title.textContent = '⚠️ Extension Outdated (v' + (extVer || '0.1.0') + ' in browser, latest on disk)';
+          title.style.color = '#F59E0B';
+          sub.innerHTML = 'Files updated! In your browser, open <strong>brave://extensions</strong> and click <strong>↻ Reload</strong> on FastDownloader, or click <strong>Sync & Reload</strong> below.';
+        } else {
+          banner.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+          banner.style.background = 'rgba(16, 185, 129, 0.08)';
+          dot.style.background = '#10B981';
+          dot.style.boxShadow = '0 0 8px #10B981';
+          title.textContent = '✅ Extension Active & Connected!';
+          title.style.color = '#34D399';
+          sub.textContent = 'Floating download buttons are active in your browser. YouTube, TikTok, Canvas LMS downloads ready.';
+        }
       } else {
         banner.style.borderColor = 'var(--border-color)';
         banner.style.background = 'var(--bg-input)';
