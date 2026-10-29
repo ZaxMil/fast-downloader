@@ -609,6 +609,7 @@ chrome.downloads.onCreated.addListener((item) => {
 
 // 6. PERIODIC HEARTBEAT TO FASTDOWNLOADER DAEMON (Syncs auto-grab setting & auto-reloads on updates)
 let isReloadingExtension = false;
+let lastExtensionReloadAt = 0;
 
 function sendHeartbeat() {
   const manifest = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getManifest) ? chrome.runtime.getManifest() : null;
@@ -631,11 +632,13 @@ function sendHeartbeat() {
       }
     }
 
-    // Auto-reload extension when daemon notifies files were updated or reload is requested
-    if (data && (data.reloadExtension === true || (data.appVersion && data.appVersion !== currentVer))) {
-      if (!isReloadingExtension) {
+    // Explicit one-time reload only if requested, strictly throttled to prevent reload loops
+    if (data && data.reloadExtension === true) {
+      const now = Date.now();
+      if (!isReloadingExtension && (now - lastExtensionReloadAt > 60000)) {
         isReloadingExtension = true;
-        console.log(`[FastDownloader] Version update or reload requested (${currentVer} -> ${data.appVersion || 'reload'}). Applying updated extension files...`);
+        lastExtensionReloadAt = now;
+        console.log("[FastDownloader] One-time reload requested by desktop app.");
         setTimeout(() => {
           try {
             chrome.runtime.reload();

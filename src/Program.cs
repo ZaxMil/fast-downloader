@@ -3574,7 +3574,7 @@ namespace FastDownloader
                             }
                         }
                         catch { }
-                        bool shouldReload = forceExtensionReload || (!string.IsNullOrEmpty(lastExtensionVersion) && lastExtensionVersion != UpdateManager.CurrentAppVersion);
+                        bool shouldReload = forceExtensionReload;
                         forceExtensionReload = false;
                         var pingResp = new
                         {
