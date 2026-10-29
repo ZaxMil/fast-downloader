@@ -179,7 +179,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   }
 
+  // Immediately ping daemon on popup open to notify desktop app
+  fetch('http://127.0.0.1:6801/api/extension/ping', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      version: (chrome.runtime && chrome.runtime.getManifest) ? chrome.runtime.getManifest().version : '0.1.6',
+      userAgent: navigator.userAgent
+    })
+  }).catch(() => {});
+
   checkStatusAndActivity();
+  const statusPollInterval = setInterval(checkStatusAndActivity, 2500);
+  window.addEventListener('unload', () => clearInterval(statusPollInterval));
 
   // 4. DETECT PAGE MEDIA ON ACTIVE TAB
   function isMediaPlatform(url) {
