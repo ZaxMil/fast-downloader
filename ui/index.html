@@ -180,6 +180,220 @@
       border-color: #E2E8F0;
     }
 
+    /* ========================================================
+       ZAXCORE DESIGN THEME (Ezoo Slint UI Aesthetic)
+       ======================================================== */
+    [data-theme="zaxcore"] {
+      --bg-base: #1E1F22;
+      --bg-sidebar: #26282C;
+      --bg-surface: #26282C;
+      --bg-surface-hover: #2C3440;
+      --bg-input: #2B2D31;
+      --border-color: #3A3D42;
+      --border-subtle: #2D3035;
+      --text-main: #E8EAED;
+      --text-muted: #9AA0A6;
+      --text-dim: #707780;
+      --emerald: #3FCF7A;
+      --emerald-glow: rgba(63, 207, 122, 0.25);
+      --emerald-dark: #1F382B;
+      --cyan: #5B9DFF;
+      --cyan-glow: rgba(91, 157, 255, 0.25);
+      --amber: #F59E0B;
+      --rose: #FF6B62;
+      --blue: #5B9DFF;
+      --purple: #A78BFA;
+      --radius-sm: 4px;
+      --radius-md: 6px;
+      --radius-lg: 10px;
+    }
+
+    /* ZaxCore Header & Titlebar (Ezoo Top Gradient) */
+    [data-theme="zaxcore"] .titlebar {
+      background: linear-gradient(to bottom, #2E3136, #24262A);
+      border-bottom: 1px solid #3A3D42;
+    }
+
+    [data-theme="zaxcore"] .action-toolbar {
+      background: #24262A;
+      border-bottom: 1px solid #3A3D42;
+    }
+
+    [data-theme="zaxcore"] thead th {
+      background: linear-gradient(to bottom, #2E3136, #282A2E);
+      border-bottom: 1px solid #3A3D42;
+      border-right: 1px solid #3A3D42;
+      color: #9AA0A6;
+      font-weight: 600;
+    }
+
+    [data-theme="zaxcore"] tbody tr:hover {
+      background: #2C3440;
+    }
+
+    [data-theme="zaxcore"] tbody tr.selected {
+      background: #264F78 !important;
+      outline: 1px solid #3A6EA5;
+    }
+
+    [data-theme="zaxcore"] .bottom-bar {
+      background: linear-gradient(to bottom, #24262A, #1E1F22);
+      border-top: 1px solid #3A3D42;
+    }
+
+    [data-theme="zaxcore"] .modal-card {
+      background: #26282C;
+      border: 1px solid #3A3D42;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65);
+      border-radius: 8px;
+    }
+
+    [data-theme="zaxcore"] .modal-header {
+      background: linear-gradient(to bottom, #2E3136, #26282C);
+      border-bottom: 1px solid #3A3D42;
+    }
+
+    [data-theme="zaxcore"] .modal-footer {
+      background: #202225;
+      border-top: 1px solid #3A3D42;
+    }
+
+    [data-theme="zaxcore"] .progress-track {
+      background: #34373C;
+      border-radius: 3px;
+    }
+
+    [data-theme="zaxcore"] .progress-fill {
+      background: linear-gradient(90deg, #1F6FEB, #5B9DFF);
+      border-radius: 3px;
+    }
+
+    [data-theme="zaxcore"] .progress-fill.active {
+      background: linear-gradient(90deg, #2563EB, #5B9DFF, #38BDF8);
+    }
+
+    [data-theme="zaxcore"] .progress-fill.finished,
+    [data-theme="zaxcore"] .progress-fill.complete {
+      background: #3FCF7A !important;
+    }
+
+    [data-theme="zaxcore"] .sidebar-item {
+      border-radius: 5px;
+      margin: 2px 8px;
+      color: #E8EAED;
+    }
+
+    [data-theme="zaxcore"] .sidebar-item:hover {
+      background: #2C3440;
+      color: #FFFFFF;
+    }
+
+    [data-theme="zaxcore"] .sidebar-item.active {
+      background: #264F78;
+      color: #FFFFFF;
+      border-left: 3px solid #5B9DFF;
+    }
+
+    [data-theme="zaxcore"] .sidebar-badge {
+      background: #1E1F22;
+      color: #9AA0A6;
+      border: 1px solid #3A3D42;
+    }
+
+    [data-theme="zaxcore"] .sidebar-item.active .sidebar-badge {
+      background: #5B9DFF;
+      color: #FFFFFF;
+      border-color: #5B9DFF;
+    }
+
+    [data-theme="zaxcore"] .icon-action-btn {
+      background: linear-gradient(to bottom, #2E3136, #24262A);
+      border: 1px solid #3A3D42;
+      color: #E8EAED;
+      border-radius: 5px;
+    }
+
+    [data-theme="zaxcore"] .icon-action-btn:hover {
+      background: #3A3E45;
+      border-color: #5B9DFF;
+      color: #5B9DFF;
+    }
+
+    [data-theme="zaxcore"] .btn-primary {
+      background: linear-gradient(to bottom, #4A92F0, #1F6FEB) !important;
+      border-color: #0F4FB5 !important;
+      color: #FFFFFF !important;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+    }
+
+    [data-theme="zaxcore"] .btn-primary:hover {
+      background: linear-gradient(to bottom, #5B9DFF, #2563EB) !important;
+    }
+
+    [data-theme="zaxcore"] .status-tag.downloading {
+      background: rgba(91, 157, 255, 0.15);
+      color: #5B9DFF;
+      border-color: rgba(91, 157, 255, 0.4);
+    }
+
+    [data-theme="zaxcore"] .status-tag.completed {
+      background: rgba(63, 207, 122, 0.15);
+      color: #3FCF7A;
+      border-color: rgba(63, 207, 122, 0.4);
+    }
+
+    [data-theme="zaxcore"] .status-tag.paused {
+      background: rgba(245, 158, 11, 0.15);
+      color: #FBBF24;
+      border-color: rgba(245, 158, 11, 0.4);
+    }
+
+    [data-theme="zaxcore"] .status-tag.queued {
+      background: rgba(167, 139, 250, 0.15);
+      color: #C084FC;
+      border-color: rgba(167, 139, 250, 0.4);
+    }
+
+    [data-theme="zaxcore"] .speed-pill {
+      background: rgba(91, 157, 255, 0.12);
+      color: #5B9DFF;
+      border-color: rgba(91, 157, 255, 0.35);
+    }
+
+    [data-theme="zaxcore"] .form-input,
+    [data-theme="zaxcore"] .form-select,
+    [data-theme="zaxcore"] .search-input {
+      background: #2B2D31 !important;
+      border: 1px solid #3A3D42 !important;
+      color: #E8EAED !important;
+    }
+
+    [data-theme="zaxcore"] .form-input:focus,
+    [data-theme="zaxcore"] .form-select:focus,
+    [data-theme="zaxcore"] .search-input:focus {
+      border-color: #5B9DFF !important;
+      box-shadow: 0 0 0 2px rgba(91, 157, 255, 0.25) !important;
+    }
+
+    [data-theme="zaxcore"] .file-icon-box {
+      background: #2B2D31;
+      border: 1px solid #3A3D42;
+      border-radius: 6px;
+    }
+
+    [data-theme="zaxcore"] .disk-space-card {
+      background: #202225;
+      border: 1px solid #3A3D42;
+    }
+
+    [data-theme="zaxcore"] .disk-progress-bar {
+      background: #34373C;
+    }
+
+    [data-theme="zaxcore"] .disk-progress-fill {
+      background: linear-gradient(90deg, #1F6FEB, #5B9DFF) !important;
+    }
+
     /* RTL Layout Rules */
     [dir="rtl"] {
       text-align: right;
@@ -2207,8 +2421,20 @@
             <span class="menu-action-label" data-i18n="menuToggleGraph">Toggle Live Speed Graph</span>
           </div>
           <div class="menu-divider"></div>
+          <div class="menu-action" onclick="applyTheme('dark')">
+            <span class="menu-action-label"><span>🌙</span> <span data-i18n="themeDark">Obsidian Emerald (Default)</span></span>
+            <span class="menu-shortcut" id="themeCheckDark">✓</span>
+          </div>
+          <div class="menu-action" onclick="applyTheme('zaxcore')">
+            <span class="menu-action-label"><span style="color:#5B9DFF;">⚡</span> <strong data-i18n="themeZaxcore">ZaxCore Design (Ezoo UI)</strong></span>
+            <span class="menu-shortcut" id="themeCheckZaxcore" style="color:#5B9DFF; font-weight:bold;"></span>
+          </div>
+          <div class="menu-action" onclick="applyTheme('light')">
+            <span class="menu-action-label"><span>☀️</span> <span data-i18n="themeLight">Clean Light Mode</span></span>
+            <span class="menu-shortcut" id="themeCheckLight"></span>
+          </div>
           <div class="menu-action" onclick="toggleTheme()">
-            <span class="menu-action-label" data-i18n="menuToggleTheme">Toggle Light / Dark Mode</span>
+            <span class="menu-action-label" style="opacity:0.75;" data-i18n="menuToggleTheme">Cycle Next Theme</span>
             <span class="menu-shortcut">Ctrl+D</span>
           </div>
           <div class="menu-action" onclick="toggleLanguage()">
@@ -3582,7 +3808,10 @@
         menuCheckExtension: "Check Browser Integration",
         menuToggleCategories: "Toggle Categories Sidebar",
         menuToggleGraph: "Toggle Speed Waveform",
-        menuToggleTheme: "Toggle Light / Dark Mode",
+        menuToggleTheme: "Cycle Next Theme",
+        themeDark: "Obsidian Emerald (Default)",
+        themeZaxcore: "ZaxCore Design (Ezoo UI)",
+        themeLight: "Clean Light Mode",
         menuToggleLang: "Switch Language",
         menuResetColumns: "Reset Column Widths",
         menuClearCompleted: "Clear Finished Downloads",
@@ -3727,7 +3956,10 @@
         menuCheckExtension: "فحص اتصال إضافة المتصفح",
         menuToggleCategories: "إظهار / إخفاء الأقسام",
         menuToggleGraph: "إظهار / إخفاء الرسم البياني",
-        menuToggleTheme: "تبديل المظهر (فاتح / داكن)",
+        menuToggleTheme: "التبديل إلى المظهر التالي",
+        themeDark: "الزمردي الداكن (الافتراضي)",
+        themeZaxcore: "تصميم ZaxCore (واجهة Ezoo)",
+        themeLight: "النمط الفاتح النقي",
         menuToggleLang: "تبديل اللغة",
         menuResetColumns: "إعادة ضبط عرض الأعمدة الافتراضي",
         menuClearCompleted: "مسح التنزيلات المكتملة",
@@ -3783,27 +4015,51 @@
     let currentLang = localStorage.getItem('fast_lang') || 'en';
 
     function applyTheme(theme) {
+      if (!theme || (theme !== 'dark' && theme !== 'light' && theme !== 'zaxcore')) {
+        theme = 'dark';
+      }
       currentTheme = theme;
       document.documentElement.setAttribute('data-theme', theme);
       localStorage.setItem('fast_theme', theme);
+      
       const meta = document.getElementById('themeColorMeta');
-      if (meta) meta.setAttribute('content', theme === 'light' ? '#FFFFFF' : '#0B0E14');
+      if (meta) {
+        let metaColor = '#0B0E14';
+        if (theme === 'light') metaColor = '#FFFFFF';
+        else if (theme === 'zaxcore') metaColor = '#1E1F22';
+        meta.setAttribute('content', metaColor);
+      }
+
       const icon = document.getElementById('themeToggleIcon');
       const text = document.getElementById('themeToggleText');
       if (icon && text) {
-        if (theme === 'light') {
-          icon.textContent = '🌙';
-          text.textContent = currentLang === 'ar' ? 'داكن' : 'Dark';
-        } else {
+        if (theme === 'dark') {
+          icon.textContent = '⚡';
+          text.textContent = 'ZaxCore';
+        } else if (theme === 'zaxcore') {
           icon.textContent = '☀️';
           text.textContent = currentLang === 'ar' ? 'فاتح' : 'Light';
+        } else {
+          icon.textContent = '🌙';
+          text.textContent = currentLang === 'ar' ? 'داكن' : 'Dark';
         }
       }
+
+      const checkDark = document.getElementById('themeCheckDark');
+      const checkZaxcore = document.getElementById('themeCheckZaxcore');
+      const checkLight = document.getElementById('themeCheckLight');
+      if (checkDark) checkDark.textContent = theme === 'dark' ? '✓' : '';
+      if (checkZaxcore) checkZaxcore.textContent = theme === 'zaxcore' ? '✓' : '';
+      if (checkLight) checkLight.textContent = theme === 'light' ? '✓' : '';
+
       if (isGraphVisible) drawSpeedGraph();
     }
 
     function toggleTheme() {
-      applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+      // Cycle: dark -> zaxcore -> light -> dark
+      if (currentTheme === 'dark') applyTheme('zaxcore');
+      else if (currentTheme === 'zaxcore') applyTheme('light');
+      else applyTheme('dark');
     }
 
     function applyLanguage(lang) {
@@ -5973,7 +6229,9 @@
 
       ctx.clearRect(0, 0, width, height);
 
-      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      const currentActiveTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+      const isLight = currentActiveTheme === 'light';
+      const isZaxcore = currentActiveTheme === 'zaxcore';
 
       const maxVal = Math.max(...speedHistory, 1024 * 1024); // at least 1MB scale
       const step = width / (speedHistory.length - 1);
@@ -5983,6 +6241,9 @@
       if (isLight) {
         grad.addColorStop(0, 'rgba(5, 150, 105, 0.20)');
         grad.addColorStop(1, 'rgba(5, 150, 105, 0.01)');
+      } else if (isZaxcore) {
+        grad.addColorStop(0, 'rgba(91, 157, 255, 0.38)');
+        grad.addColorStop(1, 'rgba(31, 111, 235, 0.02)');
       } else {
         grad.addColorStop(0, 'rgba(16, 185, 129, 0.35)');
         grad.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
@@ -6023,7 +6284,7 @@
           ctx.bezierCurveTo(cpX, prevY, cpX, y, x, y);
         }
       }
-      ctx.strokeStyle = isLight ? '#059669' : '#10B981';
+      ctx.strokeStyle = isLight ? '#059669' : (isZaxcore ? '#5B9DFF' : '#10B981');
       ctx.lineWidth = 2;
       ctx.stroke();
 
