@@ -26,6 +26,125 @@ namespace FastDownloader
         public static object DeserializeObject(string json) { return serializer.DeserializeObject(json); }
     }
 
+    public class Ef2Item
+    {
+        public string Url { get; set; }
+        public string Referer { get; set; }
+        public string Cookies { get; set; }
+        public string UserAgent { get; set; }
+        public string FileName { get; set; }
+        public string Description { get; set; }
+
+        public Ef2Item()
+        {
+            Url = "";
+            Referer = "";
+            Cookies = "";
+            UserAgent = "";
+            FileName = "";
+            Description = "";
+        }
+    }
+
+    public static class Ef2Helper
+    {
+        public static List<Ef2Item> Parse(string text)
+        {
+            var list = new List<Ef2Item>();
+            if (string.IsNullOrEmpty(text)) return list;
+
+            Ef2Item cur = null;
+            using (var reader = new StringReader(text))
+            {
+                string line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    line = line.Trim();
+                    if (string.IsNullOrEmpty(line)) continue;
+
+                    if (line == "<")
+                    {
+                        cur = new Ef2Item();
+                        continue;
+                    }
+                    if (line == ">")
+                    {
+                        if (cur != null && !string.IsNullOrEmpty(cur.Url))
+                        {
+                            list.Add(cur);
+                        }
+                        cur = null;
+                        continue;
+                    }
+
+                    if (cur == null)
+                    {
+                        if (line.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                            line.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                            line.StartsWith("ftp://", StringComparison.OrdinalIgnoreCase) ||
+                            line.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            list.Add(new Ef2Item { Url = line });
+                        }
+                        continue;
+                    }
+
+                    if (string.IsNullOrEmpty(cur.Url) &&
+                        (line.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                         line.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                         line.StartsWith("ftp://", StringComparison.OrdinalIgnoreCase) ||
+                         line.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        cur.Url = line;
+                        continue;
+                    }
+
+                    int colonIdx = line.IndexOf(':');
+                    if (colonIdx > 0)
+                    {
+                        string key = line.Substring(0, colonIdx).Trim().ToLowerInvariant();
+                        string val = line.Substring(colonIdx + 1).Trim();
+                        if (!string.IsNullOrEmpty(val))
+                        {
+                            if (key == "referer") cur.Referer = val;
+                            else if (key == "cookie" || key == "cookies") cur.Cookies = val;
+                            else if (key == "user-agent" || key == "useragent") cur.UserAgent = val;
+                            else if (key == "filename" || key == "file name") cur.FileName = val;
+                            else if (key == "description") cur.Description = val;
+                        }
+                    }
+                }
+            }
+
+            if (cur != null && !string.IsNullOrEmpty(cur.Url))
+            {
+                list.Add(cur);
+            }
+
+            return list;
+        }
+
+        public static string Write(IEnumerable<Ef2Item> items)
+        {
+            var sb = new StringBuilder();
+            if (items == null) return "";
+
+            foreach (var item in items)
+            {
+                if (item == null || string.IsNullOrEmpty(item.Url)) continue;
+                sb.AppendLine("<");
+                sb.AppendLine(item.Url);
+                if (!string.IsNullOrEmpty(item.Referer)) sb.AppendLine("referer: " + item.Referer);
+                if (!string.IsNullOrEmpty(item.Cookies)) sb.AppendLine("cookie: " + item.Cookies);
+                if (!string.IsNullOrEmpty(item.UserAgent)) sb.AppendLine("User-Agent: " + item.UserAgent);
+                if (!string.IsNullOrEmpty(item.FileName)) sb.AppendLine("filename: " + item.FileName);
+                if (!string.IsNullOrEmpty(item.Description)) sb.AppendLine("description: " + item.Description);
+                sb.AppendLine(">");
+            }
+            return sb.ToString();
+        }
+    }
+
     public static class MediaUrlHelper
     {
         public static bool IsMediaPlatformUrl(string url)
@@ -801,6 +920,15 @@ namespace FastDownloader
         public string createdAt { get; set; }
     }
 
+    public class PendingRefreshInfo
+    {
+        public string Gid { get; set; }
+        public string OldUrl { get; set; }
+        public string Filename { get; set; }
+        public string Referer { get; set; }
+        public DateTime ArmedAt { get; set; }
+    }
+
     public class EngineManager
     {
         private Process ariaProcess;
@@ -848,6 +976,86 @@ namespace FastDownloader
         private string settingsFilePath;
         private readonly object pendingLock = new object();
         public Dictionary<string, PendingDownloadInfo> PendingDownloads { get; private set; }
+        private PendingRefreshInfo pendingRefresh = null;
+        private readonly object refreshLock = new object();
+
+        public void ArmRefresh(string gid, string oldUrl, string filename, string referer)
+        {
+            lock (refreshLock)
+            {
+                pendingRefresh = new PendingRefreshInfo
+                {
+                    Gid = gid,
+                    OldUrl = oldUrl,
+                    Filename = filename,
+                    Referer = referer,
+                    ArmedAt = DateTime.UtcNow
+                };
+            }
+        }
+
+        public PendingRefreshInfo GetPendingRefresh()
+        {
+            lock (refreshLock)
+            {
+                if (pendingRefresh == null) return null;
+                if ((DateTime.UtcNow - pendingRefresh.ArmedAt).TotalMinutes > 15)
+                {
+                    pendingRefresh = null;
+                    return null;
+                }
+                return pendingRefresh;
+            }
+        }
+
+        public void ClearPendingRefresh()
+        {
+            lock (refreshLock)
+            {
+                pendingRefresh = null;
+            }
+        }
+
+        public bool ChangeAriaUri(string gid, string oldUrl, string newUrl, string cookies = null, string userAgent = null, string referer = null)
+        {
+            try
+            {
+                SendAriaAction("aria2.pause", gid);
+
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:6800/jsonrpc");
+                req.Method = "POST";
+                req.ContentType = "application/json";
+                var delUris = !string.IsNullOrEmpty(oldUrl) ? new string[] { oldUrl } : new string[0];
+                var addUris = new string[] { newUrl };
+                var payload = new { jsonrpc = "2.0", id = "changeUri", method = "aria2.changeUri", @params = new object[] { gid, 1, delUris, addUris } };
+                byte[] data = Encoding.UTF8.GetBytes(JsonHelper.Serialize(payload));
+                req.ContentLength = data.Length;
+                using (var s = req.GetRequestStream()) s.Write(data, 0, data.Length);
+                using (var resp = req.GetResponse()) { }
+
+                var headers = new List<string>();
+                if (!string.IsNullOrEmpty(cookies)) headers.Add("Cookie: " + cookies);
+                if (!string.IsNullOrEmpty(userAgent)) headers.Add("User-Agent: " + userAgent);
+                if (!string.IsNullOrEmpty(referer)) headers.Add("Referer: " + referer);
+                if (headers.Count > 0)
+                {
+                    HttpWebRequest reqOpt = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:6800/jsonrpc");
+                    reqOpt.Method = "POST";
+                    reqOpt.ContentType = "application/json";
+                    var options = new Dictionary<string, object> { { "header", headers.ToArray() } };
+                    var optPayload = new { jsonrpc = "2.0", id = "changeOpt", method = "aria2.changeOption", @params = new object[] { gid, options } };
+                    byte[] optData = Encoding.UTF8.GetBytes(JsonHelper.Serialize(optPayload));
+                    reqOpt.ContentLength = optData.Length;
+                    using (var s = reqOpt.GetRequestStream()) s.Write(optData, 0, optData.Length);
+                    using (var resp = reqOpt.GetResponse()) { }
+                }
+
+                SendAriaAction("aria2.unpause", gid);
+                return true;
+            }
+            catch { }
+            return false;
+        }
 
         public EngineManager()
         {
@@ -957,7 +1165,7 @@ namespace FastDownloader
                         "--async-dns-server=8.8.8.8,1.1.1.1 --file-allocation=none " +
                         "--max-connection-per-server=16 --split=16 --min-split-size=1M " +
                         "--max-concurrent-downloads=5 --continue=true --dir=\"{0}\" " +
-                        "--enable-dht=true --enable-peer-exchange=true",
+                        "--enable-dht=true --enable-peer-exchange=true --bt-enable-lpd=true --bt-max-peers=55 --seed-time=0 --bt-save-metadata=true --bt-stop-timeout=300",
                         safeDir),
                     CreateNoWindow = true,
                     UseShellExecute = false,
@@ -2836,7 +3044,9 @@ namespace FastDownloader
                             item["progress"] = progress;
                             item["eta"] = eta;
                             item["status"] = status;
-                            item["engine"] = "aria2";
+                            bool isTorrent = t.ContainsKey("bittorrent");
+                            item["engine"] = isTorrent ? "torrent" : "aria2";
+                            item["isTorrent"] = isTorrent;
                             item["filePath"] = !string.IsNullOrEmpty(resolvedPath) ? resolvedPath.Replace('/', '\\') : "";
                             item["url"] = resolvedUrl;
                             unifiedList.Add(item);
@@ -3645,6 +3855,9 @@ namespace FastDownloader
             }
             writer.Write("Content-Type: " + contentType + "\r\n");
             writer.Write("Content-Length: " + length + "\r\n");
+            writer.Write("Cache-Control: no-cache, no-store, must-revalidate\r\n");
+            writer.Write("Pragma: no-cache\r\n");
+            writer.Write("Expires: 0\r\n");
             writer.Write("Connection: close\r\n");
             writer.Write("\r\n");
             writer.Flush();
@@ -5443,6 +5656,14 @@ namespace FastDownloader
                     }
                     catch { }
                 }
+                try
+                {
+                    string cacheDir = Path.Combine(profileDir, "Default", "Cache");
+                    if (Directory.Exists(cacheDir)) Directory.Delete(cacheDir, true);
+                    string codeCacheDir = Path.Combine(profileDir, "Default", "Code Cache");
+                    if (Directory.Exists(codeCacheDir)) Directory.Delete(codeCacheDir, true);
+                }
+                catch { }
             }
             catch { }
         }
@@ -5462,7 +5683,7 @@ namespace FastDownloader
                     {
                         FileName = targetBrowser,
                         // Note: --app creates the dedicated standalone window; omitting --new-window prevents regular browser tabs.
-                        Arguments = string.Format("--app=http://127.0.0.1:6801/ --user-data-dir=\"{0}\" --window-size=1240,800 --no-first-run --no-default-browser-check --disable-features=Translate,OptimizationHints --disable-extensions --disable-background-mode", profileDir),
+                        Arguments = string.Format("--app=http://127.0.0.1:6801/ --user-data-dir=\"{0}\" --window-size=1240,800 --no-first-run --no-default-browser-check --disable-features=Translate,OptimizationHints --disable-extensions --disable-background-mode --disable-http-cache", profileDir),
                         CreateNoWindow = false,
                         UseShellExecute = true
                     };
