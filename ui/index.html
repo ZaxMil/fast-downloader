@@ -7027,11 +7027,33 @@
 
     async function restartApp() {
       const btn = document.getElementById('btnRestartApp');
-      if (btn) btn.textContent = '🔁 Restarting...';
+      if (btn) {
+        btn.textContent = '🔁 Restarting...';
+        btn.disabled = true;
+      }
       showToast('Restarting FastDownloader Pro...', 'info');
       try {
         await fetch(`${API_BASE}/api/restart`, { method: 'POST' });
       } catch(e) {}
+
+      // Wait for daemon to exit and restart, then poll until it's back and reload window cleanly
+      let attempts = 0;
+      setTimeout(() => {
+        const pollTimer = setInterval(async () => {
+          attempts++;
+          try {
+            const res = await fetch(`${API_BASE}/api/status?_t=${Date.now()}`);
+            if (res.ok) {
+              clearInterval(pollTimer);
+              window.location.reload(true);
+            }
+          } catch (err) {}
+          if (attempts > 20) {
+            clearInterval(pollTimer);
+            window.location.reload(true);
+          }
+        }, 500);
+      }, 1200);
     }
 
     // Intercept any clicked links to open in the user's default browser session
