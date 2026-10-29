@@ -612,7 +612,7 @@ let isReloadingExtension = false;
 
 function sendHeartbeat() {
   const manifest = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getManifest) ? chrome.runtime.getManifest() : null;
-  const currentVer = manifest ? manifest.version : "0.1.2";
+  const currentVer = manifest ? manifest.version : "0.1.3";
 
   fetch(`${FD_API_BASE}/api/extension/ping`, {
     method: "POST",

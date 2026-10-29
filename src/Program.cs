@@ -720,7 +720,8 @@ namespace FastDownloader
                 string[] keys = new string[]
                 {
                     @"Software\Google\Chrome\NativeMessagingHosts\com.fastdownloader.app",
-                    @"Software\Microsoft\Edge\NativeMessagingHosts\com.fastdownloader.app"
+                    @"Software\Microsoft\Edge\NativeMessagingHosts\com.fastdownloader.app",
+                    @"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\com.fastdownloader.app"
                 };
 
                 foreach (string keyPath in keys)
@@ -1975,7 +1976,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.2";
+        public const string CurrentAppVersion = "0.1.3";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -2527,7 +2528,7 @@ namespace FastDownloader
         private Action<string> onNotification;
         private UpdateManager updateManager;
         private DateTime lastExtensionPing = DateTime.MinValue;
-        private volatile bool forceExtensionReload = false;
+        private volatile bool forceExtensionReload = true;
 
         public HttpBridgeServer(EngineManager engine, Action<string> onNotification, UpdateManager updateManager = null)
         {
