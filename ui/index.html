@@ -2892,7 +2892,7 @@
         <div class="empty-state" id="emptyState" style="display:none;">
           <div class="empty-state-icon">🚀</div>
           <div style="font-size:15px; font-weight:600; color:var(--text-main);" data-i18n="emptyTitle">No downloads in this view</div>
-          <div style="font-size:12px;" data-i18n="emptySub">Click "+ Add URL" or copy any download link to start downloading at maximum 16-chunk speed!</div>
+          <div style="font-size:12px;" data-i18n="emptySub">Click "+ Add URL" or copy any download link to start downloading at maximum 32-chunk speed!</div>
           <button class="btn btn-primary" onclick="showAddModal()" style="margin-top:6px;" data-i18n="emptyBtn">+ Add Download</button>
         </div>
       </div>
@@ -2950,7 +2950,7 @@
           <span class="sys-item-icon">🚀</span>
           <div>
             <div class="sys-item-title">aria2 Turbo Core</div>
-            <div class="sys-item-desc">16-Connection Parallel Streaming</div>
+            <div class="sys-item-desc">32-Connection Parallel Streaming</div>
           </div>
         </div>
         <span class="sys-badge sys-badge-active" id="sysAriaBadge">● Active</span>
@@ -3075,7 +3075,7 @@
     <div class="menu-divider"></div>
     <div class="menu-action" id="ctxItemSegments" onclick="ctxShowSegments()">
       <span class="menu-action-label"><span>📊</span> <span data-i18n="ctxSegments">Multi-Segment Inspector</span></span>
-      <span class="menu-shortcut">16-Ch</span>
+      <span class="menu-shortcut">32-Ch</span>
     </div>
     <div class="menu-action" id="ctxItemCycleQueue" onclick="ctxCycleQueue()">
       <span class="menu-action-label"><span id="ctxQueueIcon">🌙</span> <span id="ctxQueueLabel" data-i18n="ctxMoveNight">Move to Night Queue</span></span>
@@ -3366,25 +3366,111 @@
     </div>
   </div>
 
-  <!-- MODAL: BATCH DOWNLOADS -->
+  <!-- MODAL: BATCH DOWNLOADS & SITE LINK GRABBER -->
   <div class="modal-overlay" id="batchAddModal">
-    <div class="modal-card" style="width:540px;">
-      <div class="modal-header">
-        <div class="modal-title">
-          <span style="color:var(--emerald);">📦</span>
-          <span data-i18n="batchModalTitle">Batch Downloads Importer</span>
+    <div class="modal-card" style="width:640px; max-width:94vw; max-height:86vh; display:flex; flex-direction:column;">
+      <div class="modal-header" style="border-bottom:1px solid var(--border-subtle); padding:12px 18px;">
+        <div class="modal-title" style="display:flex; align-items:center; gap:8px;">
+          <span style="color:var(--emerald); font-size:16px;">📦</span>
+          <span data-i18n="batchModalTitle">Batch Downloads & Site Link Grabber</span>
+          <span class="brand-pro-tag" style="font-size:9.5px; padding:2px 6px;">PRO</span>
         </div>
         <button class="modal-close" onclick="closeModal('batchAddModal')">&times;</button>
       </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label class="form-label" data-i18n="batchInputLabel">Paste URLs (one URL per line):</label>
-          <textarea class="form-input" id="batchUrlsInput" rows="7" style="resize:vertical; font-family:monospace; font-size:12px; line-height:1.5;" placeholder="https://example.com/file1.zip&#10;https://example.com/video2.mp4&#10;magnet:?xt=urn:btih:..."></textarea>
+
+      <!-- TABS -->
+      <div style="display:flex; border-bottom:1px solid var(--border-subtle); background:rgba(0,0,0,0.12); padding:0 14px;">
+        <button id="tabBtnBatchList" class="btn" onclick="switchBatchTab('list')" style="background:transparent; border:none; border-bottom:2px solid var(--emerald); border-radius:0; padding:9px 14px; font-weight:700; font-size:12px; color:var(--text-main);">
+          📋 Paste URL List
+        </button>
+        <button id="tabBtnSiteGrabber" class="btn" onclick="switchBatchTab('grabber')" style="background:transparent; border:none; border-bottom:2px solid transparent; border-radius:0; padding:9px 14px; font-weight:600; font-size:12px; color:var(--text-dim);">
+          🌐 Site Page Grabber
+        </button>
+      </div>
+
+      <div class="modal-body" style="padding:14px 18px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:12px;">
+        <!-- TAB 1: BATCH URL LIST -->
+        <div id="tabContentBatchList" style="display:flex; flex-direction:column; gap:10px;">
+          <label class="form-label" style="font-size:12px; color:var(--text-muted); font-weight:600;" data-i18n="batchInputLabel">
+            Paste download links or magnet URLs (one per line):
+          </label>
+          <textarea class="form-input" id="batchUrlsInput" rows="7" style="resize:vertical; font-family:Consolas, monospace; font-size:11.5px; line-height:1.5; background:var(--bg-base);" placeholder="https://example.com/file1.zip&#10;https://example.com/archive2.iso&#10;magnet:?xt=urn:btih:..."></textarea>
+          
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-top:2px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:12px; color:var(--text-dim);">Queue:</span>
+              <select id="batchQueueSelect" class="toolbar-select" style="font-size:11.5px; padding:3px 8px;">
+                <option value="MainQueue">📋 Main Queue</option>
+                <option value="NightQueue">🌙 Night Queue</option>
+              </select>
+            </div>
+            <label style="display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-main); cursor:pointer;">
+              <input type="checkbox" id="batchStartNow" checked style="accent-color:var(--emerald);">
+              <span>Start downloading immediately</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- TAB 2: SITE PAGE GRABBER -->
+        <div id="tabContentSiteGrabber" style="display:none; flex-direction:column; gap:10px;">
+          <div style="font-size:11.5px; color:var(--text-dim);">
+            Enter any webpage URL to crawl and extract all downloadable files, media, documents, and archives.
+          </div>
+          <div style="display:flex; gap:8px;">
+            <input type="url" id="grabberPageUrl" class="form-input" style="flex:1; font-size:12px;" placeholder="https://example.com/downloads or gallery page..." onkeydown="if(event.key==='Enter')sniffPageLinks()">
+            <button class="btn btn-primary" id="btnSniffPage" onclick="sniffPageLinks()" style="font-size:12px; padding:6px 14px; white-space:nowrap;">
+              🔍 Sniff Links
+            </button>
+          </div>
+
+          <!-- Grabber Progress / Status -->
+          <div id="grabberStatusBox" style="display:none; font-size:11.5px; color:var(--text-muted); padding:6px 10px; background:rgba(0,0,0,0.2); border-radius:6px;">
+            <span id="grabberStatusText">Sniffing page...</span>
+          </div>
+
+          <!-- Grabber Results Container -->
+          <div id="grabberResultsContainer" style="display:none; flex-direction:column; gap:8px;">
+            <!-- Category Filter Pills -->
+            <div style="display:flex; gap:6px; flex-wrap:wrap;" id="grabberFilterPills"></div>
+
+            <!-- List Actions & Counter -->
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-dim);">
+              <div style="display:flex; gap:6px;">
+                <button class="btn btn-sm" onclick="setGrabberSelection(true)" style="font-size:10.5px; padding:2px 8px;">Select All</button>
+                <button class="btn btn-sm" onclick="setGrabberSelection(false)" style="font-size:10.5px; padding:2px 8px;">Deselect All</button>
+              </div>
+              <span id="grabberCountLabel" style="color:var(--emerald); font-weight:600;">0 files selected</span>
+            </div>
+
+            <!-- Discovered Links Table -->
+            <div style="border:1px solid var(--border-subtle); border-radius:6px; max-height:220px; overflow-y:auto; background:var(--bg-base);">
+              <table style="width:100%; border-collapse:collapse; font-size:11.5px;">
+                <tbody id="grabberTableBody"></tbody>
+              </table>
+            </div>
+
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-top:2px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:12px; color:var(--text-dim);">Queue:</span>
+                <select id="grabberQueueSelect" class="toolbar-select" style="font-size:11.5px; padding:3px 8px;">
+                  <option value="MainQueue">📋 Main Queue</option>
+                  <option value="NightQueue">🌙 Night Queue</option>
+                </select>
+              </div>
+              <label style="display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-main); cursor:pointer;">
+                <input type="checkbox" id="grabberStartNow" checked style="accent-color:var(--emerald);">
+                <span>Start immediately</span>
+              </label>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="modal-footer">
+
+      <div class="modal-footer" style="border-top:1px solid var(--border-subtle); padding:10px 18px; display:flex; justify-content:space-between; align-items:center;">
         <button class="btn" onclick="closeModal('batchAddModal')" data-i18n="cancel">Cancel</button>
-        <button class="btn btn-primary" onclick="submitBatchDownload()" data-i18n="startBatchBtn">Start Batch Download</button>
+        <button class="btn btn-primary" id="btnSubmitBatchAction" onclick="submitActiveBatchTab()" style="font-size:12px; padding:6px 16px;">
+          ⚡ Start Batch Download
+        </button>
       </div>
     </div>
   </div>
@@ -3426,7 +3512,7 @@
         <h3 style="margin:0 0 4px 0; font-size:18px; font-weight:700;">FastDownloader <span class="brand-pro-tag">PRO</span></h3>
         <p style="margin:0 0 16px 0; font-size:12px; color:var(--text-dim);">Version 0.1.4 • Ultra-Fast Native Acceleration</p>
         <div style="background:var(--bg-base); padding:12px; border-radius:8px; border:1px solid var(--border-subtle); text-align:left; font-size:12px; line-height:1.7; color:var(--text-muted); margin-bottom:18px;">
-          <div>⚡ <strong>aria2 Core:</strong> 16-chunk parallel multi-source downloading</div>
+          <div>⚡ <strong>aria2 Core:</strong> 32-chunk parallel multi-source turbo downloading</div>
           <div>🎬 <strong>yt-dlp Engine:</strong> 4K/8K video & live stream extraction</div>
           <div>🎯 <strong>Smart Grabber:</strong> Real-time browser download interception</div>
           <div>🛡️ <strong>Private & Local:</strong> Zero telemetry, zero bloat, portable</div>
@@ -3540,7 +3626,7 @@
           <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:8px; padding:8px 10px; display:flex; flex-direction:column; justify-content:space-between; gap:6px;">
             <div style="display:flex; align-items:center; justify-content:space-between;">
               <span style="font-weight:700; font-size:12px; color:var(--text-main);">🚀 aria2c Core</span>
-              <span style="font-size:9px; padding:1px 5px; border-radius:6px; background:rgba(16,185,129,0.15); color:var(--emerald); font-weight:700;">16x Turbo</span>
+              <span style="font-size:9px; padding:1px 5px; border-radius:6px; background:rgba(16,185,129,0.15); color:var(--emerald); font-weight:700;">32x Turbo</span>
             </div>
             <div style="font-size:11px; color:var(--text-muted);">
               Version: <strong id="aria2VerText" style="color:var(--text-main);">1.37.0</strong>
@@ -3606,7 +3692,7 @@
         <div class="modal-title">
           <span style="color:var(--emerald);">⚡</span>
           <span id="detailTitleText">Download Status & Segment Inspector</span>
-          <span class="status-tag" id="detailEngineBadge" style="margin-left:8px; font-size:11px;">aria2 16x Turbo</span>
+          <span class="status-tag" id="detailEngineBadge" style="margin-left:8px; font-size:11px;">aria2 32x Turbo</span>
         </div>
         <button class="modal-close" onclick="closeDetailModal()">&times;</button>
       </div>
@@ -3856,7 +3942,7 @@
         statusError: "Failed / Error",
         
         emptyTitle: "No downloads in this view",
-        emptySub: "Click \"+ Add URL\" or copy any download link to start downloading at maximum 16-chunk speed!",
+        emptySub: "Click \"+ Add URL\" or copy any download link to start downloading at maximum 32-chunk speed!",
         emptyBtn: "+ Add Download",
         
         totalSpeed: "⚡ Total Speed:",
@@ -5212,7 +5298,7 @@
               <div class="file-meta">
                 <div class="file-name" title="${escapeHtml(t.name)}">${escapeHtml(t.name)}</div>
                 <div class="file-subtext">
-                  <span>${t.engine === 'torrent' || t.isTorrent ? (currentLang === 'ar' ? '🧲 تورنت (P2P + DHT)' : '🧲 BitTorrent (P2P + DHT)') : (t.engine === 'yt-dlp' ? 'yt-dlp + ffmpeg' : (currentLang === 'ar' ? 'aria2 ١٦ اتصالاً' : 'aria2 16-connections'))}</span>
+                  <span>${t.engine === 'torrent' || t.isTorrent ? (currentLang === 'ar' ? '🧲 تورنت (P2P + DHT)' : '🧲 BitTorrent (P2P + DHT)') : (t.engine === 'yt-dlp' ? 'yt-dlp + ffmpeg' : (currentLang === 'ar' ? 'aria2 ٣٢ اتصالاً' : 'aria2 32-connections'))}</span>
                 </div>
               </div>
             </div>
@@ -6580,11 +6666,16 @@
       closeAllContextMenus();
     }
 
-    // BATCH ADD MODAL
+    // BATCH & SITE GRABBER MODAL
+    let currentBatchTab = 'list';
+    let sniffedGrabberItems = [];
+    let currentGrabberFilter = 'all';
+
     function showBatchAddModal() {
       closeAllMenus();
       const input = document.getElementById('batchUrlsInput');
       if (input) input.value = '';
+      switchBatchTab('list');
       showModal('batchAddModal');
       setTimeout(() => { if (input) input.focus(); }, 100);
     }
@@ -6593,11 +6684,229 @@
       closeModal('batchAddModal');
     }
 
+    function switchBatchTab(tab) {
+      currentBatchTab = tab;
+      const btnList = document.getElementById('tabBtnBatchList');
+      const btnGrabber = document.getElementById('tabBtnSiteGrabber');
+      const contentList = document.getElementById('tabContentBatchList');
+      const contentGrabber = document.getElementById('tabContentSiteGrabber');
+      const actionBtn = document.getElementById('btnSubmitBatchAction');
+
+      if (tab === 'list') {
+        if (btnList) { btnList.style.borderBottomColor = 'var(--emerald)'; btnList.style.color = 'var(--text-main)'; }
+        if (btnGrabber) { btnGrabber.style.borderBottomColor = 'transparent'; btnGrabber.style.color = 'var(--text-dim)'; }
+        if (contentList) contentList.style.display = 'flex';
+        if (contentGrabber) contentGrabber.style.display = 'none';
+        if (actionBtn) actionBtn.textContent = '⚡ Start Batch Download';
+      } else {
+        if (btnGrabber) { btnGrabber.style.borderBottomColor = 'var(--emerald)'; btnGrabber.style.color = 'var(--text-main)'; }
+        if (btnList) { btnList.style.borderBottomColor = 'transparent'; btnList.style.color = 'var(--text-dim)'; }
+        if (contentList) contentList.style.display = 'none';
+        if (contentGrabber) contentGrabber.style.display = 'flex';
+        updateGrabberActionBtn();
+      }
+    }
+
+    async function sniffPageLinks() {
+      const urlInput = document.getElementById('grabberPageUrl');
+      const url = (urlInput.value || '').trim();
+      if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+        showToast('Please enter a valid http:// or https:// webpage URL', 'error');
+        return;
+      }
+
+      const statusBox = document.getElementById('grabberStatusBox');
+      const statusText = document.getElementById('grabberStatusText');
+      const resultsContainer = document.getElementById('grabberResultsContainer');
+      const btn = document.getElementById('btnSniffPage');
+
+      statusBox.style.display = 'block';
+      statusText.textContent = '⏳ Sniffing and extracting links from page...';
+      resultsContainer.style.display = 'none';
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Sniffing...'; }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/grabber/sniff`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+        const data = await res.json();
+        if (data.ok && data.items) {
+          sniffedGrabberItems = data.items.map(it => ({ ...it, selected: true }));
+          statusText.innerHTML = `✅ Discovered <strong>${data.totalFound}</strong> links from <em>${escapeHtml(data.pageTitle || url)}</em>`;
+          currentGrabberFilter = 'all';
+          renderGrabberFilters();
+          renderGrabberTable();
+          resultsContainer.style.display = 'flex';
+        } else {
+          statusText.textContent = `❌ Sniff failed: ${data.error || 'No links found.'}`;
+        }
+      } catch (err) {
+        statusText.textContent = `❌ Error: ${err.message}`;
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '🔍 Sniff Links'; }
+        updateGrabberActionBtn();
+      }
+    }
+
+    function renderGrabberFilters() {
+      const container = document.getElementById('grabberFilterPills');
+      if (!container) return;
+
+      const counts = { all: sniffedGrabberItems.length };
+      sniffedGrabberItems.forEach(it => {
+        counts[it.category] = (counts[it.category] || 0) + 1;
+      });
+
+      const catLabels = {
+        all: 'All',
+        videos: '🎬 Videos',
+        archives: '🗜️ Archives',
+        documents: '📄 Docs',
+        audio: '🎵 Audio',
+        programs: '⚙️ Apps',
+        images: '🖼️ Images',
+        other: '📦 Other'
+      };
+
+      let html = '';
+      Object.keys(catLabels).forEach(cat => {
+        const cnt = counts[cat] || 0;
+        if (cnt > 0 || cat === 'all') {
+          const isActive = currentGrabberFilter === cat;
+          html += `<button class="btn btn-sm" onclick="setGrabberFilter('${cat}')" style="font-size:10px; padding:3px 8px; border-radius:12px; ${isActive ? 'background:var(--emerald); color:#000; font-weight:700;' : 'background:rgba(255,255,255,0.06); color:var(--text-dim);'}">
+            ${catLabels[cat]} (${cnt})
+          </button>`;
+        }
+      });
+      container.innerHTML = html;
+    }
+
+    function setGrabberFilter(cat) {
+      currentGrabberFilter = cat;
+      renderGrabberFilters();
+      renderGrabberTable();
+    }
+
+    function renderGrabberTable() {
+      const tbody = document.getElementById('grabberTableBody');
+      if (!tbody) return;
+
+      const filtered = sniffedGrabberItems.filter(it => currentGrabberFilter === 'all' || it.category === currentGrabberFilter);
+
+      let html = '';
+      filtered.forEach((it, idx) => {
+        const icon = it.category === 'videos' ? '🎬' :
+                     it.category === 'archives' ? '🗜️' :
+                     it.category === 'documents' ? '📄' :
+                     it.category === 'audio' ? '🎵' :
+                     it.category === 'images' ? '🖼️' :
+                     it.category === 'programs' ? '⚙️' : '📦';
+
+        html += `
+          <tr style="border-bottom:1px solid var(--border-subtle); cursor:pointer;" onclick="toggleGrabberItem(${idx})">
+            <td style="width:28px; text-align:center; padding:6px 4px;">
+              <input type="checkbox" ${it.selected ? 'checked' : ''} onclick="event.stopPropagation(); toggleGrabberItem(${idx})" style="accent-color:var(--emerald);">
+            </td>
+            <td style="width:24px; text-align:center; font-size:13px; padding:6px 0;">${icon}</td>
+            <td style="padding:6px 8px; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+              <strong style="color:var(--text-main);">${escapeHtml(it.name)}</strong>
+              <div style="font-size:10px; color:var(--text-dim); text-overflow:ellipsis; overflow:hidden;">${escapeHtml(it.url)}</div>
+            </td>
+            <td style="padding:6px 8px; text-align:right; font-size:10.5px; color:var(--emerald); text-transform:uppercase; font-weight:600;">
+              ${it.ext || it.category}
+            </td>
+          </tr>
+        `;
+      });
+
+      tbody.innerHTML = html;
+      updateGrabberSelectedCount();
+    }
+
+    function toggleGrabberItem(idx) {
+      const filtered = sniffedGrabberItems.filter(it => currentGrabberFilter === 'all' || it.category === currentGrabberFilter);
+      if (filtered[idx]) {
+        filtered[idx].selected = !filtered[idx].selected;
+      }
+      renderGrabberTable();
+    }
+
+    function setGrabberSelection(val) {
+      sniffedGrabberItems.forEach(it => {
+        if (currentGrabberFilter === 'all' || it.category === currentGrabberFilter) {
+          it.selected = val;
+        }
+      });
+      renderGrabberTable();
+    }
+
+    function updateGrabberSelectedCount() {
+      const selCount = sniffedGrabberItems.filter(it => it.selected).length;
+      const countEl = document.getElementById('grabberCountLabel');
+      if (countEl) countEl.textContent = `${selCount} of ${sniffedGrabberItems.length} selected`;
+      updateGrabberActionBtn();
+    }
+
+    function updateGrabberActionBtn() {
+      const actionBtn = document.getElementById('btnSubmitBatchAction');
+      if (!actionBtn) return;
+      if (currentBatchTab === 'list') {
+        actionBtn.textContent = '⚡ Start Batch Download';
+      } else {
+        const selCount = sniffedGrabberItems.filter(it => it.selected).length;
+        actionBtn.textContent = `⚡ Download Selected (${selCount})`;
+      }
+    }
+
+    async function submitActiveBatchTab() {
+      if (currentBatchTab === 'list') {
+        await submitBatchDownload();
+      } else {
+        const selected = sniffedGrabberItems.filter(it => it.selected);
+        if (selected.length === 0) {
+          showToast('No items selected for download.', 'warning');
+          return;
+        }
+
+        const queue = document.getElementById('grabberQueueSelect') ? document.getElementById('grabberQueueSelect').value : 'MainQueue';
+        const startNow = document.getElementById('grabberStartNow') ? document.getElementById('grabberStartNow').checked : true;
+
+        closeModal('batchAddModal');
+        showToast(`Adding ${selected.length} files from Site Grabber...`);
+
+        let added = 0;
+        for (const item of selected) {
+          try {
+            await fetch(`${API_BASE}/api/download`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                url: item.url,
+                filename: item.name,
+                category: item.category,
+                queue: queue,
+                startNow: startNow
+              })
+            });
+            added++;
+          } catch (e) {}
+        }
+        playChime(true);
+        showToast(`🎉 Successfully queued ${added} files from page!`);
+        pollBackend();
+      }
+    }
+
     async function submitBatchDownload() {
       const raw = document.getElementById('batchUrlsInput').value.trim();
       if (!raw) return;
       const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 5);
       if (lines.length === 0) return;
+
+      const queue = document.getElementById('batchQueueSelect') ? document.getElementById('batchQueueSelect').value : 'MainQueue';
+      const startNow = document.getElementById('batchStartNow') ? document.getElementById('batchStartNow').checked : true;
 
       closeBatchAddModal();
       showToast(`Adding ${lines.length} batch download tasks...`);
@@ -6608,7 +6917,7 @@
           await fetch(`${API_BASE}/api/download`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: url, queue: 'MainQueue', quality: 'best', startNow: true })
+            body: JSON.stringify({ url: url, queue: queue, quality: 'best', startNow: startNow })
           });
           added++;
         } catch (e) {}
@@ -7081,7 +7390,7 @@
       document.getElementById('detailFileName').title = t.name;
       document.getElementById('detailUrlText').textContent = t.url || 'Direct Stream / Local Task';
       document.getElementById('detailUrlText').title = t.url || '';
-      document.getElementById('detailEngineBadge').textContent = t.engine === 'yt-dlp' ? 'yt-dlp + ffmpeg' : 'aria2 16x Turbo';
+      document.getElementById('detailEngineBadge').textContent = t.engine === 'yt-dlp' ? 'yt-dlp + ffmpeg' : 'aria2 32x Turbo';
       document.getElementById('detailEngineBadge').className = 'status-tag ' + (t.engine === 'yt-dlp' ? 'night-queue' : 'main-queue');
 
       // Populate 32 chunk blocks once

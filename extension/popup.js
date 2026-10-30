@@ -164,7 +164,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const dotEl = activityBar.querySelector('.activity-dot');
             if (dotEl) dotEl.style.background = '#10b981';
           } else {
-            activityText.textContent = 'Ready • 16x Turbo active';
+            activityText.textContent = 'Ready • 32x Turbo active';
           }
         }
       } catch (e) {}
@@ -354,7 +354,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           setTimeout(() => {
             downloadBtn.innerHTML = `
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-              <span>Turbo Download (16x Streams)</span>
+              <span>Turbo Download (32x Streams)</span>
             `;
           }, 2200);
         }

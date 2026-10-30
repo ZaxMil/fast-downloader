@@ -145,6 +145,188 @@ namespace FastDownloader
         }
     }
 
+    public static class SiteGrabberHelper
+    {
+        public class GrabItem
+        {
+            public string url { get; set; }
+            public string name { get; set; }
+            public string ext { get; set; }
+            public string category { get; set; }
+            public string title { get; set; }
+        }
+
+        public class SniffResult
+        {
+            public bool ok { get; set; }
+            public string error { get; set; }
+            public string pageUrl { get; set; }
+            public string pageTitle { get; set; }
+            public int totalFound { get; set; }
+            public List<GrabItem> items { get; set; }
+        }
+
+        public static SniffResult SniffUrl(string pageUrl)
+        {
+            var res = new SniffResult { ok = false, pageUrl = pageUrl, items = new List<GrabItem>() };
+            if (string.IsNullOrEmpty(pageUrl) || (!pageUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !pageUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+            {
+                res.error = "Invalid URL. Please enter an http:// or https:// web page.";
+                return res;
+            }
+
+            try
+            {
+                Uri baseUri = new Uri(pageUrl);
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(baseUri);
+                req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
+                req.Timeout = 12000;
+                req.ReadWriteTimeout = 12000;
+                req.AllowAutoRedirect = true;
+                req.MaximumAutomaticRedirections = 5;
+
+                string html = "";
+                using (var resp = req.GetResponse())
+                {
+                    baseUri = resp.ResponseUri;
+                    using (var stream = resp.GetResponseStream())
+                    using (var reader = new StreamReader(stream, Encoding.UTF8))
+                    {
+                        char[] buffer = new char[65536];
+                        StringBuilder sb = new StringBuilder();
+                        int read;
+                        while ((read = reader.Read(buffer, 0, buffer.Length)) > 0 && sb.Length < 4194304)
+                        {
+                            sb.Append(buffer, 0, read);
+                        }
+                        html = sb.ToString();
+                    }
+                }
+
+                Match mTitle = Regex.Match(html, @"<title[^>]*>(.*?)</title>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+                if (mTitle.Success)
+                {
+                    res.pageTitle = WebUtility.HtmlDecode(mTitle.Groups[1].Value.Trim());
+                }
+                else
+                {
+                    res.pageTitle = baseUri.Host;
+                }
+
+                var patterns = new string[]
+                {
+                    @"(?:href|src|data-src|data-url)\s*=\s*[""']([^""'#>\s]+)[""']",
+                    @"url\(\s*[""']?([^""'\)\s]+)[""']?\s*\)"
+                };
+
+                HashSet<string> seenUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var pattern in patterns)
+                {
+                    MatchCollection matches = Regex.Matches(html, pattern, RegexOptions.IgnoreCase);
+                    foreach (Match m in matches)
+                    {
+                        string rawLink = m.Groups[1].Value.Trim();
+                        if (string.IsNullOrEmpty(rawLink)) continue;
+                        if (rawLink.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase) ||
+                            rawLink.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase) ||
+                            rawLink.StartsWith("tel:", StringComparison.OrdinalIgnoreCase) ||
+                            rawLink.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
+                            rawLink.StartsWith("#")) continue;
+
+                        try
+                        {
+                            Uri fullUri = new Uri(baseUri, rawLink);
+                            string fullUrl = fullUri.AbsoluteUri;
+                            if (!fullUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+                                !fullUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) continue;
+
+                            if (seenUrls.Add(fullUrl))
+                            {
+                                string fileName = Path.GetFileName(fullUri.LocalPath);
+                                string ext = "";
+                                int dotIdx = fileName.LastIndexOf('.');
+                                if (dotIdx >= 0 && dotIdx < fileName.Length - 1)
+                                {
+                                    ext = fileName.Substring(dotIdx + 1).ToLowerInvariant();
+                                }
+
+                                string category = CategorizeExt(ext);
+                                
+                                if (string.IsNullOrEmpty(fileName) || fileName.Length <= 1)
+                                {
+                                    fileName = fullUri.Segments.Length > 1 ? fullUri.Segments[fullUri.Segments.Length - 1].Trim('/') : "download";
+                                }
+
+                                res.items.Add(new GrabItem
+                                {
+                                    url = fullUrl,
+                                    name = fileName,
+                                    ext = ext,
+                                    category = category,
+                                    title = fileName
+                                });
+                            }
+                        }
+                        catch { }
+                    }
+                }
+
+                res.items.Sort((a, b) =>
+                {
+                    int prioA = GetCategoryPriority(a.category);
+                    int prioB = GetCategoryPriority(b.category);
+                    if (prioA != prioB) return prioA.CompareTo(prioB);
+                    return string.Compare(a.name, b.name, StringComparison.OrdinalIgnoreCase);
+                });
+
+                res.totalFound = res.items.Count;
+                res.ok = true;
+                return res;
+            }
+            catch (Exception ex)
+            {
+                res.error = ex.Message;
+                return res;
+            }
+        }
+
+        private static int GetCategoryPriority(string cat)
+        {
+            switch (cat)
+            {
+                case "videos": return 1;
+                case "archives": return 2;
+                case "documents": return 3;
+                case "audio": return 4;
+                case "programs": return 5;
+                case "images": return 6;
+                default: return 7;
+            }
+        }
+
+        private static string CategorizeExt(string ext)
+        {
+            switch (ext)
+            {
+                case "mp4": case "mkv": case "webm": case "avi": case "mov": case "flv": case "wmv": case "m4v": case "ts": case "m3u8":
+                    return "videos";
+                case "mp3": case "m4a": case "flac": case "wav": case "aac": case "ogg": case "wma": case "opus":
+                    return "audio";
+                case "zip": case "rar": case "7z": case "tar": case "gz": case "bz2": case "iso": case "xz": case "tgz":
+                    return "archives";
+                case "pdf": case "doc": case "docx": case "xls": case "xlsx": case "ppt": case "pptx": case "txt": case "epub": case "csv": case "rtf":
+                    return "documents";
+                case "jpg": case "jpeg": case "png": case "gif": case "webp": case "svg": case "bmp": case "ico": case "tiff":
+                    return "images";
+                case "exe": case "msi": case "apk": case "dmg": case "pkg": case "deb": case "rpm": case "appimage":
+                    return "programs";
+                default:
+                    return "other";
+            }
+        }
+    }
+
     public static class MediaUrlHelper
     {
         public static bool IsMediaPlatformUrl(string url)
@@ -1175,7 +1357,7 @@ namespace FastDownloader
                     Arguments = string.Format(
                         "--enable-rpc --rpc-listen-all=false --rpc-listen-port=6800 --rpc-secret=\"{1}\" --disable-ipv6=true " +
                         "--async-dns-server=8.8.8.8,1.1.1.1 --file-allocation=none " +
-                        "--max-connection-per-server=16 --split=16 --min-split-size=1M " +
+                        "--max-connection-per-server=16 --split=32 --min-split-size=1M " +
                         "--max-concurrent-downloads=5 --continue=true --dir=\"{0}\" " +
                         "--enable-dht=true --enable-peer-exchange=true --bt-enable-lpd=true --bt-max-peers=55 --seed-time=0 --bt-save-metadata=true --bt-stop-timeout=300",
                         safeDir, ariaRpcSecret),
@@ -1311,6 +1493,9 @@ namespace FastDownloader
                 req.Method = "POST";
                 req.ContentType = "application/json";
                 var options = new Dictionary<string, object>();
+                options["split"] = "32";
+                options["max-connection-per-server"] = "16";
+                options["min-split-size"] = "1M";
                 if (!startNow)
                 {
                     options["pause"] = "true";
@@ -3383,6 +3568,20 @@ namespace FastDownloader
                         writer.Flush();
                         stream.Write(bytes, 0, bytes.Length);
                         stream.Flush();
+                        return;
+                    }
+
+                    // 4b. SITE PAGE GRABBER / SNIFFER API (POST)
+                    if (urlPath == "/api/grabber/sniff" && method == "POST")
+                    {
+                        var data = JsonHelper.ParseDict(requestBody);
+                        string pageUrl = data != null && data.ContainsKey("url") ? data["url"].ToString().Trim() : "";
+                        var sniffResult = SiteGrabberHelper.SniffUrl(pageUrl);
+                        string json = JsonHelper.Serialize(sniffResult);
+                        byte[] bytes = Encoding.UTF8.GetBytes(json);
+                        SendHeaders(writer, 200, "OK", "application/json; charset=utf-8", bytes.Length, allowedOrigin);
+                        writer.Write(json);
+                        writer.Flush();
                         return;
                     }
 

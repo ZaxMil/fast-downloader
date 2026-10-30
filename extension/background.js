@@ -178,10 +178,10 @@ function setupContextMenus() {
       contexts: ["action", "page", "video", "link"]
     });
 
-    // 1. Direct Link Download (16x Threads)
+    // 1. Direct Link Download (32x Threads)
     chrome.contextMenus.create({
       id: "fd-download-link",
-      title: "⚡ Fast Download Link (16x Turbo)",
+      title: "⚡ Fast Download Link (32x Turbo)",
       contexts: ["link"]
     });
 

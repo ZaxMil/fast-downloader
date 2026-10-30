@@ -893,7 +893,7 @@
     // Left Action Button
     const mainAction = document.createElement('button');
     mainAction.className = 'fd-pill-action';
-    mainAction.title = isCanvas ? 'Record Canvas Animation' : 'Download with FastDownloader (16x Turbo)';
+    mainAction.title = isCanvas ? 'Record Canvas Animation' : 'Download with FastDownloader (32x Turbo)';
     mainAction.innerHTML = `
       ${fdLightningSvg}
       <span class="fd-pill-text">${isCanvas ? 'Record' : 'Download'}</span>
@@ -956,7 +956,7 @@
       menu.innerHTML = `
         <div class="fd-menu-header">
           <span>⚡ FastDownloader Pro</span>
-          <span class="fd-menu-status"><span class="fd-menu-status-dot"></span> 16x Turbo</span>
+          <span class="fd-menu-status"><span class="fd-menu-status-dot"></span> 32x Turbo</span>
         </div>
         <div class="fd-menu-item" data-quality="best">
           <div class="fd-menu-item-left">🎬 <span>Best Quality</span></div>
@@ -1280,7 +1280,7 @@
 
     btn.className = 'fd-yt-action-btn';
 
-    btn.title = 'Download video with FastDownloader (16x Turbo)';
+    btn.title = 'Download video with FastDownloader (32x Turbo)';
 
     btn.innerHTML = `
 
