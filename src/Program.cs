@@ -1121,6 +1121,12 @@ namespace FastDownloader
         public DateTime ArmedAt { get; set; }
     }
 
+    public class TaskDateInfo
+    {
+        public string DateAdded { get; set; }
+        public string DateFinished { get; set; }
+    }
+
     public class EngineManager
     {
         private Process ariaProcess;
@@ -1130,6 +1136,9 @@ namespace FastDownloader
         private readonly object queueLock = new object();
         public List<YtTaskInfo> YtTasks { get; private set; }
         public Dictionary<string, QueueConfig> Queues { get; private set; }
+        private string taskDatesFilePath;
+        private readonly object dateLock = new object();
+        private Dictionary<string, TaskDateInfo> taskDates = new Dictionary<string, TaskDateInfo>();
         private string ariaRpcSecret = Guid.NewGuid().ToString("N");
         public string AriaRpcSecret { get { return ariaRpcSecret; } }
 
@@ -1267,6 +1276,8 @@ namespace FastDownloader
             LastUpdateCheck = "";
             settingsFilePath = Path.Combine(AppDir, "settings.json");
             LoadSettings();
+            taskDatesFilePath = Path.Combine(AppDir, "task_dates.json");
+            LoadTaskDates();
 
             YtTasks = new List<YtTaskInfo>();
             PendingDownloads = new Dictionary<string, PendingDownloadInfo>();
@@ -1309,6 +1320,149 @@ namespace FastDownloader
                 File.WriteAllText(settingsFilePath, JsonHelper.Serialize(dict));
             }
             catch { }
+        }
+
+        public void LoadTaskDates()
+        {
+            lock (dateLock)
+            {
+                try
+                {
+                    if (File.Exists(taskDatesFilePath))
+                    {
+                        string json = File.ReadAllText(taskDatesFilePath);
+                        var rawDict = JsonHelper.ParseDict(json);
+                        if (rawDict != null)
+                        {
+                            taskDates = new Dictionary<string, TaskDateInfo>();
+                            foreach (var kvp in rawDict)
+                            {
+                                var sub = kvp.Value as Dictionary<string, object>;
+                                if (sub != null)
+                                {
+                                    string added = sub.ContainsKey("added") && sub["added"] != null ? sub["added"].ToString() : "";
+                                    string fin = sub.ContainsKey("finished") && sub["finished"] != null ? sub["finished"].ToString() : "";
+                                    taskDates[kvp.Key] = new TaskDateInfo { DateAdded = added, DateFinished = fin };
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+
+        public void SaveTaskDates()
+        {
+            lock (dateLock)
+            {
+                try
+                {
+                    var export = new Dictionary<string, object>();
+                    foreach (var kvp in taskDates)
+                    {
+                        var sub = new Dictionary<string, string>();
+                        sub["added"] = kvp.Value.DateAdded ?? "";
+                        sub["finished"] = kvp.Value.DateFinished ?? "";
+                        export[kvp.Key] = sub;
+                    }
+                    File.WriteAllText(taskDatesFilePath, JsonHelper.Serialize(export));
+                }
+                catch { }
+            }
+        }
+
+        public void RecordTaskAdded(string gid, DateTime? dt = null)
+        {
+            if (string.IsNullOrEmpty(gid)) return;
+            lock (dateLock)
+            {
+                if (!taskDates.ContainsKey(gid))
+                {
+                    string dateStr = (dt ?? DateTime.Now).ToString("yyyy-MM-dd HH:mm:ss");
+                    taskDates[gid] = new TaskDateInfo { DateAdded = dateStr, DateFinished = "" };
+                    SaveTaskDates();
+                }
+            }
+        }
+
+        public void RecordTaskFinished(string gid, DateTime? dt = null)
+        {
+            if (string.IsNullOrEmpty(gid)) return;
+            lock (dateLock)
+            {
+                TaskDateInfo info;
+                string dateStr = (dt ?? DateTime.Now).ToString("yyyy-MM-dd HH:mm:ss");
+                if (taskDates.TryGetValue(gid, out info))
+                {
+                    if (string.IsNullOrEmpty(info.DateFinished))
+                    {
+                        info.DateFinished = dateStr;
+                        SaveTaskDates();
+                    }
+                }
+                else
+                {
+                    taskDates[gid] = new TaskDateInfo { DateAdded = dateStr, DateFinished = dateStr };
+                    SaveTaskDates();
+                }
+            }
+        }
+
+        public TaskDateInfo GetTaskDates(string gid, string filePath = null, string status = null)
+        {
+            if (string.IsNullOrEmpty(gid)) return new TaskDateInfo { DateAdded = "", DateFinished = "" };
+            lock (dateLock)
+            {
+                TaskDateInfo info;
+                if (taskDates.TryGetValue(gid, out info))
+                {
+                    if ((status == "complete" || status == "completed") && string.IsNullOrEmpty(info.DateFinished))
+                    {
+                        info.DateFinished = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                        SaveTaskDates();
+                    }
+                    return info;
+                }
+
+                // If not found, derive from local file or current time
+                string added = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                string fin = "";
+                if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
+                {
+                    try
+                    {
+                        var fi = new FileInfo(filePath);
+                        added = fi.CreationTime.ToString("yyyy-MM-dd HH:mm:ss");
+                        if (status == "complete" || status == "completed")
+                        {
+                            fin = fi.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss");
+                        }
+                    }
+                    catch { }
+                }
+                else if (status == "complete" || status == "completed")
+                {
+                    fin = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                }
+
+                info = new TaskDateInfo { DateAdded = added, DateFinished = fin };
+                taskDates[gid] = info;
+                SaveTaskDates();
+                return info;
+            }
+        }
+
+        public void ForgetTaskDate(string gid)
+        {
+            if (string.IsNullOrEmpty(gid)) return;
+            lock (dateLock)
+            {
+                if (taskDates.Remove(gid))
+                {
+                    SaveTaskDates();
+                }
+            }
         }
 
         public void StartAria2()

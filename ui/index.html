@@ -2875,6 +2875,20 @@
                 </div>
                 <div class="resizer" ondblclick="autoFitColumn('status', event)" title="Drag to resize | Double-click to auto-fit"></div>
               </th>
+              <th data-col="dateAdded" data-min-width="110" style="width:130px; min-width:110px;" onclick="handleHeaderClick(event, 'dateAdded')" oncontextmenu="handleHeaderContextMenu(event, 'dateAdded')">
+                <div class="th-inner">
+                  <span class="th-content" data-i18n="colDateAdded" title="Double-click to rename | Click to sort">Date Added</span>
+                  <span class="sort-icon" id="sort-dateAdded"></span>
+                </div>
+                <div class="resizer" ondblclick="autoFitColumn('dateAdded', event)" title="Drag to resize | Double-click to auto-fit"></div>
+              </th>
+              <th data-col="dateFinished" data-min-width="110" style="width:130px; min-width:110px;" onclick="handleHeaderClick(event, 'dateFinished')" oncontextmenu="handleHeaderContextMenu(event, 'dateFinished')">
+                <div class="th-inner">
+                  <span class="th-content" data-i18n="colDateFinished" title="Double-click to rename | Click to sort">Date Finished</span>
+                  <span class="sort-icon" id="sort-dateFinished"></span>
+                </div>
+                <div class="resizer" ondblclick="autoFitColumn('dateFinished', event)" title="Drag to resize | Double-click to auto-fit"></div>
+              </th>
               <th data-col="actions" data-min-width="85" style="width:110px; min-width:85px; text-align:center;" oncontextmenu="handleHeaderContextMenu(event, 'actions')">
                 <div class="th-inner" style="justify-content:center;">
                   <span class="th-content" data-i18n="colActions">Actions</span>
@@ -3922,6 +3936,8 @@
         colSpeed: "Transfer Rate",
         colEta: "Time Left",
         colStatus: "Status",
+        colDateAdded: "Date Added",
+        colDateFinished: "Date Finished",
         colActions: "Actions",
         headerCustomizerTitle: "Columns & Table Setup",
         headerAutoFitAll: "Auto-fit All Columns",
@@ -4070,6 +4086,8 @@
         colSpeed: "السرعة",
         colEta: "الوقت المتبقي",
         colStatus: "الحالة",
+        colDateAdded: "تاريخ الإضافة",
+        colDateFinished: "تاريخ الانتهاء",
         colActions: "إجراءات",
         headerCustomizerTitle: "تخصيص الأعمدة والجدول",
         headerAutoFitAll: "ملاءمة عرض كافة الأعمدة",
@@ -4449,7 +4467,7 @@
     let wasHeaderDragged = false;
     let draggedColId = null;
 
-    const DEFAULT_COLUMN_ORDER = ['name', 'queue', 'size', 'progress', 'speed', 'eta', 'status', 'actions'];
+    const DEFAULT_COLUMN_ORDER = ['name', 'queue', 'size', 'progress', 'speed', 'eta', 'status', 'dateAdded', 'dateFinished', 'actions'];
 
     function getColumnOrder() {
       const saved = localStorage.getItem('fast_col_order');
@@ -4626,6 +4644,8 @@
         speed: 'Transfer Rate',
         eta: 'Time Left',
         status: 'Status',
+        dateAdded: 'Date Added',
+        dateFinished: 'Date Finished',
         actions: 'Actions'
       },
       ar: {
@@ -4636,6 +4656,8 @@
         speed: 'السرعة',
         eta: 'الوقت المتبقي',
         status: 'الحالة',
+        dateAdded: 'تاريخ الإضافة',
+        dateFinished: 'تاريخ الانتهاء',
         actions: 'إجراءات'
       }
     };
@@ -4653,6 +4675,8 @@
           speed: 'colSpeed',
           eta: 'colEta',
           status: 'colStatus',
+          dateAdded: 'colDateAdded',
+          dateFinished: 'colDateFinished',
           actions: 'colActions'
         };
         if (I18N[lang][keyMap[colId]]) return I18N[lang][keyMap[colId]];
@@ -4719,7 +4743,7 @@
     function autoFitAllColumns() {
       closeAllContextMenus();
       closeAllMenus();
-      const cols = ['name', 'queue', 'size', 'progress', 'speed', 'eta', 'status', 'actions'];
+      const cols = ['name', 'queue', 'size', 'progress', 'speed', 'eta', 'status', 'dateAdded', 'dateFinished', 'actions'];
       cols.forEach(c => autoFitColumn(c));
       showToast(currentLang === 'ar' ? 'تمت ملاءمة أبعاد كافة الأعمدة!' : 'All columns auto-fitted to content!');
     }
@@ -4741,6 +4765,8 @@
         speed: '140px',
         eta: '110px',
         status: '100px',
+        dateAdded: '130px',
+        dateFinished: '130px',
         actions: '110px'
       };
 
@@ -5185,6 +5211,35 @@
       renderTable();
     }
 
+    function formatDateDisplay(d, isDone) {
+      if (!d || d === '') {
+        return '<span style="color:var(--text-dim); font-size:11px;">--</span>';
+      }
+      try {
+        let s = d;
+        if (s.includes(' ') && !s.includes('T')) s = s.replace(' ', 'T');
+        const dt = new Date(s);
+        if (isNaN(dt.getTime())) {
+          return `<span title="${escapeHtml(d)}" style="color:var(--text-muted); font-size:11.5px;">${escapeHtml(d)}</span>`;
+        }
+        const y = dt.getFullYear();
+        const m = String(dt.getMonth() + 1).padStart(2, '0');
+        const day = String(dt.getDate()).padStart(2, '0');
+        let h = dt.getHours();
+        const min = String(dt.getMinutes()).padStart(2, '0');
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12 || 12;
+        const timeStr = `${h}:${min} ${ampm}`;
+        const dateStr = `${y}-${m}-${day}`;
+        return `<div class="date-cell" title="${escapeHtml(d)}">
+          <span class="date-part">${dateStr}</span>
+          <span class="time-part">${timeStr}</span>
+        </div>`;
+      } catch (e) {
+        return `<span style="color:var(--text-muted); font-size:11.5px;">${escapeHtml(String(d))}</span>`;
+      }
+    }
+
     // Render Main Downloads Table
     function renderTable() {
       const tbody = document.getElementById('tableBody');
@@ -5238,6 +5293,18 @@
             case 'status':
               res = (a.status || '').localeCompare(b.status || '');
               break;
+            case 'dateAdded': {
+              const timeA = a.dateAdded ? new Date(a.dateAdded.replace(' ', 'T')).getTime() : 0;
+              const timeB = b.dateAdded ? new Date(b.dateAdded.replace(' ', 'T')).getTime() : 0;
+              res = timeA - timeB;
+              break;
+            }
+            case 'dateFinished': {
+              const timeA = a.dateFinished ? new Date(a.dateFinished.replace(' ', 'T')).getTime() : 0;
+              const timeB = b.dateFinished ? new Date(b.dateFinished.replace(' ', 'T')).getTime() : 0;
+              res = timeA - timeB;
+              break;
+            }
           }
           return currentSort.direction === 'desc' ? -res : res;
         });
@@ -5330,6 +5397,12 @@
             <span class="status-tag ${statusClass}">
               <span style="font-size:8px;">●</span> ${statusText}
             </span>
+          </td>`,
+          dateAdded: `<td data-col="dateAdded" style="white-space:nowrap;">
+            ${formatDateDisplay(t.dateAdded)}
+          </td>`,
+          dateFinished: `<td data-col="dateFinished" style="white-space:nowrap;">
+            ${formatDateDisplay(t.dateFinished, isDone)}
           </td>`,
           actions: `<td data-col="actions" style="text-align:center;" onclick="event.stopPropagation()">
             <div class="row-actions" style="justify-content:center;">
@@ -6970,7 +7043,9 @@
           url: t.url,
           status: t.status,
           totalLength: t.totalLength,
-          completedLength: t.completedLength
+          completedLength: t.completedLength,
+          dateAdded: t.dateAdded || '',
+          dateFinished: t.dateFinished || ''
         }))
       };
       const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
