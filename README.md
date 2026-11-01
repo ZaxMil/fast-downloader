@@ -28,7 +28,7 @@ Combining an ultra-fast **16-connection `aria2c` multi-stream engine**, a dedica
 ## 📸 Showcase & Visuals
 
 <div align="center">
-  <img src="ui/preview.png" alt="FastDownloader Pro Dashboard Preview" width="880" style="border-radius: 12px; box-shadow: 0 16px 36px rgba(0,0,0,0.6);" />
+  <img src="ui/Preview%20UI.png" alt="FastDownloader Pro Dashboard Preview" width="880" style="border-radius: 12px; box-shadow: 0 16px 36px rgba(0,0,0,0.6);" />
   <p><i>The Obsidian glassmorphic dashboard with live 60fps throughput waveform, 16-connection inspector, and queue management.</i></p>
 </div>
 
