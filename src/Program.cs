@@ -1517,7 +1517,7 @@ namespace FastDownloader
                     FileName = ariaExe,
                     Arguments = string.Format(
                         "--enable-rpc --rpc-listen-all=false --rpc-listen-port=6800 --rpc-secret=\"{1}\" --disable-ipv6=true " +
-                        "--async-dns-server=8.8.8.8,1.1.1.1 --file-allocation=none " +
+                        "--file-allocation=none --max-tries=5 --retry-wait=3 --connect-timeout=15 " +
                         "--max-connection-per-server=16 --split=32 --min-split-size=1M " +
                         "--max-concurrent-downloads=5 --continue=true --dir=\"{0}\" " +
                         "--enable-dht=true --enable-peer-exchange=true --bt-enable-lpd=true --bt-max-peers=55 --seed-time=0 --bt-save-metadata=true --bt-stop-timeout=300",
@@ -1648,19 +1648,23 @@ namespace FastDownloader
 
         public string AddAriaUri(string url, bool startNow, string cookies = null, string userAgent = null, string referer = null, string filename = null, string category = null, string customDir = null)
         {
+            // aria2 starts asynchronously. A new task can arrive before its RPC port is ready.
+            // Bounded retries are safe here because a connection failure occurs before
+            // aria2 can acknowledge the transfer. Do not retry after an ambiguous response.
+            for (int attempt = 0; attempt < 6; attempt++)
+            {
             try
             {
                 HttpWebRequest req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:6800/jsonrpc");
                 req.Method = "POST";
                 req.ContentType = "application/json";
+                req.Timeout = 2500;
+                req.ReadWriteTimeout = 2500;
                 var options = new Dictionary<string, object>();
                 options["split"] = "32";
                 options["max-connection-per-server"] = "16";
                 options["min-split-size"] = "1M";
-                if (!startNow)
-                {
-                    options["pause"] = "true";
-                }
+                options["pause"] = startNow ? "false" : "true";
                 if (!string.IsNullOrEmpty(filename))
                 {
                     filename = Path.GetFileName(filename);
@@ -1705,10 +1709,20 @@ namespace FastDownloader
                 using (var reader = new StreamReader(resp.GetResponseStream()))
                 {
                     var dict = JsonHelper.ParseDict(reader.ReadToEnd());
-                    if (dict.ContainsKey("result")) return dict["result"].ToString();
+                    if (dict != null && dict.ContainsKey("result") && dict["result"] != null)
+                        return dict["result"].ToString();
+                    // An explicit RPC error is not a startup race; retrying it would hide a real problem.
+                    break;
                 }
             }
-            catch { }
+            catch (WebException)
+            {
+                // Retry only when the engine has not accepted a task (connection/transport failure).
+                // The caller receives null if the engine never becomes ready.
+            }
+            catch (Exception) { break; }
+            if (attempt < 5) Thread.Sleep(350);
+            }
             return null;
         }
 
@@ -2085,6 +2099,16 @@ namespace FastDownloader
             catch { }
         }
 
+        public void RestorePending(PendingDownloadInfo pending)
+        {
+            if (pending == null || string.IsNullOrEmpty(pending.pendingId)) return;
+            lock (pendingLock)
+            {
+                if (PendingDownloads == null) PendingDownloads = new Dictionary<string, PendingDownloadInfo>();
+                PendingDownloads[pending.pendingId] = pending;
+            }
+        }
+
         public string StartConfirmedDownload(PendingDownloadInfo pending, string customName, string saveDir, string category, bool startNow)
         {
             if (pending == null) return null;
@@ -2096,7 +2120,9 @@ namespace FastDownloader
             string finalCat = !string.IsNullOrEmpty(category) ? category : pending.category;
             string finalQuality = !string.IsNullOrEmpty(pending.quality) ? pending.quality : "best";
 
-            bool isVideo = MediaUrlHelper.IsMediaPlatformUrl(pending.url) || pending.category == "Video" || (pending.type == "video" && !MediaUrlHelper.HasDirectFileExtension(pending.url));
+            // A direct .mp4/.mkv file belongs to aria2 even when categorized as Video.
+            bool isVideo = MediaUrlHelper.IsMediaPlatformUrl(pending.url) ||
+                           (pending.type == "video" && !MediaUrlHelper.HasDirectFileExtension(pending.url));
             string assignedGid;
             if (isVideo)
             {
@@ -2115,6 +2141,8 @@ namespace FastDownloader
             string ytExe = Path.Combine(AppDir, "bin", "yt-dlp.exe");
             if (!File.Exists(ytExe)) ytExe = Path.Combine(AppDir, "yt-dlp.exe");
             string ffmpegDir = Path.Combine(AppDir, "bin");
+            // Report missing engine instead of presenting a phantom queued task.
+            if (!File.Exists(ytExe)) return null;
 
             if (url.Contains("fbcdn.net") && !string.IsNullOrEmpty(referer))
             {
@@ -3565,6 +3593,15 @@ namespace FastDownloader
                                         assignedGid = engine.AddAriaUri(dlUrl, startNow, cookies, userAgent, referer, filename, category);
                                     }
 
+                                    if (string.IsNullOrEmpty(assignedGid))
+                                    {
+                                        string failure = "{\"ok\":false,\"error\":\"Download engine did not accept the task. Please check engine setup and retry.\"}";
+                                        byte[] failBytes = Encoding.UTF8.GetBytes(failure);
+                                        SendHeaders(writer, 503, "Service Unavailable", "application/json", failBytes.Length, allowedOrigin);
+                                        writer.Write(failure);
+                                        writer.Flush();
+                                        return;
+                                    }
                                     if (onNotification != null) onNotification("Download added: " + dlUrl);
 
                                     string ok = "{\"ok\":true,\"gid\":\"" + assignedGid + "\"}";
@@ -4298,6 +4335,17 @@ namespace FastDownloader
                                 assignedGid = engine.AddAriaUri(pending.url, startNow, pending.cookies, pending.userAgent, pending.referer, finalName, finalCat);
                             }
 
+                            if (string.IsNullOrEmpty(assignedGid))
+                            {
+                                engine.RestorePending(pending);
+                                var failure = new { ok = false, error = "Download engine did not accept the task. Please retry.", pendingId = pendingId };
+                                string failJson = JsonHelper.Serialize(failure);
+                                byte[] failBytes = Encoding.UTF8.GetBytes(failJson);
+                                SendHeaders(writer, 503, "Service Unavailable", "application/json; charset=utf-8", failBytes.Length);
+                                writer.Write(failJson);
+                                writer.Flush();
+                                return;
+                            }
                             if (onNotification != null) onNotification(startNow ? "Download started: " + finalName : "Saved to queue: " + finalName);
 
                             var respObj = new { ok = true, gid = assignedGid, action = action };
@@ -6160,7 +6208,13 @@ namespace FastDownloader
                     {
                         engine.RemovePending(pending.pendingId, out ignored);
                         string gid = engine.StartConfirmedDownload(pending, dlg.FileName, dlg.SaveDirectory, dlg.Category, dlg.StartNow);
-                        if (dlg.StartNow && !string.IsNullOrEmpty(gid))
+                        if (string.IsNullOrEmpty(gid))
+                        {
+                            engine.RestorePending(pending);
+                            MessageBox.Show("The download engine could not start this task. Your request was kept in the pending list. Check that aria2/yt-dlp is installed, then try again.",
+                                "FastDownloader — Download not started", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        }
+                        else if (dlg.StartNow)
                         {
                             ShowProgressDialog(gid, dlg.FileName, pending.url, dlg.SaveDirectory);
                         }
