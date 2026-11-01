@@ -178,6 +178,13 @@ namespace FastDownloader
             try
             {
                 Uri baseUri = new Uri(pageUrl);
+                string host = baseUri.Host.ToLowerInvariant();
+                if (host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" ||
+                    host.StartsWith("127.") || host == "169.254.169.254" || host.EndsWith(".local") || host.EndsWith(".internal"))
+                {
+                    res.error = "Fetching loopback, internal, or metadata IP addresses is forbidden.";
+                    return res;
+                }
                 HttpWebRequest req = (HttpWebRequest)WebRequest.Create(baseUri);
                 req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
                 req.Timeout = 12000;
@@ -2978,6 +2985,15 @@ namespace FastDownloader
                 {
                     url = "https://github.com/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases/latest/download/FastDownloader.exe";
                 }
+                Uri checkUri;
+                if (!Uri.TryCreate(url, UriKind.Absolute, out checkUri) || checkUri.Scheme != "https" ||
+                    (!checkUri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
+                     !checkUri.Host.Equals("objects.githubusercontent.com", StringComparison.OrdinalIgnoreCase) &&
+                     !checkUri.Host.EndsWith(".github.com", StringComparison.OrdinalIgnoreCase)))
+                {
+                    msg = "Security check failed: untrusted update download host.";
+                    return false;
+                }
 
                 string tempDir = Path.Combine(Path.GetTempPath(), "FastDownloader_Update");
                 if (!Directory.Exists(tempDir)) Directory.CreateDirectory(tempDir);
@@ -3318,7 +3334,13 @@ namespace FastDownloader
                     if (urlPath.StartsWith("/ui/"))
                     {
                         string subFile = urlPath.Substring(4).TrimStart('/', '\\');
-                        string filePath = Path.Combine(engine.AppDir, "ui", subFile);
+                        string uiBase = Path.GetFullPath(Path.Combine(engine.AppDir, "ui"));
+                        string filePath = Path.GetFullPath(Path.Combine(uiBase, subFile));
+                        if (!filePath.StartsWith(uiBase, StringComparison.OrdinalIgnoreCase))
+                        {
+                            SendHeaders(writer, 403, "Forbidden", "text/plain", 0);
+                            return;
+                        }
                         if (File.Exists(filePath))
                         {
                             string mime = "application/octet-stream";
