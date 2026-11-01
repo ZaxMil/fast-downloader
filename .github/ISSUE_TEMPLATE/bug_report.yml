@@ -1,0 +1,49 @@
+name: Bug report
+description: Report a reproducible problem with the Windows app or browser extension.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: "Before submitting, remove cookies, tokens, signed URLs and private filenames. For vulnerabilities, follow SECURITY.md rather than filing a public issue."
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Windows application
+        - Browser extension
+        - Installer or updater
+        - Download engine integration
+        - Website or documentation
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "e.g. v0.1.7"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Open ... 2. Select ... 3. Observe ..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "Windows version; browser and version if relevant"
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots or safe logs
+      description: "Optional. Redact personal data and authentication information."
