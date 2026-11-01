@@ -45,3 +45,10 @@ jobs:
         run: |
           if (-not (Test-Path "FastDownloader.exe")) { throw "Build did not produce FastDownloader.exe" }
           Write-Host "Windows executable successfully compiled."
+      - name: Upload Windows test build (not a release installer)
+        uses: actions/upload-artifact@v4
+        with:
+          name: FastDownloader-Windows-test-build
+          path: FastDownloader.exe
+          if-no-files-found: error
+          retention-days: 7
