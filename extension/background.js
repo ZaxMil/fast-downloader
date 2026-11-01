@@ -526,7 +526,7 @@ function shouldInterceptDownload(url, filename, mime) {
 const interceptedDownloadIds = new Set();
 
 async function handleDownloadIntercept(item) {
-  if (!cachedAutoIntercept || !item || !item.id) return;
+  if (!cachedAutoIntercept || !item || typeof item.id !== "number") return;
   // Both onCreated and onDeterminingFilename can fire for one item.
   if (interceptedDownloadIds.has(item.id)) return;
   interceptedDownloadIds.add(item.id);
