@@ -80,7 +80,8 @@ async function sendViaNativeMessaging(payload) {
           console.log("[FastDownloader] Native messaging note:", chrome.runtime.lastError.message);
           resolve(null);
         } else {
-          resolve(response || { ok: true });
+          // An empty native-messaging response is NOT an acknowledgement.
+          resolve(response || null);
         }
       });
     } catch (e) {
@@ -114,7 +115,7 @@ async function sendDownloadToApp({ url, title, type = "auto", quality = "best", 
   // 1. First priority: IDM-grade Chrome Native Messaging (Auto-launches app, opens pre-flight dialog)
   try {
     const nativeRes = await sendViaNativeMessaging(payload);
-    if (nativeRes && (nativeRes.ok || nativeRes.gid || nativeRes.pending)) {
+    if (nativeRes && nativeRes.ok === true && (nativeRes.pending || nativeRes.pendingId || nativeRes.gid || nativeRes.refreshed)) {
       // Native pre-flight dialog handles user interaction; do not pop open the browser dashboard!
       return { ok: true, data: nativeRes, transport: "native" };
     }
@@ -129,11 +130,11 @@ async function sendDownloadToApp({ url, title, type = "auto", quality = "best", 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    if (resp.ok) {
-      const data = await resp.json().catch(() => ({}));
+    const data = await resp.json().catch(() => null);
+    if (resp.ok && data && data.ok === true && (data.pending || data.pendingId || data.gid || data.refreshed)) {
       return { ok: true, data: data, transport: "http" };
     }
-    return { ok: false, error: "FastDownloader returned error" };
+    return { ok: false, error: (data && data.error) || "FastDownloader did not accept the download" };
   } catch (err) {
     console.warn("FastDownloader daemon not reachable on port 6801:", err);
     return { ok: false, error: "App unreachable" };
@@ -524,86 +525,105 @@ function shouldInterceptDownload(url, filename, mime) {
 
 const interceptedDownloadIds = new Set();
 
-async function handleDownloadIntercept(item, suggest) {
+async function handleDownloadIntercept(item) {
+  if (!cachedAutoIntercept || !item || !item.id) return;
+  // Both onCreated and onDeterminingFilename can fire for one item.
+  if (interceptedDownloadIds.has(item.id)) return;
+  interceptedDownloadIds.add(item.id);
+
   try {
-    if (!cachedAutoIntercept) return;
     const settings = await chrome.storage.local.get({ autoIntercept: true });
     if (!settings.autoIntercept) return;
 
-    if (interceptedDownloadIds.has(item.id)) return;
-
     const targetUrl = item.finalUrl || item.url;
-    if (targetUrl.includes("127.0.0.1:6801") || targetUrl.includes("127.0.0.1:6800")) return;
+    if (!targetUrl || targetUrl.includes("127.0.0.1:6801") || targetUrl.includes("127.0.0.1:6800")) return;
 
-    // Extract resolved filename from Chrome (fully populated in onDeterminingFilename)
-    let cleanFilename = item.filename ? item.filename.split(/[\\/]/).pop() : "";
-    if (cleanFilename && (cleanFilename.toLowerCase().includes("unknown_video") || cleanFilename.toLowerCase() === "main" || cleanFilename.toLowerCase() === "download")) { cleanFilename = ""; }
+    let cleanFilename = item.filename ? item.filename.split(/[\\\\/]/).pop() : "";
+    if (cleanFilename && ["unknown_video", "main", "download"].includes(cleanFilename.toLowerCase())) cleanFilename = "";
     if (!cleanFilename) {
       try {
-        const u = new URL(targetUrl);
-        const p = u.pathname.split("/").filter(Boolean).pop();
-        if (p && p.includes(".")) cleanFilename = decodeURIComponent(p);
+        const pathPart = new URL(targetUrl).pathname.split("/").filter(Boolean).pop();
+        if (pathPart && pathPart.includes(".")) cleanFilename = decodeURIComponent(pathPart);
       } catch (e) {}
     }
-
     if (!shouldInterceptDownload(targetUrl, cleanFilename, item.mime)) return;
 
-    interceptedDownloadIds.add(item.id);
-    setTimeout(() => interceptedDownloadIds.delete(item.id), 60000);
-
-    // Cancel native browser download
-    chrome.downloads.cancel(item.id, () => {
-      chrome.downloads.erase({ id: item.id }, () => {});
-    });
-
-    // Forward to FastDownloader as an intercepted download (triggers Smart Pre-Flight confirmation dialog)
     const cookies = await getCookiesForUrl(targetUrl, item.referrer || "");
-    const clientHeaders = getBrowserClientHeaders(targetUrl, item.referrer || "");
-
     const payload = {
       action: "intercept",
       url: targetUrl,
       title: cleanFilename || "Download",
       filename: cleanFilename,
       referer: item.referrer || "",
-      cookies: cookies,
+      cookies,
       userAgent: navigator.userAgent,
-      headers: clientHeaders
+      headers: getBrowserClientHeaders(targetUrl, item.referrer || "")
     };
 
-    let handled = false;
-    try {
-      const nativeRes = await sendViaNativeMessaging(payload);
-      if (nativeRes && nativeRes.ok) handled = true;
-    } catch (e) {}
+    let accepted = false;
+    const nativeRes = await sendViaNativeMessaging(payload);
+    if (nativeRes && nativeRes.ok === true &&
+        (nativeRes.pending || nativeRes.pendingId || nativeRes.gid || nativeRes.refreshed)) {
+      accepted = true;
+    }
 
-    if (!handled) {
+    if (!accepted) {
       try {
-        await fetch(`${FD_API_BASE}/api/intercept`, {
+        const resp = await fetch(`${FD_API_BASE}/api/intercept`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
-        handled = true;
-      } catch (e) {}
+        const data = await resp.json().catch(() => null);
+        accepted = !!(resp.ok && data && data.ok === true &&
+          (data.pending || data.pendingId || data.gid || data.refreshed));
+      } catch (e) {
+        console.warn("[FastDownloader] App unavailable; keeping original browser download.", e);
+      }
     }
 
-    // Wake and focus the FastDownloader app window
-    await openFastDownloaderApp();
+    if (!accepted) {
+      // Never abandon a working browser transfer just because the app is offline or rejects the request.
+      console.warn("[FastDownloader] Download was not acknowledged; browser continues normally.");
+      return;
+    }
+
+    // Only now transfer ownership from Chrome to the local app.
+    // Keep the browser transfer untouched if it already completed.
+    const current = await chrome.downloads.search({ id: item.id }).catch(() => []);
+    if (!current.length || current[0].state !== "in_progress") return;
+
+    await new Promise(resolve => {
+      chrome.downloads.cancel(item.id, () => {
+        if (chrome.runtime.lastError) {
+          console.warn("[FastDownloader] Could not cancel original browser download:", chrome.runtime.lastError.message);
+          return resolve();
+        }
+        chrome.downloads.erase({ id: item.id }, () => {
+          // Erasing is cosmetic. A failed erase must not affect the accepted task.
+          void chrome.runtime.lastError;
+          resolve();
+        });
+      });
+    });
   } catch (e) {
-    console.error("Failed to intercept download:", e);
+    // Failure of the interception path must not destroy the native Chrome download.
+    console.error("[FastDownloader] Interception failed; leaving browser download alone:", e);
+  } finally {
+    setTimeout(() => interceptedDownloadIds.delete(item.id), 60000);
   }
 }
 
-// Primary interceptor: onDeterminingFilename has the exact filename parsed by Chrome headers
+// Chrome requires onDeterminingFilename to call suggest(), even if no new name
+// is supplied. Leaving it pending can stall the original browser download.
 chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
-  handleDownloadIntercept(item, suggest);
+  suggest();
+  void handleDownloadIntercept(item);
 });
 
-// Fallback interceptor: onCreated for instant downloads
 chrome.downloads.onCreated.addListener((item) => {
   if (item.filename && shouldInterceptDownload(item.finalUrl || item.url, item.filename, item.mime)) {
-    handleDownloadIntercept(item);
+    void handleDownloadIntercept(item);
   }
 });
 
