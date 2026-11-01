@@ -1,0 +1,47 @@
+name: Download regression checks
+
+on:
+  pull_request:
+    paths:
+      - 'src/Program.cs'
+      - 'extension/background.js'
+      - 'tests/**'
+      - '.github/workflows/download-regression.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/Program.cs'
+      - 'extension/background.js'
+      - 'tests/**'
+      - '.github/workflows/download-regression.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  extension-handoff:
+    name: Browser handoff regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: JavaScript syntax
+        run: node --check extension/background.js
+      - name: Simulated browser handoff cases
+        run: node tests/extension_intercept.test.cjs
+
+  windows-compile:
+    name: Compile Windows executable
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile FastDownloader with .NET Framework csc
+        shell: cmd
+        run: build.bat
+      - name: Check compiler output
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "FastDownloader.exe")) { throw "Build did not produce FastDownloader.exe" }
+          Write-Host "Windows executable successfully compiled."
