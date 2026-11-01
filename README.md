@@ -1,173 +1,149 @@
-# ⚡ FastDownloader Pro
-
 <div align="center">
-  <img src="ui/logo.png" alt="FastDownloader Pro Logo" width="128" />
-  <h3>High-Velocity, Multi-Stream Download Accelerator & Video Extractor for Windows</h3>
+
+  <img src=".github/assets/fastdownloader-hero.svg" width="100%" alt="FastDownloader Pro — your downloads, under control; Windows download manager with segmented transfers and browser integration" />
+
+  <h1>FastDownloader Pro</h1>
+  <p><strong>A modern, open-source download manager for Windows.</strong><br/>
+  Handle files, manage queues and capture supported downloads from your browser — without a cluttered workflow.</p>
+
   <p>
-    <b>16-Connection Parallel Turbo Chunks • Full Native Browser Interception • 4K/8K Video Stream Sniffer • Obsidian Glassmorphic Dashboard</b>
+    <a href="https://github.com/ZaxMil/fast-downloader/releases/latest/download/FastDownloader-Setup.exe"><img src="https://img.shields.io/badge/DOWNLOAD_FOR_WINDOWS-A8FCAA?style=for-the-badge&amp;labelColor=172733&amp;color=A8FCAA" alt="Download the Windows installer" /></a>
+    <a href="https://github.com/ZaxMil/fast-downloader/releases/latest"><img src="https://img.shields.io/badge/VIEW_LATEST_RELEASE-77BCFD?style=for-the-badge&amp;labelColor=172733&amp;color=77BCFD" alt="View latest GitHub release" /></a>
+    <a href="#-browser-companion"><img src="https://img.shields.io/badge/BROWSER_COMPANION-343F59?style=for-the-badge&amp;labelColor=172733&amp;color=343F59" alt="Browser companion setup instructions" /></a>
   </p>
+
   <p>
-    <a href="#-easy-1-click-installation"><img src="https://img.shields.io/badge/install-1--click-brightgreen?style=flat-square&logo=windows" alt="1-Click Install" /></a>
-    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License" /></a>
-    <a href="https://ko-fi.com/zaxmi"><img src="https://img.shields.io/badge/Ko--fi-Buy%20a%20Coffee-ff5e5b?style=flat-square&logo=kofi" alt="Ko-fi" /></a>
-    <img src="https://img.shields.io/badge/engines-aria2c%20%2B%20yt--dlp%20%2B%20ffmpeg-orange?style=flat-square" alt="Engines" />
-    <img src="https://img.shields.io/badge/connections-16%20Turbo%20Segments-purple?style=flat-square" alt="16 Segments" />
+    <a href="https://github.com/ZaxMil/fast-downloader/releases"><img src="https://img.shields.io/github/v/release/ZaxMil/fast-downloader?style=flat-square&amp;label=release" alt="Latest release version" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-5ACCA8?style=flat-square" alt="MIT license" /></a>
+    <img src="https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-5B98FF?style=flat-square" alt="Windows 10 and 11" />
+    <a href="https://github.com/ZaxMil/fast-downloader/stargazers"><img src="https://img.shields.io/github/stars/ZaxMil/fast-downloader?style=flat-square" alt="GitHub stars" /></a>
+  </p>
+
+  <p>
+    <a href="#-meet-fastdownloader">Overview</a> ·
+    <a href="#-get-started">Install</a> ·
+    <a href="#-browser-companion">Browser companion</a> ·
+    <a href="#-for-developers">Developers</a> ·
+    <a href="#-privacy--responsible-use">Privacy &amp; safety</a>
   </p>
 </div>
 
 ---
 
-## 🌟 Overview
+## ✨ Meet FastDownloader
 
-**FastDownloader Pro** is a modern, lightweight, and completely ad-free alternative to traditional Windows download managers (such as Internet Download Manager - IDM). Built for power users who want instant line-speed saturation without bloated bloatware, popup ads, or expired trial nags.
+**Download more comfortably. Manage everything in one place.**
 
-Combining an ultra-fast **16-connection `aria2c` multi-stream engine**, a dedicated **`yt-dlp` media sniffer**, and an **Obsidian glassmorphic dashboard** with live Canvas audio/network visualizers, FastDownloader saturates your full gigabit bandwidth and delivers peak downloading speeds.
-
----
-
-## 📸 Showcase & Visuals
+FastDownloader Pro combines a Windows desktop app, a visual download queue and an optional browser extension. It uses established third-party download tools rather than asking you to juggle separate interfaces.
 
 <div align="center">
-  <img src="ui/Preview%20UI.png" alt="FastDownloader Pro Dashboard Preview" width="880" style="border-radius: 12px; box-shadow: 0 16px 36px rgba(0,0,0,0.6);" />
-  <p><i>The Obsidian glassmorphic dashboard with live 60fps throughput waveform, 16-connection inspector, and queue management.</i></p>
+  <a href="ui/Preview%20UI.png">
+    <img src="ui/Preview%20UI.png" width="900" alt="Real screenshot of the FastDownloader Pro dashboard, including queue management and download controls" />
+  </a>
+  <p><sub>Actual application interface from this repository. Click to enlarge.</sub></p>
 </div>
 
----
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>⚡ Segmented downloads</h3>
+      Use parallel file segments where supported by the server. The <a href="https://github.com/ZaxMil/fast-downloader/releases/tag/v0.1.7">v0.1.7 release notes</a> describe up to <strong>32 connections</strong> and dynamic chunking.
+    </td>
+    <td width="50%" valign="top">
+      <h3>🗂️ An organized download queue</h3>
+      Pause and resume downloads, inspect progress, organize files, and control transfer limits from a single dashboard.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🌐 Optional browser companion</h3>
+      Chrome, Edge and Brave integration for download interception, link capture and supported media workflows.
+    </td>
+    <td width="50%" valign="top">
+      <h3>🎛️ A modern, bilingual interface</h3>
+      Dark/light appearance options, download management tools, and English/Arabic interface support.
+    </td>
+  </tr>
+</table>
 
-## 🚀 Key Features
+> **Speed depends on the source server, connection quality, and file.** Parallel connections are a feature — not a promise that every download will be faster. Media availability varies by website and access rights.
 
-- **⚡ 16-Segment Turbo Acceleration**: Slices large files into 16 concurrent HTTP/HTTPS chunks for up to **500% faster downloads**.
-- **🎯 Full Browser Integration**: Native companion extension for Chrome, Edge, and Brave with instant video sniffer and floating download widget.
-- **🎬 Universal Media Downloader**: One-click video extraction from YouTube, Facebook, TikTok, Instagram, Reddit, Twitter/X, and hundreds of sites.
-- **📊 Multi-Segment Inspector**: Real-time visual progress per connection chunk with connection speeds, byte ranges, and completion state.
-- **🌙 Smart Queue & Scheduler**: Toggle downloads between Main and Night queues with automated scheduling and speed limiter throttles.
-- **📂 Explorer Highlighting & Context Menus**: Full right-click menu system with instant file launch, Explorer `/select` folder highlighting, redownload, and link copying.
-- **🎨 Obsidian Dark & Light Themes**: Sleek hardware-accelerated GUI with multi-language support (English and Arabic with full RTL).
-- **🔒 Local-Only & Privacy First**: Zero ads, zero background telemetry, and zero telemetry collection.
+## 📥 Get started
 
----
+<details open>
+<summary><strong>Recommended — Windows installer</strong></summary>
 
-## ⚖️ Feature Comparison
+1. Download the latest **[FastDownloader-Setup.exe](https://github.com/ZaxMil/fast-downloader/releases/latest/download/FastDownloader-Setup.exe)** from the official GitHub release.
+2. Review the publisher information and Windows security prompts before running it.
+3. Follow the setup wizard. Launch FastDownloader from the Start menu or desktop shortcut when installation finishes.
 
-| Feature | FastDownloader Pro | IDM (Internet Download Manager) | Free Download Manager (FDM) |
-| :--- | :---: | :---: | :---: |
-| **Price & License** | **100% Free & Open Source (MIT)** | Paid License ($24.95/yr or Trial Nag) | Free / Closed-Source components |
-| **Advertisements** | **Zero Ads Forever** | Ad prompts & trial renewal modals | Promotional cards & bundle offers |
-| **Max Concurrent Chunks** | **16 Turbo Connections** | Up to 16 | Up to 10 |
-| **Social Video Extractor** | **Native yt-dlp + ffmpeg muxer** | Generic browser TS parser | Basic extractor |
-| **UI Aesthetics** | **Obsidian Glassmorphic + 60fps Canvas** | Windows 98/XP Legacy toolbar | Standard Electron UI |
-| **Bilingual RTL Support** | **English & Arabic (Full RTL)** | Partial Arabic | Partial Arabic |
-| **Resource Footprint** | **~25 MB RAM (Native C#)** | ~30 MB RAM | ~150-250 MB RAM (Electron) |
+**[See all releases and release notes →](https://github.com/ZaxMil/fast-downloader/releases)**
 
----
-
-## 📥 Easy Installation
-
-Choose your preferred way to install FastDownloader Pro:
-
-### 🚀 Method 1: One-File Setup Wizard (Recommended for Users)
-1. Download **`FastDownloader-Setup.exe`** from [Releases](https://github.com/ZaxMil/fast-downloader/releases).
-2. Double-click the installer to launch the guided **Setup Wizard**.
-3. Review the license agreement, select your destination folder, and let Setup automatically configure Desktop/Start Menu shortcuts and browser integration!
-   - *Includes full EULA, legal disclaimer, privacy policy, and native Windows Add/Remove Programs uninstaller support.*
-
----
-
-### 📦 Method 2: Ready-to-Run Portable Archive (Zero-Install)
-1. Download **[`FastDownloader-AllInOne.zip`](https://github.com/ZaxMil/fast-downloader/releases/latest/download/FastDownloader-AllInOne.zip)** from Releases.
-2. Extract to any folder.
-3. Launch **`FastDownloader.exe`** — all turbo engines (`aria2c`, `yt-dlp`) are already pre-bundled and configured.
-
----
-
-### ⚡ Method 3: 1-Second Turbo PowerShell Command
-Open Windows PowerShell and paste this single command:
-
-```powershell
-irm https://raw.githubusercontent.com/ZaxMil/fast-downloader/main/scripts/install.ps1 | iex
-```
-*✨ Automatically installs FastDownloader, fetches 16-channel turbo engines with parallel stream acceleration, creates Desktop + Start Menu shortcuts, registers browser integration, and launches instantly!*
-
----
-
-### 🧩 Method 3: 1-Click Browser Extension Setup
-To enable automatic download catching in your browser:
-1. Double-click **`install-extension.bat`** inside your FastDownloader folder.
-2. It auto-registers the Native Messaging Host for Edge, Chrome, and Brave, and opens your browser with the extension pre-loaded.
-3. (Or go to `edge://extensions` / `chrome://extensions`, enable **Developer mode**, and click **Load unpacked** pointing to `extension/`).
-
----
-
-<details>
-<summary><b>🛠️ Method 4: Build From Source (For Developers)</b></summary>
-<br />
-
-```cmd
-:: 1. Clone repository
-git clone https://github.com/ZaxMil/fast-downloader.git
-cd fast-downloader
-
-:: 2. Run 1-click builder & engine setup
-install.bat
-
-:: 3. Launch
-FastDownloader.exe
-```
 </details>
 
----
+<details>
+<summary><strong>Advanced — standalone executable</strong></summary>
 
-## 🏛️ Architecture
+The release also provides **[FastDownloader.exe](https://github.com/ZaxMil/fast-downloader/releases/latest/download/FastDownloader.exe)**. This is intended for users who know how to prepare the application's supporting tools and local integration. The installer is the easiest route for a first-time user.
 
+</details>
+
+### 🧩 Browser companion
+
+The extension is **optional** and requires the Windows app to be installed and running.
+
+1. Download **[fast-downloader-extension.zip](https://github.com/ZaxMil/fast-downloader/releases/latest/download/fast-downloader-extension.zip)** and extract it.
+2. Open your browser's extensions page (`chrome://extensions` or `edge://extensions`).
+3. Enable **Developer mode** and choose **Load unpacked**, selecting the extracted extension folder that contains `manifest.json`.
+4. For local app communication, follow the [native messaging setup instructions](install-extension.bat) included with this repository.
+
+The extension requests access to websites, downloads and cookies to perform its interception and media functions. **Read [the privacy policy](PRIVACY.md) and [its manifest](extension/manifest.json) before enabling it.** Do not grant permissions you are uncomfortable with.
+
+## 🔍 How it works
+
+| Component | Role | Source |
+| :--- | :--- | :--- |
+| **Windows application** | Manages downloads, transfer controls and local integration | [`src/Program.cs`](src/Program.cs) |
+| **Dashboard UI** | Download status, queue controls and themes | [`ui/`](ui/) |
+| **Browser companion** | Browser downloads, context menus and local messaging | [`extension/`](extension/) |
+| **Download engines** | Segmented transfers and supported media processing | [Third-party notices](THIRD_PARTY_NOTICES.md) |
+
+Under the hood, FastDownloader uses **C#**, **JavaScript**, and integration with **aria2**, **yt-dlp**, and **FFmpeg**. These tools have their **own licenses** and do not become MIT licensed simply because this repository is MIT licensed.
+
+## 🧑‍💻 For developers
+
+The source is available for inspection and contributions:
+
+```bash
+git clone https://github.com/ZaxMil/fast-downloader.git
+cd fast-downloader
 ```
-FastDownloader/
-├── FastDownloader.exe       # Native single-instance Windows GUI & Tray controller
-├── install.bat              # Fast 1-click installer & shortcut creator
-├── install-extension.bat    # 1-click browser extension setup
-├── package-release.bat      # Releases packager (All-In-One & Lite)
-├── app.ico                  # Hi-res application icon
-├── com.fastdownloader.app.json # Native Messaging Host configuration
-├── bin/                     # Turbo external engines
-│   ├── aria2c.exe           # 16-connection parallel chunk downloader
-│   ├── yt-dlp.exe           # Media sniffer & social video extractor
-│   └── ffmpeg.exe           # Lossless audio/video stream muxer
-├── ui/                      # Web dashboard SPA
-│   ├── index.html           # Obsidian dashboard with 60fps waveform
-│   └── logo.png             # Neon 3D brand logo
-├── extension/               # Manifest V3 browser companion
-│   ├── manifest.json
-│   ├── background.js        # Native messaging & URL capture worker
-│   ├── content.js           # Floating video grabber injector
-│   └── popup.html           # Compact 245px pocket dashboard
-└── scripts/
-    ├── install.ps1          # Remote 1-liner PowerShell installer
-    ├── setup-binaries.ps1   # 16-connection parallel engine setup
-    └── package-release.ps1  # Automated release zip packager
-```
+
+Review [`build.bat`](build.bat), [`install.bat`](install.bat) and the [installation scripts](scripts/) before running them. Building the Windows desktop program requires a compatible Windows/.NET development environment and any prerequisites used by the scripts.
+
+**[Contribution guide](CONTRIBUTING.md)** · **[Report a bug](https://github.com/ZaxMil/fast-downloader/issues/new/choose)** · **[Request a feature](https://github.com/ZaxMil/fast-downloader/issues/new/choose)**
+
+## 🛡️ Privacy & responsible use
+
+- The extension uses powerful browser permissions, including access to pages and cookies. Review [`PRIVACY.md`](PRIVACY.md) and [the manifest](extension/manifest.json).
+- Download only files or media you are authorized to access. Website restrictions, DRM and terms of service still apply; see the [disclaimer](DISCLAIMER.md).
+- Installer and executable files are provided through **GitHub Releases**. Verify their origin before running downloaded programs.
+- For security-sensitive reports, follow our [security reporting policy](SECURITY.md) rather than posting tokens or private information in a public issue.
+
+## ☕ Support the project
+
+FastDownloader Pro is available under the [MIT license](LICENSE). If it has been useful to you, [star the repository](https://github.com/ZaxMil/fast-downloader/stargazers), [report an issue](https://github.com/ZaxMil/fast-downloader/issues) or [support development on Ko-fi](https://ko-fi.com/zaxmi).
 
 ---
-
-## 💖 Support the Project & Fund Chrome Store Listing
-
-FastDownloader Pro is **100% free, open source, and privacy-respecting** — no ads, no trackers, and no paid feature gates.
-
-We are currently raising funds via **[Ko-fi](https://ko-fi.com/zaxmi)** to:
-1. **Cover Browser Store Developer Fees**: Publish the official companion extension to the **Chrome Web Store** ($5 registration) and **Microsoft Edge Add-ons** so users can install it with **1 single click** without enabling Developer Mode or manual unpacking.
-2. **Sustain Continuous Development**: Fund high-speed engine maintenance, video extractor fixes (Facebook, YouTube, TikTok, Instagram), and new feature additions.
 
 <div align="center">
-  <br />
-  <a href="https://ko-fi.com/zaxmi" target="_blank">
-    <img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support on Ko-fi" height="42" />
-  </a>
-  <br />
-  <p><b><a href="https://ko-fi.com/zaxmi">☕ Buy us a Coffee on Ko-fi (ko-fi.com/zaxmi)</a></b></p>
+  <h3>More control. Less download chaos.</h3>
+  <p>
+    <a href="https://github.com/ZaxMil/fast-downloader/releases/latest/download/FastDownloader-Setup.exe"><strong>Download FastDownloader Pro</strong></a>
+    &nbsp; · &nbsp;
+    <a href="https://github.com/ZaxMil/fast-downloader/releases"><strong>Release notes</strong></a>
+    &nbsp; · &nbsp;
+    <a href="https://github.com/ZaxMil/ZeroCoding"><strong>Built with ZeroCoding</strong></a>
+  </p>
+  <sub>Made by <a href="https://github.com/ZaxMil">ZaxMil</a> with AI-assisted workflows using <a href="https://github.com/ZaxMil/ZeroCoding">ZeroCoding</a>.</sub>
 </div>
-
----
-
-## ⚖️ Legal & Open Source Compliance
-
-- **Permissive License**: FastDownloader Pro is licensed under the [MIT License](LICENSE).
-- **Third-Party Engines**: Uses unmodified prebuilt versions of `aria2` (GPL-2.0+), `yt-dlp` (The Unlicense), and `FFmpeg` (LGPL/GPL). Full credits and source code links are provided in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-- **Authorized Use**: Intended solely for downloading files and media you have the legal authorization to download. See [DISCLAIMER.md](DISCLAIMER.md).
