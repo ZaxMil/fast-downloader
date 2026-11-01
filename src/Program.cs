@@ -1715,10 +1715,13 @@ namespace FastDownloader
                     break;
                 }
             }
-            catch (WebException)
+            catch (WebException ex)
             {
-                // Retry only when the engine has not accepted a task (connection/transport failure).
-                // The caller receives null if the engine never becomes ready.
+                // Do not retry timeouts: aria2 might have accepted the request before the
+                // response was lost. Retrying could silently enqueue the same file twice.
+                if (ex.Status != WebExceptionStatus.ConnectFailure &&
+                    ex.Status != WebExceptionStatus.NameResolutionFailure)
+                    break;
             }
             catch (Exception) { break; }
             if (attempt < 5) Thread.Sleep(350);
