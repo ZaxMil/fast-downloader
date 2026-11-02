@@ -1682,6 +1682,8 @@
     #downloadsTable.hide-col-speed th[data-col="speed"], #downloadsTable.hide-col-speed td[data-col="speed"],
     #downloadsTable.hide-col-eta th[data-col="eta"], #downloadsTable.hide-col-eta td[data-col="eta"],
     #downloadsTable.hide-col-status th[data-col="status"], #downloadsTable.hide-col-status td[data-col="status"],
+    #downloadsTable.hide-col-dateAdded th[data-col="dateAdded"], #downloadsTable.hide-col-dateAdded td[data-col="dateAdded"],
+    #downloadsTable.hide-col-dateFinished th[data-col="dateFinished"], #downloadsTable.hide-col-dateFinished td[data-col="dateFinished"],
     #downloadsTable.hide-col-actions th[data-col="actions"], #downloadsTable.hide-col-actions td[data-col="actions"] {
       display: none !important;
     }
@@ -1728,9 +1730,9 @@
       flex-shrink: 0;
     }
 
-    .file-meta {
-      overflow: hidden;
-    }
+    .file-cell { min-width: 0; }
+    .file-meta { min-width: 0; flex: 1 1 auto; overflow: hidden; }
+    #downloadsTable td[data-col="name"] { overflow: hidden; }
 
     .file-name {
       font-weight: 600;
@@ -2827,7 +2829,7 @@
               <th style="width:36px; min-width:36px; max-width:36px; text-align:center;">
                 <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this.checked)" title="Select all">
               </th>
-              <th data-col="name" data-min-width="160" style="min-width:160px;" onclick="handleHeaderClick(event, 'name')" oncontextmenu="handleHeaderContextMenu(event, 'name')">
+              <th data-col="name" data-min-width="220" style="width:280px; min-width:220px;" onclick="handleHeaderClick(event, 'name')" oncontextmenu="handleHeaderContextMenu(event, 'name')">
                 <div class="th-inner">
                   <span class="th-content" data-i18n="colFileName" title="Double-click to rename | Click to sort">File Name</span>
                   <span class="sort-icon" id="sort-name"></span>
@@ -4596,34 +4598,55 @@
     }
 
     function getColumnVisibility() {
-      const saved = localStorage.getItem('fast_col_visibility');
-      if (saved) {
-        try { return JSON.parse(saved); } catch(e) {}
-      }
-      return {
-        name: true,
-        queue: true,
-        size: true,
-        progress: true,
-        speed: true,
-        eta: true,
-        status: true,
-        actions: true
+      // Preserve user preferences; hide low-priority dates on a fresh install.
+      const defaults = {
+        name: true, queue: true, size: true, progress: true,
+        speed: true, eta: true, status: true,
+        dateAdded: false, dateFinished: false, actions: true
       };
+      try {
+        const saved = JSON.parse(localStorage.getItem('fast_col_visibility') || '{}');
+        if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+          DEFAULT_COLUMN_ORDER.forEach(col => {
+            if (typeof saved[col] === 'boolean') defaults[col] = saved[col];
+          });
+        }
+      } catch (error) {}
+      defaults.name = true; // Keep task identities readable.
+      return defaults;
+    }
+
+    function syncDownloadTableWidth() {
+      const table = document.getElementById('downloadsTable');
+      const container = document.querySelector('.table-container');
+      if (!table || !container) return;
+      const vis = getColumnVisibility();
+      let required = 36;
+      table.querySelectorAll('thead th[data-col]').forEach(th => {
+        const col = th.getAttribute('data-col');
+        if (vis[col] === false) return;
+        const minimum = Number(th.dataset.minWidth) || 75;
+        const configured = parseFloat(th.style.width);
+        required += Math.max(minimum, Number.isFinite(configured) ? configured : minimum);
+      });
+      // Preserve the filename and per-column widths even in narrow windows.
+      table.style.width = Math.ceil(Math.max(required, container.clientWidth || 0)) + 'px';
     }
 
     function applyColumnVisibility() {
       const table = document.getElementById('downloadsTable');
       if (!table) return;
       const vis = getColumnVisibility();
-      for (const col of Object.keys(vis)) {
-        table.classList.toggle('hide-col-' + col, !vis[col]);
-      }
+      DEFAULT_COLUMN_ORDER.forEach(col => {
+        table.classList.toggle('hide-col-' + col, vis[col] === false);
+      });
+      syncDownloadTableWidth();
     }
 
     function toggleColumnVisibility(colName, isVisible) {
+      if (!DEFAULT_COLUMN_ORDER.includes(colName) || colName === 'name') return;
       const vis = getColumnVisibility();
-      vis[colName] = isVisible;
+      vis[colName] = Boolean(isVisible);
       localStorage.setItem('fast_col_visibility', JSON.stringify(vis));
       applyColumnVisibility();
       renderColumnCustomizerList();
