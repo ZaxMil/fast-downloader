@@ -3554,7 +3554,7 @@ namespace FastDownloader
                             extensionOutdated = extOutdated,
                             autoCapture = engine.AutoCaptureEnabled,
                             appUpdateAvailable = updateManager != null && updateManager.AppUpdateAvailable,
-                            latestAppVersion = updateManager != null ? updateManager.LatestAppVersion : "0.1.0-beta",
+                            latestAppVersion = updateManager != null ? updateManager.LatestAppVersion : UpdateManager.CurrentAppVersion,
                             ytdlpVersion = updateManager != null ? updateManager.CachedYtDlpVersion : ""
                         };
                         string json = JsonHelper.Serialize(statusObj);
@@ -3656,6 +3656,11 @@ namespace FastDownloader
                             item["totalLength"] = totalLength;
                             item["completedLength"] = completedLength;
                             item["downloadSpeed"] = downloadSpeed;
+                            // Connection count must come from aria2, not a fixed marketing number.
+                            int liveConnections = 0;
+                            if (t.ContainsKey("connections") && t["connections"] != null)
+                                int.TryParse(t["connections"].ToString(), out liveConnections);
+                            item["connections"] = liveConnections;
                             item["progress"] = progress;
                             item["eta"] = eta;
                             item["status"] = status;
