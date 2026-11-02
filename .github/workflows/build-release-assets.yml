@@ -44,6 +44,8 @@ jobs:
           node --check extension/background.js
           node tests/extension_intercept.test.cjs
           if ($LASTEXITCODE -ne 0) { throw "Extension regression suite failed" }
+          node tests/table_columns.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw "Table regression suite failed" }
           node tests/disk_space.test.cjs
           if ($LASTEXITCODE -ne 0) { throw "Disk widget regression suite failed" }
 
@@ -112,13 +114,13 @@ jobs:
             '-ExtensionZip',$ext,'-UiZip',$ui,
             '-StatusFile',$statusFile,'-SkipRestart'
           )
-          & powershell.exe @argsCommon '-ExpectedVersion' '0.1.10'
+          & powershell.exe @argsCommon '-ExpectedVersion' '0.1.11'
           if ($LASTEXITCODE -ne 0) { throw 'Updater staging test failed' }
           $status = Get-Content $statusFile -Raw | ConvertFrom-Json
           if ($status.status -ne 'success') { throw "Updater did not report success: $($status.message)" }
           if ((Get-FileHash $targetExe).Hash -ne (Get-FileHash $newExe).Hash) { throw 'Executable was not updated' }
           $manifest = Get-Content (Join-Path $appDir 'extension/manifest.json') -Raw | ConvertFrom-Json
-          if ($manifest.version -ne '0.1.10') { throw 'Extension package was not applied' }
+          if ($manifest.version -ne '0.1.11') { throw 'Extension package was not applied' }
           if (-not (Test-Path (Join-Path $appDir 'ui/index.html'))) { throw 'UI package was not applied' }
 
           # Mismatched extension package must fail without overwriting an installed executable.
