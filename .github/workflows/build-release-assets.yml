@@ -124,7 +124,7 @@ jobs:
           if ($status.status -ne 'success') { throw "Updater did not report success: $($status.message)" }
           if ((Get-FileHash $targetExe).Hash -ne (Get-FileHash $newExe).Hash) { throw 'Executable was not updated' }
           $manifest = Get-Content (Join-Path $appDir 'extension/manifest.json') -Raw | ConvertFrom-Json
-          if ($manifest.version -ne '0.1.12') { throw 'Extension package was not applied' }
+          if ($manifest.version -ne '0.1.13') { throw 'Extension package was not applied' }
           if (-not (Test-Path (Join-Path $appDir 'ui/index.html'))) { throw 'UI package was not applied' }
 
           # Mismatched extension package must fail without overwriting an installed executable.
