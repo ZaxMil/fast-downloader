@@ -3603,7 +3603,7 @@
               <div>
                 <div style="font-weight:700; font-size:13px; color:var(--text-main); display:flex; align-items:center; gap:6px;">FastDownloader <span class="brand-pro-tag" style="font-size:9px;">PRO</span></div>
                 <div style="font-size:11px; color:var(--text-dim);">
-                  Installed: <strong id="appCurrentVerText" style="color:var(--text-main);">v0.1.8</strong> • Latest: <strong id="appLatestVerText" style="color:var(--emerald);">v0.1.8</strong>
+                  Installed: <strong id="appCurrentVerText" style="color:var(--text-main);">v0.1.9</strong> • Latest: <strong id="appLatestVerText" style="color:var(--emerald);">v0.1.9</strong>
                 </div>
               </div>
             </div>
@@ -7383,44 +7383,49 @@
 
     async function applyAppUpdate() {
       const btn = document.getElementById('btnApplyAppUpdate');
-      const previousVersion = (updateStatusCache && updateStatusCache.app && updateStatusCache.app.currentVersion) || '';
-      const targetVersion = (updateStatusCache && updateStatusCache.app && updateStatusCache.app.latestVersion) || '';
-      if (btn) { btn.disabled = true; btn.textContent = '⏳ Preparing update...'; }
-      logToUpdateConsole('[' + new Date().toLocaleTimeString() + '] Downloading official FastDownloader update...', true);
+      const reset = (message) => {
+        logToUpdateConsole('[Update] ' + message);
+        if (!btn) return;
+        btn.disabled = false;
+        btn.textContent = '⬇ Download Official Installer';
+        btn.onclick = () => window.open('https://github.com/ZaxMil/fast-downloader/releases/latest/download/FastDownloader-Setup.exe', '_blank', 'noopener');
+        showToast(message);
+      };
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Downloading & Verifying...'; }
+      logToUpdateConsole('[Update] Downloading and verifying release assets from GitHub...');
 
       try {
         const res = await fetch(API_BASE + '/api/update/app', { method: 'POST' });
-        const data = await res.json().catch(() => ({ ok: false, message: 'Updater returned no response' }));
-        if (!res.ok || data.ok !== true) throw new Error(data.message || 'Unable to start updater');
-        logToUpdateConsole('[Update] ' + data.message, true);
-        if (btn) btn.textContent = '⏳ Waiting for new version...';
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          return reset(data.message || 'Update failed before restart.');
+        }
+        const expected = String(data.targetVersion || '').replace(/^v/i, '');
+        if (!expected) return reset('Update version could not be verified.');
+        logToUpdateConsole('[Update] Assets verified. Waiting for restart to report v' + expected + '...');
+        if (btn) btn.textContent = '⏳ Restarting & Checking Version...';
 
-        // A healthy response from an OLD process is not a completed update.
-        let updated = false;
-        for (let attempt = 0; attempt < 35; attempt++) {
+        // An HTTP 200 from the old server is NOT proof that the update completed.
+        for (let attempt = 0; attempt < 90; attempt++) {
           await new Promise(resolve => setTimeout(resolve, 1000));
           try {
-            const checkRes = await fetch(API_BASE + '/api/update/status?_t=' + Date.now(), { cache: 'no-store' });
-            if (!checkRes.ok) continue;
-            const checkData = await checkRes.json();
-            const installed = checkData && checkData.app && checkData.app.currentVersion;
-            if (installed && installed !== previousVersion && (!targetVersion || installed === targetVersion)) {
-              updated = true;
-              logToUpdateConsole('[Success] Updated to v' + installed + ' and restarted successfully.', true);
-              showToast('FastDownloader updated to v' + installed);
+            const statusRes = await fetch(API_BASE + '/api/update/status?_t=' + Date.now(), { cache: 'no-store' });
+            if (!statusRes.ok) continue;
+            const state = await statusRes.json();
+            const installed = state && state.app && String(state.app.currentVersion || '');
+            if (installed === expected) {
+              logToUpdateConsole('[Success] FastDownloader v' + expected + ' is running.', true);
+              showToast('✅ FastDownloader v' + expected + ' updated successfully!');
               window.location.reload();
-              break;
+              return;
             }
-          } catch (error) {
-            // The local bridge will briefly disappear during shutdown.
+          } catch (_) {
+            // Brief network errors are normal while the desktop process exits.
           }
         }
-        if (!updated) throw new Error('Restart was not verified. Close FastDownloader from the tray and install the latest setup from GitHub Releases.');
+        reset('Automatic restart was not confirmed. Close the app from the tray and install the latest version manually.');
       } catch (err) {
-        logToUpdateConsole('[Error] ' + err.message);
-        showToast(err.message, true);
-      } finally {
-        if (btn) { btn.disabled = false; btn.textContent = '⚡ Install & Restart App Now'; }
+        reset('Update could not finish: ' + err.message);
       }
     }
 
