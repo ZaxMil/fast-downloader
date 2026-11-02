@@ -1424,38 +1424,38 @@ namespace FastDownloader
             lock (dateLock)
             {
                 TaskDateInfo info;
-                if (taskDates.TryGetValue(gid, out info))
+                bool isComplete = status == "complete" || status == "completed";
+                bool fileAvailable = !string.IsNullOrEmpty(filePath) && File.Exists(filePath);
+                if (!taskDates.TryGetValue(gid, out info))
                 {
-                    if ((status == "complete" || status == "completed") && string.IsNullOrEmpty(info.DateFinished))
-                    {
-                        info.DateFinished = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-                        SaveTaskDates();
-                    }
-                    return info;
+                    // Older tasks have no reliable enqueue timestamp. Use actual
+                    // file metadata where available, not the time of a UI poll.
+                    info = new TaskDateInfo { DateAdded = "", DateFinished = "" };
+                    taskDates[gid] = info;
                 }
 
-                // For older tasks not recorded at enqueue time, derive from actual
-                // file metadata if available. Never invent a historical timestamp.
-                string added = "";
-                string fin = "";
-                if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
+                bool changed = false;
+                if (fileAvailable)
                 {
                     try
                     {
-                        var fi = new FileInfo(filePath);
-                        added = fi.CreationTime.ToString("yyyy-MM-dd HH:mm:ss");
-                        if (status == "complete" || status == "completed")
+                        FileInfo fi = new FileInfo(filePath);
+                        if (string.IsNullOrEmpty(info.DateAdded))
                         {
-                            fin = fi.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss");
+                            info.DateAdded = fi.CreationTime.ToString("yyyy-MM-dd HH:mm:ss");
+                            changed = true;
+                        }
+                        if (isComplete && string.IsNullOrEmpty(info.DateFinished))
+                        {
+                            info.DateFinished = fi.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss");
+                            changed = true;
                         }
                     }
                     catch { }
                 }
-                }
-
-                info = new TaskDateInfo { DateAdded = added, DateFinished = fin };
-                taskDates[gid] = info;
-                SaveTaskDates();
+                // If there is no recorded completion and no verifiable file,
+                // keep the cell empty instead of showing a fabricated date.
+                if (changed) SaveTaskDates();
                 return info;
             }
         }
