@@ -586,7 +586,7 @@ namespace FastDownloader
                 {
                     try
                     {
-                        string extraArgs = "--print \"%(title)s---FD---%(ext)s---FD---%(filesize,filesize_approx)s\" --no-playlist --skip-download --no-warnings";
+                        string extraArgs = "--encoding utf-8 --print \"%(title)s---FD---%(ext)s---FD---%(filesize,filesize_approx)s\" --no-playlist --skip-download --no-warnings";
                         if (url.Contains("youtube.com") || url.Contains("youtu.be"))
                         {
                             extraArgs += " --extractor-args \"youtube:player_client=android,web\"";
@@ -608,6 +608,8 @@ namespace FastDownloader
                             UseShellExecute = false,
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
+                            StandardOutputEncoding = Encoding.UTF8,
+                            StandardErrorEncoding = Encoding.UTF8,
                             WindowStyle = ProcessWindowStyle.Hidden
                         };
 
@@ -2207,6 +2209,10 @@ namespace FastDownloader
             if (!string.IsNullOrEmpty(referer)) extraHeaders += " --referer \"" + referer.Replace("\"", "\\\"") + "\"";
             if (!string.IsNullOrEmpty(userAgent)) extraHeaders += " --user-agent \"" + userAgent.Replace("\"", "\\\"") + "\"";
 
+            // Preserve Unicode titles, but never use replacement characters from a malformed
+            // upstream/browser filename as the saved file's name.
+            if (!string.IsNullOrEmpty(customName) && customName.IndexOf('\uFFFD') >= 0)
+                customName = null;
             string initialName = !string.IsNullOrEmpty(customName) ? customName : ("Online Video: " + (url.Length > 45 ? url.Substring(0, 45) + "..." : url));
 
             string targetSaveDir = DownloadsFolder;
@@ -2451,7 +2457,9 @@ namespace FastDownloader
                 ProcessStartInfo psi = new ProcessStartInfo
                 {
                     FileName = ytExe,
-                    Arguments = string.Format("--ffmpeg-location \"{0}\" {1}{2} -o \"{3}\" --windows-filenames --downloader dash:native --downloader m3u8:native --downloader http:aria2c --downloader https:aria2c --downloader-args \"aria2c:-x 16 -s 16 -k 1M --disable-ipv6=true --async-dns-server=8.8.8.8,1.1.1.1 --summary-interval=1\" -P \"{4}\" -- \"{5}\"",
+                    // yt-dlp's native HTTP downloader is more reliable for Facebook's signed media links.
+                    // Nested aria2 handoff could stall at zero until manually restarted.
+                    Arguments = string.Format("--encoding utf-8 --retries 5 --fragment-retries 5 --socket-timeout 20 --ffmpeg-location \"{0}\" {1}{2} -o \"{3}\" --windows-filenames --downloader dash:native --downloader m3u8:native --downloader http:native --downloader https:native -P \"{4}\" -- \"{5}\"",
                         ffmpegDir, formatArg, extraHeaders, safeOutputTemplate, safeSaveDir, safeUrl),
                     CreateNoWindow = true,
                     UseShellExecute = false,
@@ -2581,7 +2589,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.8";
+        public const string CurrentAppVersion = "0.1.9";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
