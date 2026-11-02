@@ -3013,142 +3013,142 @@ namespace FastDownloader
             return res;
         }
 
+        private int updateInProgress = 0;
+
+        private static void VerifyReleaseHashes(string tag, Dictionary<string, string> files)
+        {
+            string releaseApi = "https://api.github.com/repos/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases/tags/" + tag;
+            Dictionary<string, object> release;
+            using (WebClient wc = new WebClient())
+            {
+                wc.Headers["User-Agent"] = "FastDownloader-App/" + CurrentAppVersion;
+                wc.Headers["Accept"] = "application/vnd.github+json";
+                release = JsonHelper.ParseDict(wc.DownloadString(releaseApi));
+            }
+            if (release == null || !release.ContainsKey("assets"))
+                throw new InvalidOperationException("Release assets could not be verified.");
+
+            var expected = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            System.Collections.IEnumerable entries = release["assets"] as System.Collections.IEnumerable;
+            if (entries == null) throw new InvalidOperationException("Release manifest is invalid.");
+            foreach (object item in entries)
+            {
+                Dictionary<string, object> asset = item as Dictionary<string, object>;
+                if (asset == null || !asset.ContainsKey("name") || !asset.ContainsKey("digest")) continue;
+                string name = Convert.ToString(asset["name"]);
+                string digest = Convert.ToString(asset["digest"]);
+                if (!string.IsNullOrEmpty(digest) && digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
+                    expected[name] = digest.Substring(7).Trim();
+            }
+
+            foreach (var file in files)
+            {
+                if (!expected.ContainsKey(file.Key))
+                    throw new InvalidOperationException("SHA-256 checksum is missing for " + file.Key);
+                string actual;
+                using (System.Security.Cryptography.SHA256 sha = System.Security.Cryptography.SHA256.Create())
+                using (FileStream stream = File.OpenRead(file.Value))
+                    actual = BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "");
+                if (!actual.Equals(expected[file.Key], StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("SHA-256 checksum mismatch: " + file.Key);
+            }
+        }
+
         public bool ApplyAppUpdate(out string msg)
         {
             msg = "";
+            if (Interlocked.CompareExchange(ref updateInProgress, 1, 0) != 0)
+            {
+                msg = "An update is already in progress.";
+                return false;
+            }
+
+            bool updaterStarted = false;
             try
             {
-                var check = CheckAppUpdate();
-                string url = !string.IsNullOrEmpty(check.downloadUrl) ? check.downloadUrl : AppDownloadUrl;
-                if (string.IsNullOrEmpty(url))
+                UpdateCheckResult check = CheckAppUpdate();
+                if (check == null || !check.hasUpdate)
                 {
-                    url = "https://github.com/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases/latest/download/FastDownloader.exe";
-                }
-                Uri checkUri;
-                if (!Uri.TryCreate(url, UriKind.Absolute, out checkUri) || checkUri.Scheme != "https" ||
-                    (!checkUri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
-                     !checkUri.Host.Equals("objects.githubusercontent.com", StringComparison.OrdinalIgnoreCase) &&
-                     !checkUri.Host.EndsWith(".github.com", StringComparison.OrdinalIgnoreCase)))
-                {
-                    msg = "Security check failed: untrusted update download host.";
+                    msg = "No newer official update is available.";
                     return false;
                 }
+                string version = check.latestVersion;
+                Version parsedVersion = ParseVersionSafe(version);
+                if (parsedVersion <= ParseVersionSafe(CurrentAppVersion))
+                    throw new InvalidOperationException("Update version must be newer than the installed version.");
 
-                string tempDir = Path.Combine(Path.GetTempPath(), "FastDownloader_Update");
-                if (!Directory.Exists(tempDir)) Directory.CreateDirectory(tempDir);
-                string newExe = Path.Combine(tempDir, "FastDownloader.exe");
-                string extZip = Path.Combine(tempDir, "extension.zip");
-                string uiZip = Path.Combine(tempDir, "ui.zip");
+                string tag = "v" + parsedVersion.ToString(3);
+                string releaseBase = "https://github.com/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases/download/" + tag + "/";
+                string tempDir = Path.Combine(Path.GetTempPath(), "FastDownloader_Update_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(tempDir);
 
+                var packages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { "FastDownloader.exe", Path.Combine(tempDir, "FastDownloader.exe") },
+                    { "fast-downloader-extension.zip", Path.Combine(tempDir, "extension.zip") },
+                    { "fast-downloader-ui.zip", Path.Combine(tempDir, "ui.zip") }
+                };
                 using (WebClient wc = new WebClient())
                 {
                     wc.Headers["User-Agent"] = "FastDownloader-App/" + CurrentAppVersion;
-                    wc.DownloadFile(url, newExe);
-                    try
-                    {
-                        string extUrl = "https://github.com/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases/latest/download/fast-downloader-extension.zip";
-                        wc.DownloadFile(extUrl, extZip);
-                    }
-                    catch { }
-                    try
-                    {
-                        string uiUrl = "https://github.com/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases/latest/download/fast-downloader-ui.zip";
-                        wc.DownloadFile(uiUrl, uiZip);
-                    }
-                    catch { }
+                    foreach (var package in packages)
+                        wc.DownloadFile(releaseBase + package.Key, package.Value);
                 }
+                VerifyReleaseHashes(tag, packages);
 
-                if (!File.Exists(newExe) || new FileInfo(newExe).Length < 50000)
+                string scriptPath = Path.Combine(tempDir, "apply-update.ps1");
+                using (Stream resource = Assembly.GetExecutingAssembly().GetManifestResourceStream("FastDownloader.updater.ps1"))
                 {
-                    msg = "Downloaded file appears invalid or incomplete.";
-                    return false;
+                    if (resource == null) throw new InvalidOperationException("Embedded update helper is missing.");
+                    using (StreamReader reader = new StreamReader(resource, Encoding.UTF8))
+                        File.WriteAllText(scriptPath, reader.ReadToEnd(), new UTF8Encoding(false));
                 }
 
                 string currentExe = Process.GetCurrentProcess().MainModule.FileName;
-                string appDir = engine != null ? engine.AppDir : Path.GetDirectoryName(currentExe);
-                string extTargetDir = Path.Combine(appDir, "extension");
-                string uiTargetDir = Path.Combine(appDir, "ui");
-                // A separate helper must wait until THIS app process exits before replacing the .exe.
-                // The previous unbounded batch loop could remain stuck and kill unrelated app instances.
-                string scriptPath = Path.Combine(tempDir, "apply_update.ps1");
-                string logPath = Path.Combine(tempDir, "apply_update.log");
-                string oldExe = Path.Combine(tempDir, "FastDownloader.backup.exe");
-                int oldPid = Process.GetCurrentProcess().Id;
-                Func<string, string> psLiteral = value => "'" + (value ?? "").Replace("'", "''") + "'";
-                string[] scriptLines = new string[]
-                {
-                    "$ErrorActionPreference = 'Stop'",
-                    "$oldPid = " + oldPid.ToString(),
-                    "$source = " + psLiteral(newExe),
-                    "$target = " + psLiteral(currentExe),
-                    "$backup = " + psLiteral(oldExe),
-                    "$extZip = " + psLiteral(extZip),
-                    "$uiZip = " + psLiteral(uiZip),
-                    "$extDir = " + psLiteral(extTargetDir),
-                    "$uiDir = " + psLiteral(uiTargetDir),
-                    "$appDir = " + psLiteral(appDir),
-                    "$log = " + psLiteral(logPath),
-                    "try {",
-                    "  Start-Sleep -Milliseconds 700",
-                    "  try { Wait-Process -Id $oldPid -Timeout 25 -ErrorAction Stop } catch {",
-                    "    if (Get-Process -Id $oldPid -ErrorAction SilentlyContinue) { throw 'Old FastDownloader process did not exit; close it before retrying.' }",
-                    "  }",
-                    "  Copy-Item -LiteralPath $target -Destination $backup -Force -ErrorAction Stop",
-                    "  $copied = $false",
-                    "  for ($attempt = 0; $attempt -lt 5 -and -not $copied; $attempt++) {",
-                    "    try {",
-                    "      Copy-Item -LiteralPath $source -Destination $target -Force -ErrorAction Stop",
-                    "      if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash) { throw 'Executable checksum mismatch' }",
-                    "      $copied = $true",
-                    "    } catch { if ($attempt -eq 4) { throw }; Start-Sleep -Seconds 1 }",
-                    "  }",
-                    "  if (Test-Path -LiteralPath $extZip) { Expand-Archive -LiteralPath $extZip -DestinationPath $extDir -Force -ErrorAction Stop }",
-                    "  if (Test-Path -LiteralPath $uiZip) { Expand-Archive -LiteralPath $uiZip -DestinationPath $uiDir -Force -ErrorAction Stop }",
-                    "  $proc = Start-Process -FilePath $target -WorkingDirectory $appDir -PassThru -ErrorAction Stop",
-                    "  Start-Sleep -Seconds 3",
-                    "  if ($proc.HasExited) { throw 'Updated FastDownloader exited immediately after launch' }",
-                    "  ('SUCCESS: Updated FastDownloader started, PID ' + $proc.Id) | Out-File -LiteralPath $log -Encoding UTF8",
-                    "  exit 0",
-                    "} catch {",
-                    "  ('FAILED: ' + $_.Exception.Message) | Out-File -LiteralPath $log -Encoding UTF8",
-                    "  if (Test-Path -LiteralPath $backup) {",
-                    "    try { Copy-Item -LiteralPath $backup -Destination $target -Force -ErrorAction Stop; 'Backup restored.' | Add-Content -LiteralPath $log } catch { ('Rollback failed: ' + $_.Exception.Message) | Add-Content -LiteralPath $log }",
-                    "  }",
-                    "  exit 1",
-                    "}"
-                };
-                File.WriteAllText(scriptPath, string.Join("\r\n", scriptLines), new UTF8Encoding(false));
-
+                string statusDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FastDownloader");
+                Directory.CreateDirectory(statusDir);
+                string statusFile = Path.Combine(statusDir, "last-update.json");
                 ProcessStartInfo psi = new ProcessStartInfo
                 {
                     FileName = "powershell.exe",
-                    Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" + scriptPath + "\"",
+                    Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + scriptPath +
+                        "\" -TargetPid " + Process.GetCurrentProcess().Id +
+                        " -TargetExe \"" + currentExe +
+                        "\" -NewExe \"" + packages["FastDownloader.exe"] +
+                        "\" -ExtensionZip \"" + packages["fast-downloader-extension.zip"] +
+                        "\" -UiZip \"" + packages["fast-downloader-ui.zip"] +
+                        "\" -ExpectedVersion \"" + version +
+                        "\" -StatusFile \"" + statusFile + "\"",
                     WorkingDirectory = tempDir,
                     CreateNoWindow = true,
-                    UseShellExecute = false
+                    UseShellExecute = false,
+                    WindowStyle = ProcessWindowStyle.Hidden
                 };
-                Process helper = Process.Start(psi);
-                if (helper == null)
-                {
-                    msg = "Could not start the update helper; please use the official setup installer.";
-                    return false;
-                }
 
-                // The HTTP bridge must return its response before the application exits.
-                // Never release a thread-owned mutex from a ThreadPool thread.
+                Process helper = Process.Start(psi);
+                if (helper == null) throw new InvalidOperationException("Could not launch update helper.");
+                updaterStarted = true;
+
+                // Send HTTP acknowledgement before exiting. Release the singleton mutex
+                // naturally on process exit; it is owned by the application thread.
                 ThreadPool.QueueUserWorkItem(_ =>
                 {
-                    Thread.Sleep(1800);
+                    Thread.Sleep(1100);
+                    try { if (engine != null) engine.StopAria2(); } catch { }
                     Environment.Exit(0);
                 });
 
-                msg = "Update downloaded; FastDownloader is closing and the updater will restart it. If this fails, see apply_update.log in your temporary FastDownloader_Update folder.";
+                msg = "Update " + version + " downloaded and SHA-256 verified; restart requested.";
                 return true;
             }
             catch (Exception ex)
             {
-                msg = "Failed to apply update: " + ex.Message;
+                msg = "Update could not start: " + ex.Message;
                 return false;
+            }
+            finally
+            {
+                if (!updaterStarted) Interlocked.Exchange(ref updateInProgress, 0);
             }
         }
 
