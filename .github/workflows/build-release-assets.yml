@@ -15,6 +15,14 @@ on:
       - 'installer.ico'
       - '.github/workflows/build-release-assets.yml'
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'extension/**'
+      - 'ui/**'
+      - 'scripts/**'
+      - 'build.bat'
+      - '.github/workflows/build-release-assets.yml'
 
 permissions:
   contents: read
@@ -80,6 +88,48 @@ jobs:
             finally { $archive.Dispose() }
           }
           Get-Item 'FastDownloader.exe','FastDownloader-Setup.exe','fast-downloader-extension.zip','fast-downloader-ui.zip' | Select-Object Name,Length
+
+      - name: Verify updater handoff and rollback safety
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $testRoot = Join-Path $env:RUNNER_TEMP 'updater-rehearsal'
+          $appDir = Join-Path $testRoot 'installed-app'
+          New-Item -ItemType Directory -Force -Path $appDir | Out-Null
+          $targetExe = Join-Path $appDir 'FastDownloader.exe'
+          'OLD_VERSION_BINARY' | Set-Content -Path $targetExe
+          $statusFile = Join-Path $testRoot 'status.json'
+          $helper = (Resolve-Path 'scripts/apply-update.ps1').Path
+          $newExe = (Resolve-Path 'FastDownloader.exe').Path
+          $ext = (Resolve-Path 'fast-downloader-extension.zip').Path
+          $ui = (Resolve-Path 'fast-downloader-ui.zip').Path
+          $argsCommon = @(
+            '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+            '-File',$helper,'-TargetPid','999999',
+            '-TargetExe',$targetExe,'-NewExe',$newExe,
+            '-ExtensionZip',$ext,'-UiZip',$ui,
+            '-StatusFile',$statusFile,'-SkipRestart'
+          )
+          & powershell.exe @argsCommon '-ExpectedVersion' '0.1.9'
+          if ($LASTEXITCODE -ne 0) { throw 'Updater staging test failed' }
+          $status = Get-Content $statusFile -Raw | ConvertFrom-Json
+          if ($status.status -ne 'success') { throw "Updater did not report success: $($status.message)" }
+          if ((Get-FileHash $targetExe).Hash -ne (Get-FileHash $newExe).Hash) { throw 'Executable was not updated' }
+          $manifest = Get-Content (Join-Path $appDir 'extension/manifest.json') -Raw | ConvertFrom-Json
+          if ($manifest.version -ne '0.1.9') { throw 'Extension package was not applied' }
+          if (-not (Test-Path (Join-Path $appDir 'ui/index.html'))) { throw 'UI package was not applied' }
+
+          # Mismatched extension package must fail without overwriting an installed executable.
+          $originalHash = (Get-FileHash $targetExe).Hash
+          & powershell.exe @argsCommon '-ExpectedVersion' '9.9.9'
+          if ($LASTEXITCODE -eq 0) { throw 'Updater accepted a mismatched extension version' }
+          $status = Get-Content $statusFile -Raw | ConvertFrom-Json
+          if ($status.status -ne 'failed') { throw 'Failed update did not produce a diagnostic status' }
+          if ((Get-FileHash $targetExe).Hash -ne $originalHash) { throw 'Failed update damaged installed executable' }
+
+          $resourceNames = [Reflection.Assembly]::LoadFile($newExe).GetManifestResourceNames()
+          if ($resourceNames -notcontains 'FastDownloader.updater.ps1') { throw 'External updater was not embedded in Windows app' }
+          Write-Host 'Updater staging, version rejection, and embedded resource verified.'
 
       - name: Upload release candidate (not published automatically)
         uses: actions/upload-artifact@v4
