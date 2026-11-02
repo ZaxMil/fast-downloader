@@ -2636,7 +2636,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.10";
+        public const string CurrentAppVersion = "0.1.11";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -3664,6 +3664,11 @@ namespace FastDownloader
                             item["isTorrent"] = isTorrent;
                             item["filePath"] = !string.IsNullOrEmpty(resolvedPath) ? resolvedPath.Replace('/', '\\') : "";
                             item["url"] = resolvedUrl;
+                            // These dates are already persisted by EngineManager, but were never
+                            // included in the response consumed by the Date Added/Finished columns.
+                            TaskDateInfo dates = engine.GetTaskDates(gid, resolvedPath, status);
+                            item["dateAdded"] = dates.DateAdded;
+                            item["dateFinished"] = dates.DateFinished;
                             unifiedList.Add(item);
                         }
 
@@ -3683,7 +3688,11 @@ namespace FastDownloader
                                 item["engine"] = "yt-dlp";
                                 item["url"] = yt.Url;
                                 string ytSaveDir = !string.IsNullOrEmpty(yt.SaveDir) ? yt.SaveDir : engine.DownloadsFolder;
-                                item["filePath"] = Path.Combine(ytSaveDir, yt.Name).Replace('/', '\\');
+                                string ytFilePath = Path.Combine(ytSaveDir, yt.Name);
+                                item["filePath"] = ytFilePath.Replace('/', '\\');
+                                TaskDateInfo ytDates = engine.GetTaskDates(yt.Gid, ytFilePath, yt.Status);
+                                item["dateAdded"] = ytDates.DateAdded;
+                                item["dateFinished"] = ytDates.DateFinished;
                             unifiedList.Insert(0, item);
                         }
 
