@@ -48,6 +48,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Table regression suite failed" }
           node tests/smart_updater.test.cjs
           if ($LASTEXITCODE -ne 0) { throw "Smart updater regression suite failed" }
+          node tests/dashboard_launch.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw "Dashboard launch regression suite failed" }
           node tests/disk_space.test.cjs
           if ($LASTEXITCODE -ne 0) { throw "Disk widget regression suite failed" }
 
