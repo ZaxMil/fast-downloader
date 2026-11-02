@@ -7507,7 +7507,11 @@
         const expected = String(reply.targetVersion || '').replace(/^v/i,'');
         if (!expected) throw new Error('Release version could not be confirmed');
         let lastStage = '';
-        for (let attempt = 0; attempt < 90; attempt++) {
+        let restartStarted = 0;
+        // Slow links should not be declared failed after only 90 seconds.
+        // The engine has its own bounded retries; allow up to 15 minutes for
+        // downloading, but keep the actual restart watchdog much shorter.
+        for (let attempt = 0; attempt < 900; attempt++) {
           await new Promise(resolve => setTimeout(resolve, 1000));
           try {
             const statusRes = await fetch(API_BASE + '/api/update/status?_t=' + Date.now(), {cache:'no-store'});
@@ -7521,6 +7525,10 @@
               logToUpdateConsole('[Update] ' + (stage.message || stage.status));
               lastStage = stage.status;
             }
+            if (['waiting','closing','installing','restarting'].includes(stage.status) && !restartStarted)
+              restartStarted = Date.now();
+            if (restartStarted && Date.now() - restartStarted > 85000)
+              throw new Error('Restart exceeded safe timeout. Use the official installer and check the update log.');
             if (installed === expected) {
               logToUpdateConsole('[Success] FastDownloader v' + expected + ' is running.', true);
               showToast('FastDownloader updated to v' + expected);
