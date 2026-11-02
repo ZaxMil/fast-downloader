@@ -7275,7 +7275,7 @@
         appCurrent.textContent = 'v' + app.currentVersion + ' (Beta)';
       }
       if (appLatest) {
-        appLatest.textContent = 'v' + (app.latestVersion || app.currentVersion || '0.1.8') + ' (Beta)';
+        appLatest.textContent = 'v' + (app.latestVersion || app.currentVersion || '0.1.9') + ' (Beta)';
       }
 
       if (app.updateAvailable) {
@@ -7383,38 +7383,43 @@
 
     async function applyAppUpdate() {
       const btn = document.getElementById('btnApplyAppUpdate');
-      if (btn) { btn.disabled = true; btn.textContent = '⏳ Downloading & Restarting...'; }
-      logToUpdateConsole(`[${new Date().toLocaleTimeString()}] Downloading FastDownloader Pro update from GitHub...`, true);
+      const previousVersion = (updateStatusCache && updateStatusCache.app && updateStatusCache.app.currentVersion) || '';
+      const targetVersion = (updateStatusCache && updateStatusCache.app && updateStatusCache.app.latestVersion) || '';
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Preparing update...'; }
+      logToUpdateConsole('[' + new Date().toLocaleTimeString() + '] Downloading official FastDownloader update...', true);
 
       try {
-        const res = await fetch(`${API_BASE}/api/update/app`, { method: 'POST' });
-        if (res.ok) {
-          const data = await res.json();
-          logToUpdateConsole(`[Success] ${data.message || 'App restarting...'}`, true);
-          showToast('⚡ Updating FastDownloader Pro... App will restart momentarily.');
-          let attempts = 0;
-          setTimeout(() => {
-            const pollTimer = setInterval(async () => {
-              attempts++;
-              try {
-                const checkRes = await fetch(`${API_BASE}/api/status?_t=${Date.now()}`);
-                if (checkRes.ok) {
-                  clearInterval(pollTimer);
-                  window.location.reload(true);
-                }
-              } catch (err) {}
-              if (attempts > 30) {
-                clearInterval(pollTimer);
-                window.location.reload(true);
-              }
-            }, 1000);
-          }, 3000);
-        } else {
-          logToUpdateConsole('[Error] Failed to initiate in-place update.');
-          if (btn) { btn.disabled = false; btn.textContent = '⚡ Install & Restart App Now'; }
+        const res = await fetch(API_BASE + '/api/update/app', { method: 'POST' });
+        const data = await res.json().catch(() => ({ ok: false, message: 'Updater returned no response' }));
+        if (!res.ok || data.ok !== true) throw new Error(data.message || 'Unable to start updater');
+        logToUpdateConsole('[Update] ' + data.message, true);
+        if (btn) btn.textContent = '⏳ Waiting for new version...';
+
+        // A healthy response from an OLD process is not a completed update.
+        let updated = false;
+        for (let attempt = 0; attempt < 35; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          try {
+            const checkRes = await fetch(API_BASE + '/api/update/status?_t=' + Date.now(), { cache: 'no-store' });
+            if (!checkRes.ok) continue;
+            const checkData = await checkRes.json();
+            const installed = checkData && checkData.app && checkData.app.currentVersion;
+            if (installed && installed !== previousVersion && (!targetVersion || installed === targetVersion)) {
+              updated = true;
+              logToUpdateConsole('[Success] Updated to v' + installed + ' and restarted successfully.', true);
+              showToast('FastDownloader updated to v' + installed);
+              window.location.reload();
+              break;
+            }
+          } catch (error) {
+            // The local bridge will briefly disappear during shutdown.
+          }
         }
+        if (!updated) throw new Error('Restart was not verified. Close FastDownloader from the tray and install the latest setup from GitHub Releases.');
       } catch (err) {
-        logToUpdateConsole(`[Error] ${err.message}`);
+        logToUpdateConsole('[Error] ' + err.message);
+        showToast(err.message, true);
+      } finally {
         if (btn) { btn.disabled = false; btn.textContent = '⚡ Install & Restart App Now'; }
       }
     }
