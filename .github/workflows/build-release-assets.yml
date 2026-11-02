@@ -144,13 +144,16 @@ jobs:
           if (-not $type) { throw 'DownloadDiskSpace is missing from Windows app' }
           $method = $type.GetMethod('GetStatus')
           $folder = Join-Path $env:RUNNER_TEMP 'downloads-test'
-          $metrics = $method.Invoke($null, @($folder))
+          $invokeArgs = [object[]]::new(1)
+          $invokeArgs[0] = [string]$folder
+          $metrics = $method.Invoke($null, $invokeArgs)
           if (-not $metrics['ok']) { throw 'DriveInfo failed to read the downloads volume' }
           $drive = [System.IO.DriveInfo]::new([System.IO.Path]::GetPathRoot($folder))
           if ($metrics['totalBytes'] -ne $drive.TotalSize) { throw 'Incorrect downloads disk capacity' }
           if ([Math]::Abs([double]$metrics['freeBytes'] - [double]$drive.AvailableFreeSpace) -gt 1073741824) { throw 'Incorrect downloads disk free space' }
           if ($metrics['usedPercent'] -lt 0 -or $metrics['usedPercent'] -gt 100) { throw 'Invalid disk usage percentage' }
-          $invalid = $method.Invoke($null, @([string]$null))
+          $invokeArgs[0] = [string]$null
+          $invalid = $method.Invoke($null, $invokeArgs)
           if ($invalid['ok']) { throw 'Invalid folder returned fabricated disk values' }
           Write-Host "Downloads volume $($metrics['drive']) has $($metrics['freeBytes']) bytes available."
 
