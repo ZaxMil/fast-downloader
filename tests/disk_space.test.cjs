@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const path = require("node:path");
 
-const html = fs.readFileSync(path.join(__dirname, "..", "ui", "index.html"), "utf8");
+const html = fs.readFileSync(path.join(__dirname, "..", "ui", "index.html"), "utf8").replace(/\r\n/g, "\n");
 const part = html.match(/    function formatDiskSize\(bytes\) \{[\s\S]*?    async function refreshDiskSpace\(\) \{[\s\S]*?\n    \}\n/);
 assert.ok(part, "Expected storage widget implementation exists");
 
