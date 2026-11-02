@@ -5487,7 +5487,7 @@
               ${queueLabel}
             </span>
           </td>`,
-          size: `<td data-col="size"><strong>${formatBytes(t.totalLength)}</strong></td>`,
+          size: `<td data-col="size"><strong>${t.totalLength > 0 ? formatBytes(t.totalLength) : (isDone && t.completedLength > 0 ? formatBytes(t.completedLength) : "—")}</strong></td>`,
           progress: `<td data-col="progress">
             <div class="progress-cell">
               <div class="progress-container">
