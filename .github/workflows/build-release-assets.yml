@@ -118,7 +118,7 @@ jobs:
             '-ExtensionZip',$ext,'-UiZip',$ui,
             '-StatusFile',$statusFile,'-SkipRestart'
           )
-          & powershell.exe @argsCommon '-ExpectedVersion' '0.1.12'
+          & powershell.exe @argsCommon '-ExpectedVersion' '0.1.13'
           if ($LASTEXITCODE -ne 0) { throw 'Updater staging test failed' }
           $status = Get-Content $statusFile -Raw | ConvertFrom-Json
           if ($status.status -ne 'success') { throw "Updater did not report success: $($status.message)" }
