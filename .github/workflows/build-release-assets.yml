@@ -1,0 +1,94 @@
+name: Build Windows release assets
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+    paths:
+      - 'src/**'
+      - 'extension/**'
+      - 'ui/**'
+      - 'scripts/**'
+      - 'build.bat'
+      - 'app.ico'
+      - 'installer.ico'
+      - '.github/workflows/build-release-assets.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build installer, app, browser extension and UI
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify browser interception regression cases
+        shell: pwsh
+        run: |
+          node --check extension/background.js
+          node tests/extension_intercept.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw "Extension regression suite failed" }
+
+      - name: Fetch official aria2 and yt-dlp engines for installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          New-Item -ItemType Directory -Force -Path 'bin' | Out-Null
+          $ariaZip = Join-Path $env:RUNNER_TEMP 'aria2.zip'
+          Invoke-WebRequest -Uri 'https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip' -OutFile $ariaZip
+          $ariaExtract = Join-Path $env:RUNNER_TEMP 'aria2-extracted'
+          Expand-Archive -Path $ariaZip -DestinationPath $ariaExtract -Force
+          $ariaExe = Get-ChildItem -Path $ariaExtract -Filter 'aria2c.exe' -Recurse -File | Select-Object -First 1
+          if (-not $ariaExe) { throw 'aria2c.exe was not found in upstream archive' }
+          Copy-Item $ariaExe.FullName 'bin/aria2c.exe' -Force
+
+          Invoke-WebRequest -Uri 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe' -OutFile 'bin/yt-dlp.exe'
+          foreach ($asset in @('bin/aria2c.exe', 'bin/yt-dlp.exe')) {
+            if (-not (Test-Path $asset) -or (Get-Item $asset).Length -lt 100000) { throw "Missing/invalid download engine: $asset" }
+            Write-Host "$asset verified"
+          }
+
+      - name: Build all four Windows release assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./scripts/package-all.ps1
+          if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "Packaging script failed" }
+          foreach ($asset in @('FastDownloader.exe', 'FastDownloader-Setup.exe', 'fast-downloader-extension.zip', 'fast-downloader-ui.zip')) {
+            if (-not (Test-Path $asset) -or (Get-Item $asset).Length -lt 50000) { throw "Missing/invalid release asset: $asset" }
+          }
+          if ((Get-Item 'FastDownloader-Setup.exe').Length -lt 1000000) { throw 'Installer payload unexpectedly small' }
+          $manifest = Get-Content 'extension/manifest.json' -Raw | ConvertFrom-Json
+          $appVersion = [regex]::Match((Get-Content 'src/Program.cs' -Raw), 'CurrentAppVersion = "([^"]+)"').Groups[1].Value
+          if ($manifest.version -ne $appVersion) { throw "App and extension versions do not match" }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          foreach ($a in @(@('fast-downloader-extension.zip', 'background.js'), @('fast-downloader-ui.zip', 'index.html'))) {
+            $archive = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $a[0]).Path)
+            try {
+              $names = @($archive.Entries | ForEach-Object { $_.FullName })
+              if ($names -notcontains $a[1]) { throw "Archive $($a[0]) does not include $($a[1])" }
+            }
+            finally { $archive.Dispose() }
+          }
+          Get-Item 'FastDownloader.exe','FastDownloader-Setup.exe','fast-downloader-extension.zip','fast-downloader-ui.zip' | Select-Object Name,Length
+
+      - name: Upload release candidate (not published automatically)
+        uses: actions/upload-artifact@v4
+        with:
+          name: fastdownloader-release-candidate
+          path: |
+            FastDownloader.exe
+            FastDownloader-Setup.exe
+            fast-downloader-extension.zip
+            fast-downloader-ui.zip
+          if-no-files-found: error
+          retention-days: 14
