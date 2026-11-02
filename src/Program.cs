@@ -586,7 +586,7 @@ namespace FastDownloader
                 {
                     try
                     {
-                        string extraArgs = "--print \"%(title)s---FD---%(ext)s---FD---%(filesize,filesize_approx)s\" --no-playlist --skip-download --no-warnings";
+                        string extraArgs = "--encoding utf-8 --print \"%(title)s---FD---%(ext)s---FD---%(filesize,filesize_approx)s\" --no-playlist --skip-download --no-warnings";
                         if (url.Contains("youtube.com") || url.Contains("youtu.be"))
                         {
                             extraArgs += " --extractor-args \"youtube:player_client=android,web\"";
@@ -608,6 +608,8 @@ namespace FastDownloader
                             UseShellExecute = false,
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
+                            StandardOutputEncoding = Encoding.UTF8,
+                            StandardErrorEncoding = Encoding.UTF8,
                             WindowStyle = ProcessWindowStyle.Hidden
                         };
 
@@ -1664,6 +1666,15 @@ namespace FastDownloader
                 options["split"] = "32";
                 options["max-connection-per-server"] = "16";
                 options["min-split-size"] = "1M";
+                // Facebook's short-lived CDN links are sensitive to high initial
+                // parallelism. Start conservatively to avoid 0-byte stalls.
+                if (url.IndexOf("fbcdn.net", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    url.IndexOf("facebook.com", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    options["split"] = "4";
+                    options["max-connection-per-server"] = "4";
+                    options["min-split-size"] = "4M";
+                }
                 options["pause"] = startNow ? "false" : "true";
                 if (!string.IsNullOrEmpty(filename))
                 {
@@ -1710,7 +1721,12 @@ namespace FastDownloader
                 {
                     var dict = JsonHelper.ParseDict(reader.ReadToEnd());
                     if (dict != null && dict.ContainsKey("result") && dict["result"] != null)
-                        return dict["result"].ToString();
+                    {
+                        string gid = dict["result"].ToString();
+                        if (startNow && !string.IsNullOrEmpty(gid))
+                            MonitorNewAriaDownload(gid);
+                        return gid;
+                    }
                     // An explicit RPC error is not a startup race; retrying it would hide a real problem.
                     break;
                 }
@@ -1727,6 +1743,39 @@ namespace FastDownloader
             if (attempt < 5) Thread.Sleep(350);
             }
             return null;
+        }
+
+        // One-time recovery for a genuinely stalled new aria2 transfer.
+        // If the remote server never sends the first byte, repeat the same
+        // pause/resume intervention that users previously had to do manually.
+        // Never touch paused, queued or already-progressing downloads.
+        private void MonitorNewAriaDownload(string gid)
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                Thread.Sleep(20000);
+                UnifiedTaskInfo state = GetTaskInfo(gid);
+                if (state == null || state.Engine != "aria2" ||
+                    state.Status != "active" || state.CompletedLength != 0 ||
+                    state.DownloadSpeed != 0) return;
+
+                Thread.Sleep(3000);
+                state = GetTaskInfo(gid);
+                if (state == null || state.Status != "active" ||
+                    state.CompletedLength != 0 || state.DownloadSpeed != 0) return;
+
+                try
+                {
+                    SendAriaAction("aria2.forcePause", gid);
+                    Thread.Sleep(1000);
+                    // Respect user intervention if the task was removed or completed.
+                    state = GetTaskInfo(gid);
+                    if (state == null || state.Status == "removed" ||
+                        state.Status == "complete" || state.Status == "error") return;
+                    SendAriaAction("aria2.unpause", gid);
+                }
+                catch { }
+            });
         }
 
         public List<Dictionary<string, object>> GetAriaTasks()
@@ -2166,7 +2215,7 @@ namespace FastDownloader
             string formatArg = "-S \"vcodec:h264,res,acodec:m4a\" -f \"hd/sd/b[vcodec^=avc1]/bv*[vcodec^=avc1]+ba[acodec^=mp4a]/b/bv*+ba/best\" --merge-output-format mp4";
             if (quality == "1080p") formatArg = "-S \"vcodec:h264,res:1080,acodec:m4a\" -f \"hd/b[height<=1080][vcodec^=avc1]/bv*[height<=1080][vcodec^=avc1]+ba/b[height<=1080]/bv*[height<=1080]+ba/best\" --merge-output-format mp4";
             else if (quality == "720p") formatArg = "-S \"vcodec:h264,res:720,acodec:m4a\" -f \"hd/b[height<=720][vcodec^=avc1]/bv*[height<=720][vcodec^=avc1]+ba/b[height<=720]/bv*[height<=720]+ba/best\" --merge-output-format mp4";
-            else if (quality == "480p") formatArg = "-S \"vcodec:h264,res:480,acodec:m4a\" -f \"sd/b[height<=480][vcodec^=avc1]/bv*[height<=480][vcodec^=avc1]+ba/b[height<=480]/bv*[height<=480]+ba/best\" --merge-output-format mp4";
+            else if (quality == "480p") formatArg = "-f \"bv*[height<=480]+ba/b[height<=480]/best[height<=480]\" --merge-output-format mp4";
             else if (quality == "audio") formatArg = "-x --audio-format mp3";
 
             string extraHeaders = "";
@@ -2207,6 +2256,10 @@ namespace FastDownloader
             if (!string.IsNullOrEmpty(referer)) extraHeaders += " --referer \"" + referer.Replace("\"", "\\\"") + "\"";
             if (!string.IsNullOrEmpty(userAgent)) extraHeaders += " --user-agent \"" + userAgent.Replace("\"", "\\\"") + "\"";
 
+            // Preserve Unicode titles, but never use replacement characters from a malformed
+            // upstream/browser filename as the saved file's name.
+            if (!string.IsNullOrEmpty(customName) && customName.IndexOf('\uFFFD') >= 0)
+                customName = null;
             string initialName = !string.IsNullOrEmpty(customName) ? customName : ("Online Video: " + (url.Length > 45 ? url.Substring(0, 45) + "..." : url));
 
             string targetSaveDir = DownloadsFolder;
@@ -2451,7 +2504,9 @@ namespace FastDownloader
                 ProcessStartInfo psi = new ProcessStartInfo
                 {
                     FileName = ytExe,
-                    Arguments = string.Format("--ffmpeg-location \"{0}\" {1}{2} -o \"{3}\" --windows-filenames --downloader dash:native --downloader m3u8:native --downloader http:aria2c --downloader https:aria2c --downloader-args \"aria2c:-x 16 -s 16 -k 1M --disable-ipv6=true --async-dns-server=8.8.8.8,1.1.1.1 --summary-interval=1\" -P \"{4}\" -- \"{5}\"",
+                    // yt-dlp's native HTTP downloader is more reliable for Facebook's signed media links.
+                    // Nested aria2 handoff could stall at zero until manually restarted.
+                    Arguments = string.Format("--encoding utf-8 --retries 5 --fragment-retries 5 --socket-timeout 20 --ffmpeg-location \"{0}\" {1}{2} -o \"{3}\" --windows-filenames --downloader dash:native --downloader m3u8:native --downloader http:native --downloader https:native -P \"{4}\" -- \"{5}\"",
                         ffmpegDir, formatArg, extraHeaders, safeOutputTemplate, safeSaveDir, safeUrl),
                     CreateNoWindow = true,
                     UseShellExecute = false,
@@ -2581,7 +2636,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.8";
+        public const string CurrentAppVersion = "0.1.9";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -3005,110 +3060,142 @@ namespace FastDownloader
             return res;
         }
 
+        private int updateInProgress = 0;
+
+        private static void VerifyReleaseHashes(string tag, Dictionary<string, string> files)
+        {
+            string releaseApi = "https://api.github.com/repos/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases/tags/" + tag;
+            Dictionary<string, object> release;
+            using (WebClient wc = new WebClient())
+            {
+                wc.Headers["User-Agent"] = "FastDownloader-App/" + CurrentAppVersion;
+                wc.Headers["Accept"] = "application/vnd.github+json";
+                release = JsonHelper.ParseDict(wc.DownloadString(releaseApi));
+            }
+            if (release == null || !release.ContainsKey("assets"))
+                throw new InvalidOperationException("Release assets could not be verified.");
+
+            var expected = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            System.Collections.IEnumerable entries = release["assets"] as System.Collections.IEnumerable;
+            if (entries == null) throw new InvalidOperationException("Release manifest is invalid.");
+            foreach (object item in entries)
+            {
+                Dictionary<string, object> asset = item as Dictionary<string, object>;
+                if (asset == null || !asset.ContainsKey("name") || !asset.ContainsKey("digest")) continue;
+                string name = Convert.ToString(asset["name"]);
+                string digest = Convert.ToString(asset["digest"]);
+                if (!string.IsNullOrEmpty(digest) && digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
+                    expected[name] = digest.Substring(7).Trim();
+            }
+
+            foreach (var file in files)
+            {
+                if (!expected.ContainsKey(file.Key))
+                    throw new InvalidOperationException("SHA-256 checksum is missing for " + file.Key);
+                string actual;
+                using (System.Security.Cryptography.SHA256 sha = System.Security.Cryptography.SHA256.Create())
+                using (FileStream stream = File.OpenRead(file.Value))
+                    actual = BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "");
+                if (!actual.Equals(expected[file.Key], StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("SHA-256 checksum mismatch: " + file.Key);
+            }
+        }
+
         public bool ApplyAppUpdate(out string msg)
         {
             msg = "";
+            if (Interlocked.CompareExchange(ref updateInProgress, 1, 0) != 0)
+            {
+                msg = "An update is already in progress.";
+                return false;
+            }
+
+            bool updaterStarted = false;
             try
             {
-                var check = CheckAppUpdate();
-                string url = !string.IsNullOrEmpty(check.downloadUrl) ? check.downloadUrl : AppDownloadUrl;
-                if (string.IsNullOrEmpty(url))
+                UpdateCheckResult check = CheckAppUpdate();
+                if (check == null || !check.hasUpdate)
                 {
-                    url = "https://github.com/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases/latest/download/FastDownloader.exe";
-                }
-                Uri checkUri;
-                if (!Uri.TryCreate(url, UriKind.Absolute, out checkUri) || checkUri.Scheme != "https" ||
-                    (!checkUri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
-                     !checkUri.Host.Equals("objects.githubusercontent.com", StringComparison.OrdinalIgnoreCase) &&
-                     !checkUri.Host.EndsWith(".github.com", StringComparison.OrdinalIgnoreCase)))
-                {
-                    msg = "Security check failed: untrusted update download host.";
+                    msg = "No newer official update is available.";
                     return false;
                 }
+                string version = check.latestVersion;
+                Version parsedVersion = ParseVersionSafe(version);
+                if (parsedVersion <= ParseVersionSafe(CurrentAppVersion))
+                    throw new InvalidOperationException("Update version must be newer than the installed version.");
 
-                string tempDir = Path.Combine(Path.GetTempPath(), "FastDownloader_Update");
-                if (!Directory.Exists(tempDir)) Directory.CreateDirectory(tempDir);
-                string newExe = Path.Combine(tempDir, "FastDownloader.exe");
-                string extZip = Path.Combine(tempDir, "extension.zip");
-                string uiZip = Path.Combine(tempDir, "ui.zip");
+                string tag = "v" + parsedVersion.ToString(3);
+                string releaseBase = "https://github.com/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases/download/" + tag + "/";
+                string tempDir = Path.Combine(Path.GetTempPath(), "FastDownloader_Update_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(tempDir);
 
+                var packages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { "FastDownloader.exe", Path.Combine(tempDir, "FastDownloader.exe") },
+                    { "fast-downloader-extension.zip", Path.Combine(tempDir, "extension.zip") },
+                    { "fast-downloader-ui.zip", Path.Combine(tempDir, "ui.zip") }
+                };
                 using (WebClient wc = new WebClient())
                 {
                     wc.Headers["User-Agent"] = "FastDownloader-App/" + CurrentAppVersion;
-                    wc.DownloadFile(url, newExe);
-                    try
-                    {
-                        string extUrl = "https://github.com/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases/latest/download/fast-downloader-extension.zip";
-                        wc.DownloadFile(extUrl, extZip);
-                    }
-                    catch { }
-                    try
-                    {
-                        string uiUrl = "https://github.com/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases/latest/download/fast-downloader-ui.zip";
-                        wc.DownloadFile(uiUrl, uiZip);
-                    }
-                    catch { }
+                    foreach (var package in packages)
+                        wc.DownloadFile(releaseBase + package.Key, package.Value);
                 }
+                VerifyReleaseHashes(tag, packages);
 
-                if (!File.Exists(newExe) || new FileInfo(newExe).Length < 50000)
+                string scriptPath = Path.Combine(tempDir, "apply-update.ps1");
+                using (Stream resource = Assembly.GetExecutingAssembly().GetManifestResourceStream("FastDownloader.updater.ps1"))
                 {
-                    msg = "Downloaded file appears invalid or incomplete.";
-                    return false;
+                    if (resource == null) throw new InvalidOperationException("Embedded update helper is missing.");
+                    using (StreamReader reader = new StreamReader(resource, Encoding.UTF8))
+                        File.WriteAllText(scriptPath, reader.ReadToEnd(), new UTF8Encoding(false));
                 }
 
                 string currentExe = Process.GetCurrentProcess().MainModule.FileName;
-                string appDir = engine != null ? engine.AppDir : Path.GetDirectoryName(currentExe);
-                string extTargetDir = Path.Combine(appDir, "extension");
-                string uiTargetDir = Path.Combine(appDir, "ui");
-                string batPath = Path.Combine(tempDir, "apply_update.bat");
-                string batScript =
-                    "@echo off\r\n" +
-                    "chcp 65001 > nul\r\n" +
-                    "ping 127.0.0.1 -n 2 > nul\r\n" +
-                    ":retry\r\n" +
-                    "copy /y \"" + newExe + "\" \"" + currentExe + "\" > nul 2>&1\r\n" +
-                    "if errorlevel 1 (\r\n" +
-                    "    taskkill /F /IM FastDownloader.exe > nul 2>&1\r\n" +
-                    "    ping 127.0.0.1 -n 2 > nul\r\n" +
-                    "    goto retry\r\n" +
-                    ")\r\n" +
-                    "if exist \"" + extZip + "\" (\r\n" +
-                    "    powershell -NoProfile -Command \"Expand-Archive -Path '" + extZip.Replace("'", "''") + "' -DestinationPath '" + extTargetDir.Replace("'", "''") + "' -Force\" > nul 2>&1\r\n" +
-                    ")\r\n" +
-                    "if exist \"" + uiZip + "\" (\r\n" +
-                    "    powershell -NoProfile -Command \"Expand-Archive -Path '" + uiZip.Replace("'", "''") + "' -DestinationPath '" + uiTargetDir.Replace("'", "''") + "' -Force\" > nul 2>&1\r\n" +
-                    ")\r\n" +
-                    "rmdir /s /q \"" + Path.Combine(appDir, ".app_profile", "Default", "Cache") + "\" > nul 2>&1\r\n" +
-                    "rmdir /s /q \"" + Path.Combine(appDir, ".app_profile", "Default", "Code Cache") + "\" > nul 2>&1\r\n" +
-                    "start \"\" /D \"" + appDir + "\" \"" + currentExe + "\"\r\n" +
-                    "del \"%~f0\"\r\n";
-
-                File.WriteAllText(batPath, batScript, Encoding.Default);
-
+                string statusDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FastDownloader");
+                Directory.CreateDirectory(statusDir);
+                string statusFile = Path.Combine(statusDir, "last-update.json");
                 ProcessStartInfo psi = new ProcessStartInfo
                 {
-                    FileName = "cmd.exe",
-                    Arguments = "/c \"" + batPath + "\"",
+                    FileName = "powershell.exe",
+                    Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + scriptPath +
+                        "\" -TargetPid " + Process.GetCurrentProcess().Id +
+                        " -TargetExe \"" + currentExe +
+                        "\" -NewExe \"" + packages["FastDownloader.exe"] +
+                        "\" -ExtensionZip \"" + packages["fast-downloader-extension.zip"] +
+                        "\" -UiZip \"" + packages["fast-downloader-ui.zip"] +
+                        "\" -ExpectedVersion \"" + version +
+                        "\" -StatusFile \"" + statusFile + "\"",
+                    WorkingDirectory = tempDir,
                     CreateNoWindow = true,
-                    UseShellExecute = false
+                    UseShellExecute = false,
+                    WindowStyle = ProcessWindowStyle.Hidden
                 };
-                Process.Start(psi);
 
+                Process helper = Process.Start(psi);
+                if (helper == null) throw new InvalidOperationException("Could not launch update helper.");
+                updaterStarted = true;
+
+                // Send HTTP acknowledgement before exiting. Release the singleton mutex
+                // naturally on process exit; it is owned by the application thread.
                 ThreadPool.QueueUserWorkItem(_ =>
                 {
+                    Thread.Sleep(1100);
                     try { if (engine != null) engine.StopAria2(); } catch { }
-                    Program.ReleaseSingleInstanceMutex();
-                    Thread.Sleep(300);
                     Environment.Exit(0);
                 });
 
-                msg = "FastDownloader is restarting with the updated version...";
+                msg = "Update " + version + " downloaded and SHA-256 verified; restart requested.";
                 return true;
             }
             catch (Exception ex)
             {
-                msg = "Failed to apply update: " + ex.Message;
+                msg = "Update could not start: " + ex.Message;
                 return false;
+            }
+            finally
+            {
+                if (!updaterStarted) Interlocked.Exchange(ref updateInProgress, 0);
             }
         }
 
@@ -4455,7 +4542,7 @@ namespace FastDownloader
                     {
                         string msg = "";
                         bool ok = updateManager != null && updateManager.ApplyAppUpdate(out msg);
-                        var respObj = new { ok = ok, message = msg };
+                        var respObj = new { ok = ok, message = msg, targetVersion = updateManager != null ? updateManager.LatestAppVersion : "" };
                         string json = JsonHelper.Serialize(respObj);
                         byte[] bytes = Encoding.UTF8.GetBytes(json);
                         SendHeaders(writer, 200, "OK", "application/json; charset=utf-8", bytes.Length);
@@ -5619,7 +5706,7 @@ namespace FastDownloader
                     engine.ResumeTask(gid);
                     isPaused = false;
                     btnPauseResume.Text = "⏸ Pause";
-                    lblStatus.Text = "⚡ Status: Downloading (16x Turbo)...";
+                    lblStatus.Text = "⚡ Status: Downloading...";
                     lblStatus.ForeColor = Color.FromArgb(16, 185, 129);
                 }
                 else
@@ -5715,7 +5802,7 @@ namespace FastDownloader
             {
                 isPaused = false;
                 btnPauseResume.Text = "⏸ Pause";
-                lblStatus.Text = "⚡ Status: Downloading (16x Turbo)...";
+                lblStatus.Text = "⚡ Status: Downloading...";
                 lblStatus.ForeColor = Color.FromArgb(16, 185, 129);
             }
 
