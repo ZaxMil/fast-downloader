@@ -1,0 +1,48 @@
+'use strict';
+const fs = require('fs');
+const vm = require('vm');
+const assert = require('assert').strict;
+const html = fs.readFileSync('ui/index.html','utf8').replace(/\r\n/g,'\n');
+const cs = fs.readFileSync('src/Program.cs','utf8');
+const ps = fs.readFileSync('scripts/apply-update.ps1','utf8');
+const start = html.indexOf('    function showInstallStage(install) {');
+const end = html.indexOf('    function updateHeaderUpdatePill(', start);
+assert(start !== -1 && end > start);
+const nodes = new Map();
+const doc = {getElementById(id) {
+  if (!nodes.has(id)) nodes.set(id, {
+    textContent:'', title:'', disabled:false,
+    style:{display:'none',width:'',color:''},
+    classList:{toggle(name,on){this[name]=on}}
+  });
+  return nodes.get(id);
+}};
+let headerState = null;
+const ctx = vm.createContext({document:doc, updateHeaderUpdatePill:(...args)=>{headerState=args;}, Number, Math});
+vm.runInContext(html.slice(start,end), ctx);
+const app = {currentVersion:'0.1.11',latestVersion:'0.1.12',updateAvailable:true,releaseNotes:'Reliability fixes'};
+ctx.applyUpdateStatusToUI({app, installation:{status:'downloading',message:'Downloading UI.zip',progress:55},ytdlp:{currentVersion:'2026.10.26',latestVersion:'2026.10.26',updateAvailable:false},settings:{}});
+assert.equal(nodes.get('updateProgressTrack').style.display,'block');
+assert.equal(nodes.get('updateProgressFill').style.width,'55%');
+assert.equal(nodes.get('btnApplyAppUpdate').disabled,true);
+assert.equal(nodes.get('btnUpdateYtdlp').disabled,true);
+assert.equal(nodes.get('btnUpdateYtdlp').textContent,'Up to date');
+assert.equal(nodes.get('appUpdateBadge').textContent,'Update available');
+ctx.applyUpdateStatusToUI({app,installation:{status:'failed',message:'Cannot close old process'},ytdlp:{currentVersion:'2026.10.26',latestVersion:'2026.11.01',updateAvailable:true},settings:{}});
+assert.equal(nodes.get('btnUpdateFallback').style.display,'block');
+assert.equal(nodes.get('btnApplyAppUpdate').disabled,false);
+assert.equal(nodes.get('btnUpdateYtdlp').disabled,false);
+assert.equal(nodes.get('btnUpdateYtdlp').classList['btn-primary'],true);
+assert.match(nodes.get('updateInstallState').textContent,/Cannot close old process/);
+ctx.applyUpdateStatusToUI({app:{currentVersion:'0.1.12',latestVersion:'0.1.12',updateAvailable:false},installation:{status:'success',message:'Installed v0.1.12'},ytdlp:{currentVersion:'2026.11.01',latestVersion:'2026.11.01',updateAvailable:false},settings:{}});
+assert.equal(nodes.get('appUpdateBadge').textContent,'Up to date');
+assert.equal(nodes.get('appUpdateDetails').style.display,'none');
+assert.equal(nodes.get('btnUpdateYtdlp').disabled,true);
+assert(cs.includes('DownloadAssetWithResume('),'Updater must resume downloads');
+assert(cs.includes('VerifyReleaseHashes(tag, packages)'),'Updater must verify SHA256');
+assert(cs.includes('QueueAppUpdate(out string message)'),'HTTP updater should not block for file transfers');
+assert(cs.includes('dict["installation"] = ReadInstallStatus()'),'UI needs helper status after restart');
+assert(ps.includes('Stop-Process -Id $TargetPid -Force'),'Updater may terminate only the verified hung parent');
+assert(ps.includes('[IO.Path]::GetFullPath($actualPath)'),'Verify process path before force stopping');
+assert(!ps.includes('Get-Process FastDownloader | Stop-Process'),'Never terminate all processes by name');
+console.log('PASS: smart updater state, progress, failure/fallback, yt-dlp button, resume/hash, scoped restart');
