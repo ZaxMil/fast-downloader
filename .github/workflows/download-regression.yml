@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'src/Program.cs'
+      - 'ui/index.html'
       - 'extension/background.js'
       - 'tests/**'
       - '.github/workflows/download-regression.yml'
@@ -11,6 +12,7 @@ on:
     branches: [main]
     paths:
       - 'src/Program.cs'
+      - 'ui/index.html'
       - 'extension/background.js'
       - 'tests/**'
       - '.github/workflows/download-regression.yml'
@@ -31,6 +33,8 @@ jobs:
         run: node --check extension/background.js
       - name: Simulated browser handoff cases
         run: node tests/extension_intercept.test.cjs
+      - name: Table configuration and live data
+        run: node tests/table_columns.test.cjs
 
   windows-compile:
     name: Compile Windows executable
