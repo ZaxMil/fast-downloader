@@ -57,7 +57,7 @@ if (-not (Test-Path $Aria2Dest)) {
     $AriaUrl = "https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip"
     
     $webClient.DownloadFile($AriaUrl, $AriaZip)
-    $ok = Extract-SingleFileFromZip $AriaZip "aria2c.exe" $AriaDest
+    $ok = Extract-SingleFileFromZip $AriaZip "aria2c.exe" $Aria2Dest
     Remove-Item $AriaZip -Force -ErrorAction SilentlyContinue
     
     if ($ok) {
