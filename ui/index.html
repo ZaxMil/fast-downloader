@@ -3607,7 +3607,7 @@
               <div>
                 <div style="font-weight:700; font-size:13px; color:var(--text-main); display:flex; align-items:center; gap:6px;">FastDownloader <span class="brand-pro-tag" style="font-size:9px;">PRO</span></div>
                 <div style="font-size:11px; color:var(--text-dim);">
-                  Installed: <strong id="appCurrentVerText" style="color:var(--text-main);">v0.1.11</strong> • Latest: <strong id="appLatestVerText" style="color:var(--emerald);">v0.1.10</strong>
+                  Installed: <strong id="appCurrentVerText" style="color:var(--text-main);">v0.1.12</strong> • Latest: <strong id="appLatestVerText" style="color:var(--emerald);">v0.1.12</strong>
                 </div>
               </div>
             </div>
@@ -3618,6 +3618,11 @@
           <div id="appUpdateDetails" style="display:none; margin-top:8px; padding:8px 10px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25); border-radius:6px;">
             <div style="font-size:11.5px; font-weight:700; color:#F59E0B; margin-bottom:4px;">🎉 New Release Available!</div>
             <div id="appReleaseNotesText" style="font-size:11px; color:var(--text-muted); max-height:60px; overflow-y:auto; line-height:1.4; white-space:pre-wrap; margin-bottom:6px;"></div>
+            <div id="updateInstallState" style="display:none; font-size:11px; margin:6px 0; color:var(--text-muted);" role="status" aria-live="polite"></div>
+            <div id="updateProgressTrack" style="display:none; height:6px; background:var(--border-subtle); border-radius:4px; overflow:hidden; margin-bottom:5px;">
+              <div id="updateProgressFill" style="height:100%; width:0%; background:var(--emerald); transition:width .2s;"></div>
+            </div>
+            <button class="btn" id="btnUpdateFallback" onclick="openExternalUrl('https://github.com/ZaxMil/fast-downloader/releases/latest/download/FastDownloader-Setup.exe')" style="display:none; width:100%; font-size:11px; margin-top:5px;">Download official installer</button>
             <button class="btn btn-primary" id="btnApplyAppUpdate" onclick="applyAppUpdate()" style="width:100%; font-size:11.5px; font-weight:700; background:#10B981; padding:5px 10px;">
               ⚡ Install & Restart App Now
             </button>
@@ -3635,8 +3640,8 @@
             <div style="font-size:11px; color:var(--text-muted);">
               Version: <strong id="ytdlpVerText" style="color:var(--text-main);">Checking…</strong>
             </div>
-            <button class="btn btn-sm btn-primary" id="btnUpdateYtdlp" onclick="updateEngine('ytdlp')" style="width:100%; font-size:11px; padding:3px 8px;">
-              ⚡ Update yt-dlp
+            <button class="btn btn-sm btn-primary" id="btnUpdateYtdlp" onclick="updateEngine('ytdlp')" disabled style="width:100%; font-size:11px; padding:3px 8px;">
+              Check updates first
             </button>
           </div>
 
@@ -3644,7 +3649,7 @@
           <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:8px; padding:8px 10px; display:flex; flex-direction:column; justify-content:space-between; gap:6px;">
             <div style="display:flex; align-items:center; justify-content:space-between;">
               <span style="font-weight:700; font-size:12px; color:var(--text-main);">🚀 aria2c Core</span>
-              <span style="font-size:9px; padding:1px 5px; border-radius:6px; background:rgba(16,185,129,0.15); color:var(--emerald); font-weight:700;">32x Turbo</span>
+              <span style="font-size:9px; padding:1px 5px; border-radius:6px; background:rgba(16,185,129,0.15); color:var(--emerald); font-weight:700;">Installed engine</span>
             </div>
             <div style="font-size:11px; color:var(--text-muted);">
               Version: <strong id="aria2VerText" style="color:var(--text-main);">Checking…</strong>
@@ -3690,8 +3695,8 @@
           <button class="btn btn-primary" id="btnCheckAllUpdates" onclick="checkAllUpdates()" style="font-size:11px; padding:4px 10px;">
             🔄 Check Updates
           </button>
-          <button class="btn" onclick="updateEngine('all')" style="font-size:11px; padding:4px 10px;">
-            ⚡ Update Engines
+          <button class="btn" onclick="checkAllUpdates()" style="font-size:11px; padding:4px 10px;">
+            Check Engines
           </button>
           <button class="btn" id="btnRestartApp" onclick="restartApp()" style="font-size:11px; padding:4px 10px;" title="Restart FastDownloader Pro">
             🔁 Restart App
@@ -7374,68 +7379,72 @@
       }
     }
 
+    function showInstallStage(install) {
+      const state = document.getElementById('updateInstallState');
+      const track = document.getElementById('updateProgressTrack');
+      const fill = document.getElementById('updateProgressFill');
+      const fallback = document.getElementById('btnUpdateFallback');
+      const stage = install && String(install.status || 'idle').toLowerCase();
+      const active = ['checking','downloading','verifying','verified','waiting','closing','installing','restarting'].includes(stage);
+      if (state) {
+        state.style.display = active || stage === 'failed' || stage === 'success' ? 'block' : 'none';
+        state.textContent = (stage === 'failed' ? 'Update failed: ' : '') + (install && install.message || '');
+        state.style.color = stage === 'failed' ? 'var(--rose)' : 'var(--text-muted)';
+      }
+      if (track) track.style.display = active && stage === 'downloading' ? 'block' : 'none';
+      if (fill) fill.style.width = Math.max(0, Math.min(100, Number(install && install.progress) || 0)) + '%';
+      if (fallback) fallback.style.display = stage === 'failed' ? 'block' : 'none';
+      return active;
+    }
+
     function applyUpdateStatusToUI(data) {
       if (!data) return;
-
-      // 1. App status
       const app = data.app || {};
       const appCurrent = document.getElementById('appCurrentVerText');
       const appLatest = document.getElementById('appLatestVerText');
       const appBadge = document.getElementById('appUpdateBadge');
       const appDetails = document.getElementById('appUpdateDetails');
       const appNotes = document.getElementById('appReleaseNotesText');
-
-      if (appCurrent && app.currentVersion) {
-        appCurrent.textContent = 'v' + app.currentVersion + ' (Beta)';
-      }
-      if (appLatest) {
-        appLatest.textContent = 'v' + (app.latestVersion || app.currentVersion || '0.1.11') + ' (Beta)';
-      }
-
+      const appButton = document.getElementById('btnApplyAppUpdate');
+      if (appCurrent) appCurrent.textContent = 'v' + (app.currentVersion || 'Unknown');
+      if (appLatest) appLatest.textContent = 'v' + (app.latestVersion || app.currentVersion || 'Unknown');
+      const inProgress = showInstallStage(data.installation);
       if (app.updateAvailable) {
-        if (appBadge) {
-          appBadge.textContent = '✨ Update Available';
-          appBadge.style.background = 'rgba(245, 158, 11, 0.2)';
-          appBadge.style.color = '#F59E0B';
-          appBadge.style.borderColor = 'rgba(245, 158, 11, 0.4)';
-        }
+        if (appBadge) { appBadge.textContent = 'Update available'; appBadge.style.color = '#F59E0B'; }
         if (appDetails) appDetails.style.display = 'block';
-        if (appNotes) appNotes.textContent = app.releaseNotes || 'Bug fixes, performance boosts, and updated video stream extractors.';
-        
+        if (appNotes) appNotes.textContent = app.releaseNotes || 'Read the official release notes on GitHub.';
         updateHeaderUpdatePill(true, app.latestVersion);
       } else {
-        if (appBadge) {
-          appBadge.textContent = 'Up to date';
-          appBadge.style.background = 'rgba(16, 185, 129, 0.15)';
-          appBadge.style.color = 'var(--emerald)';
-          appBadge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
-        }
-        if (appDetails) appDetails.style.display = 'none';
+        if (appBadge) { appBadge.textContent = 'Up to date'; appBadge.style.color = 'var(--emerald)'; }
+        if (appDetails) appDetails.style.display = inProgress ? 'block' : 'none';
         updateHeaderUpdatePill(false);
       }
-
-      // 2. Engines
+      if (appButton) {
+        appButton.disabled = inProgress || !app.updateAvailable;
+        appButton.textContent = inProgress ? 'Updating — progress shown above' : 'Install & Restart App';
+      }
       const yt = data.ytdlp || {};
+      const ytButton = document.getElementById('btnUpdateYtdlp');
       const ytdlpVer = document.getElementById('ytdlpVerText');
       if (ytdlpVer) ytdlpVer.textContent = yt.currentVersion || 'Unknown';
-
-      const ar = data.aria2 || {};
-      const ariaVer = document.getElementById('aria2VerText');
-      if (ariaVer) ariaVer.textContent = ar.currentVersion || 'Unknown';
-
-      // 3. Automation Settings
-      const s = data.settings || {};
-      const chkEng = document.getElementById('chkAutoUpdateEngines');
-      const chkApp = document.getElementById('chkAutoUpdateApp');
-      const chkNot = document.getElementById('chkNotifyOnUpdate');
-      if (chkEng && typeof s.autoUpdateEngines === 'boolean') chkEng.checked = s.autoUpdateEngines;
-      if (chkApp && typeof s.autoUpdateApp === 'boolean') chkApp.checked = s.autoUpdateApp;
-      if (chkNot && typeof s.notifyOnUpdate === 'boolean') chkNot.checked = s.notifyOnUpdate;
-
-      const lastLbl = document.getElementById('updateLastCheckLabel');
-      if (lastLbl && s.lastCheck) {
-        lastLbl.textContent = 'Last auto-check: ' + new Date(s.lastCheck).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (ytButton) {
+        const available = yt.updateAvailable === true;
+        const busy = yt.isUpdating === true;
+        ytButton.disabled = !available || busy;
+        ytButton.classList.toggle('btn-primary', available && !busy);
+        ytButton.textContent = busy ? 'Updating yt-dlp…' : available ? 'Update to ' + yt.latestVersion :
+          yt.latestVersion ? 'Up to date' : 'Check updates first';
+        ytButton.title = yt.latestVersion ? 'Upstream: ' + yt.latestVersion : 'Check Updates to compare with upstream';
       }
+      const ariaVer = document.getElementById('aria2VerText');
+      if (ariaVer) ariaVer.textContent = (data.aria2 && data.aria2.currentVersion) || 'Unknown';
+      const settings = data.settings || {};
+      for (const [id, key] of [['chkAutoUpdateEngines','autoUpdateEngines'],['chkAutoUpdateApp','autoUpdateApp'],['chkNotifyOnUpdate','notifyOnUpdate']]) {
+        const input = document.getElementById(id);
+        if (input && typeof settings[key] === 'boolean') input.checked = settings[key];
+      }
+      const lastLbl = document.getElementById('updateLastCheckLabel');
+      if (lastLbl && settings.lastCheck) lastLbl.textContent = 'Last auto-check: ' + new Date(settings.lastCheck).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
     }
 
     function updateHeaderUpdatePill(hasUpdate, latestVer = '') {
@@ -7465,81 +7474,85 @@
     }
 
     async function updateEngine(engineName) {
-      logToUpdateConsole(`[${new Date().toLocaleTimeString()}] Triggering update for engine: ${engineName}...`);
-      try {
-        const btn = engineName === 'ytdlp' ? document.getElementById('btnUpdateYtdlp') : null;
-        if (btn) { btn.disabled = true; btn.textContent = '⏳ Updating...'; }
-
-        const res = await fetch(`${API_BASE}/api/update/engine`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ engine: engineName })
-        });
-
-        if (res.ok) {
-          const result = await res.json();
-          if (result.logs && Array.isArray(result.logs)) {
-            result.logs.forEach(l => logToUpdateConsole(l));
-          }
-          logToUpdateConsole(`[Result] ${result.message || 'Completed.'}`, true);
-          showToast(`⚡ ${result.message || 'Engine update completed.'}`);
-          await refreshUpdateStatus(false);
-        } else {
-          logToUpdateConsole(`[Error] Engine update returned status ${res.status}`);
-        }
-      } catch (err) {
-        logToUpdateConsole(`[Error] Failed to execute engine update: ${err.message}`);
-      } finally {
-        const btn = engineName === 'ytdlp' ? document.getElementById('btnUpdateYtdlp') : null;
-        if (btn) { btn.disabled = false; btn.textContent = '⚡ Update yt-dlp'; }
+      if (engineName === 'ytdlp' && !(updateStatusCache && updateStatusCache.ytdlp && updateStatusCache.ytdlp.updateAvailable)) {
+        logToUpdateConsole('[Info] yt-dlp has no confirmed newer release. Click Check Updates first.');
+        return;
       }
+      const btn = engineName === 'ytdlp' ? document.getElementById('btnUpdateYtdlp') : null;
+      if (btn) { btn.disabled = true; btn.textContent = 'Updating yt-dlp…'; }
+      try {
+        const res = await fetch(API_BASE + '/api/update/engine', {
+          method: 'POST', headers: {'Content-Type':'application/json'}, body:JSON.stringify({engine:engineName})
+        });
+        const result = await res.json();
+        if (result.logs && Array.isArray(result.logs)) result.logs.forEach(line => logToUpdateConsole(line));
+        if (!res.ok || !result.ok) throw new Error(result.message || 'Engine update failed');
+        logToUpdateConsole(result.message || 'Engine check complete.', true);
+        await refreshUpdateStatus(true);
+      } catch (err) {
+        logToUpdateConsole('[Error] ' + err.message);
+        showToast(err.message);
+      } finally { await refreshUpdateStatus(false); }
     }
 
     async function applyAppUpdate() {
       const btn = document.getElementById('btnApplyAppUpdate');
-      const reset = (message) => {
-        logToUpdateConsole('[Update] ' + message);
-        if (!btn) return;
-        btn.disabled = false;
-        btn.textContent = '⬇ Download Official Installer';
-        btn.onclick = () => window.open('https://github.com/ZaxMil/fast-downloader/releases/latest/download/FastDownloader-Setup.exe', '_blank', 'noopener');
-        showToast(message);
-      };
-      if (btn) { btn.disabled = true; btn.textContent = '⏳ Downloading & Verifying...'; }
-      logToUpdateConsole('[Update] Downloading and verifying release assets from GitHub...');
-
+      if (btn && btn.disabled) return;
+      if (btn) { btn.disabled = true; btn.textContent = 'Preparing…'; }
+      logToUpdateConsole('[Update] Starting background download with retries and SHA-256 checks…');
       try {
-        const res = await fetch(API_BASE + '/api/update/app', { method: 'POST' });
-        const data = await res.json();
-        if (!res.ok || !data.ok) {
-          return reset(data.message || 'Update failed before restart.');
-        }
-        const expected = String(data.targetVersion || '').replace(/^v/i, '');
-        if (!expected) return reset('Update version could not be verified.');
-        logToUpdateConsole('[Update] Assets verified. Waiting for restart to report v' + expected + '...');
-        if (btn) btn.textContent = '⏳ Restarting & Checking Version...';
-
-        // An HTTP 200 from the old server is NOT proof that the update completed.
-        for (let attempt = 0; attempt < 90; attempt++) {
+        const res = await fetch(API_BASE + '/api/update/app', {method:'POST'});
+        const reply = await res.json();
+        if (!res.ok || !reply.ok) throw new Error(reply.message || 'Update could not start');
+        const expected = String(reply.targetVersion || '').replace(/^v/i,'');
+        if (!expected) throw new Error('Release version could not be confirmed');
+        let lastStage = '';
+        let restartStarted = 0;
+        // Slow links should not be declared failed after only 90 seconds.
+        // The engine has its own bounded retries; allow up to 15 minutes for
+        // downloading, but keep the actual restart watchdog much shorter.
+        for (let attempt = 0; attempt < 900; attempt++) {
           await new Promise(resolve => setTimeout(resolve, 1000));
           try {
-            const statusRes = await fetch(API_BASE + '/api/update/status?_t=' + Date.now(), { cache: 'no-store' });
+            const statusRes = await fetch(API_BASE + '/api/update/status?_t=' + Date.now(), {cache:'no-store'});
             if (!statusRes.ok) continue;
-            const state = await statusRes.json();
-            const installed = state && state.app && String(state.app.currentVersion || '');
+            const status = await statusRes.json();
+            updateStatusCache = status;
+            applyUpdateStatusToUI(status);
+            const installed = String(status.app && status.app.currentVersion || '').replace(/^v/i,'');
+            const stage = status.installation || {};
+            if (stage.status && stage.status !== lastStage) {
+              logToUpdateConsole('[Update] ' + (stage.message || stage.status));
+              lastStage = stage.status;
+            }
+            if (['waiting','closing','installing','restarting'].includes(stage.status) && !restartStarted)
+              restartStarted = Date.now();
+            if (restartStarted && Date.now() - restartStarted > 85000)
+              throw new Error('Restart exceeded safe timeout. Use the official installer and check the update log.');
             if (installed === expected) {
               logToUpdateConsole('[Success] FastDownloader v' + expected + ' is running.', true);
-              showToast('✅ FastDownloader v' + expected + ' updated successfully!');
+              showToast('FastDownloader updated to v' + expected);
               window.location.reload();
               return;
             }
-          } catch (_) {
-            // Brief network errors are normal while the desktop process exits.
+            if (stage.status === 'failed' && (!stage.expectedVersion || stage.expectedVersion === expected)) {
+              throw new Error(stage.message || 'The update helper could not finish');
+            }
+          } catch (err) {
+            // Connection drops are normal during restart, but an explicit helper
+            // failure is a terminal error and must be shown immediately.
+            if (err instanceof Error && (err.message.includes('update helper') || err.message.includes('failed') || err.message.includes('Unable') || err.message.includes('did not'))) throw err;
           }
         }
-        reset('Automatic restart was not confirmed. Close the app from the tray and install the latest version manually.');
+        throw new Error('Restart not confirmed. Use the official installer. Details: %LOCALAPPDATA%/FastDownloader/last-update.json');
       } catch (err) {
-        reset('Update could not finish: ' + err.message);
+        logToUpdateConsole('[Error] ' + err.message);
+        const fallback = document.getElementById('btnUpdateFallback');
+        if (fallback) fallback.style.display = 'block';
+        const state = document.getElementById('updateInstallState');
+        if (state) { state.style.display='block'; state.style.color='var(--rose)'; state.textContent=err.message; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Retry update'; }
+        showToast(err.message);
       }
     }
 

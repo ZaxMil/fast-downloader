@@ -57,10 +57,35 @@ function Restore-OldVersion {
 }
 try {
     Status 'waiting' 'Waiting for the old application process to close'
-    $deadline = [DateTime]::UtcNow.AddSeconds(35)
-    while (Get-Process -Id $TargetPid -ErrorAction SilentlyContinue) {
-        if ([DateTime]::UtcNow -ge $deadline) { throw "The running application did not exit within 35 seconds. Please close it from the system tray and use the installer." }
-        Start-Sleep -Milliseconds 350
+    # An old hung GUI/tray process can hold the executable open forever.
+    # Wait for graceful shutdown, then terminate ONLY the exact original PID
+    # after verifying its executable path (never kill all FastDownloader processes).
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while ($true) {
+        $old = Get-Process -Id $TargetPid -ErrorAction SilentlyContinue
+        if (-not $old) { break }
+        if ([DateTime]::UtcNow -ge $deadline) {
+            if ($SkipRestart) { throw 'Test-mode process is still running' }
+            $actualPath = try { $old.Path } catch { $null }
+            if (-not $actualPath -or -not [string]::Equals([IO.Path]::GetFullPath($actualPath), [IO.Path]::GetFullPath($TargetExe), [StringComparison]::OrdinalIgnoreCase)) {
+                throw 'Original PID does not match the expected executable. Refusing to terminate an unrelated process.'
+            }
+            Status 'closing' 'The old app did not exit; closing its verified process to finish the update'
+            try { [void]$old.CloseMainWindow() } catch {}
+            Start-Sleep -Seconds 2
+            $old = Get-Process -Id $TargetPid -ErrorAction SilentlyContinue
+            if ($old) {
+                $actualPath = try { $old.Path } catch { $null }
+                if (-not $actualPath -or -not [string]::Equals([IO.Path]::GetFullPath($actualPath), [IO.Path]::GetFullPath($TargetExe), [StringComparison]::OrdinalIgnoreCase)) {
+                    throw 'Process identity changed while waiting. Refusing to force close it.'
+                }
+                Stop-Process -Id $TargetPid -Force -ErrorAction Stop
+                Start-Sleep -Seconds 1
+            }
+            if (Get-Process -Id $TargetPid -ErrorAction SilentlyContinue) { throw 'Old app still running after a targeted close. Use the installer.' }
+            break
+        }
+        Start-Sleep -Milliseconds 300
     }
     if (-not (Test-Path $NewExe) -or (Get-Item $NewExe).Length -lt 50000) { throw 'Missing or incomplete application executable.' }
     foreach ($zip in @($ExtensionZip, $UiZip)) {

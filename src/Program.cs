@@ -2637,7 +2637,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.11";
+        public const string CurrentAppVersion = "0.1.12";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -2655,6 +2655,151 @@ namespace FastDownloader
         public string CachedYtDlpVersion { get; private set; }
         public string CachedAria2Version { get; private set; }
         public bool IsYtDlpUpdating { get; private set; }
+        private string latestYtDlpUpstream = "";
+        private DateTime lastYtDlpCheck = DateTime.MinValue;
+        private int updateRequestQueued = 0;
+        private readonly object installStatusLock = new object();
+        private string InstallStatusFile
+        {
+            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FastDownloader", "last-update.json"); }
+        }
+
+        private void WriteInstallStatus(string state, string message, string targetVersion = "", int percent = -1)
+        {
+            lock (installStatusLock)
+            {
+                try
+                {
+                    string path = InstallStatusFile;
+                    Directory.CreateDirectory(Path.GetDirectoryName(path));
+                    var data = new Dictionary<string, object> {
+                        { "status", state }, { "message", message },
+                        { "expectedVersion", targetVersion }, { "progress", percent },
+                        { "timestamp", DateTime.UtcNow.ToString("o") }
+                    };
+                    string temp = path + ".writing";
+                    File.WriteAllText(temp, JsonHelper.Serialize(data), new UTF8Encoding(false));
+                    File.Copy(temp, path, true);
+                    File.Delete(temp);
+                }
+                catch { /* The helper also maintains status; never fail an install solely on telemetry. */ }
+            }
+        }
+
+        private Dictionary<string, object> ReadInstallStatus()
+        {
+            try {
+                if (File.Exists(InstallStatusFile)) return JsonHelper.ParseDict(File.ReadAllText(InstallStatusFile));
+            } catch { }
+            return new Dictionary<string, object> { { "status", "idle" }, { "message", "" } };
+        }
+
+        // The HTTP request acknowledges immediately. Downloading and hash verification
+        // happen on a worker, not on the bridge thread or in a blocked browser tab.
+        public bool QueueAppUpdate(out string message)
+        {
+            if (Interlocked.CompareExchange(ref updateRequestQueued, 1, 0) != 0)
+            {
+                message = "An update is already being prepared.";
+                return false;
+            }
+            WriteInstallStatus("checking", "Checking official release and preparing download", LatestAppVersion);
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    string detail;
+                    if (!ApplyAppUpdate(out detail))
+                        WriteInstallStatus("failed", detail, LatestAppVersion);
+                }
+                catch (Exception ex) { WriteInstallStatus("failed", ex.Message, LatestAppVersion); }
+                finally { Interlocked.Exchange(ref updateRequestQueued, 0); }
+            });
+            message = "Update started. Follow the progress in the Updates window.";
+            return true;
+        }
+
+        public void CheckYtDlpUpstream(bool force = false)
+        {
+            if (!force && (DateTime.UtcNow - lastYtDlpCheck).TotalMinutes < 30) return;
+            lastYtDlpCheck = DateTime.UtcNow;
+            try
+            {
+                using (WebClient wc = new WebClient())
+                {
+                    wc.Headers["User-Agent"] = "FastDownloader-App/" + CurrentAppVersion;
+                    wc.Headers["Accept"] = "application/vnd.github+json";
+                    var info = JsonHelper.ParseDict(wc.DownloadString("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"));
+                    string tag = info != null && info.ContainsKey("tag_name") ? Convert.ToString(info["tag_name"]) : "";
+                    if (ParseVersionSafe(tag) > new Version(0, 0, 0)) latestYtDlpUpstream = tag.TrimStart('v', 'V');
+                }
+            }
+            catch { /* Display 'Check updates' instead of claiming current when the network is down. */ }
+        }
+
+        private void DownloadAssetWithResume(string url, string path, string targetVersion, int completedFiles, int totalFiles)
+        {
+            string part = path + ".part";
+            Exception lastError = null;
+            for (int attempt = 0; attempt < 4; attempt++)
+            {
+                try
+                {
+                    long offset = File.Exists(part) ? new FileInfo(part).Length : 0;
+                    HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
+                    req.UserAgent = "FastDownloader-App/" + CurrentAppVersion;
+                    req.AllowAutoRedirect = true;
+                    req.Timeout = 20000;
+                    req.ReadWriteTimeout = 20000;
+                    if (offset > 0) req.AddRange(offset);
+                    using (HttpWebResponse response = (HttpWebResponse)req.GetResponse())
+                    {
+                        bool partial = response.StatusCode == HttpStatusCode.PartialContent;
+                        if (partial && offset == 0) throw new IOException("Unexpected partial response without a range request.");
+                        bool append = offset > 0 && partial;
+                        long expected = response.ContentLength >= 0 ? response.ContentLength + (append ? offset : 0) : -1;
+                        long written = append ? offset : 0;
+                        DateTime lastReport = DateTime.MinValue;
+                        using (FileStream output = new FileStream(part, append ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None))
+                        using (Stream input = response.GetResponseStream())
+                        {
+                            byte[] buffer = new byte[65536];
+                            int count;
+                            while ((count = input.Read(buffer, 0, buffer.Length)) > 0)
+                            {
+                                output.Write(buffer, 0, count);
+                                written += count;
+                                if ((DateTime.UtcNow - lastReport).TotalMilliseconds >= 400)
+                                {
+                                    int withinFile = expected > 0 ? (int)Math.Min(100, 100L * written / expected) : 0;
+                                    int overall = (100 * completedFiles + withinFile) / totalFiles;
+                                    WriteInstallStatus("downloading", "Downloading " + Path.GetFileName(path) + " (" + withinFile + "%)", targetVersion, overall);
+                                    lastReport = DateTime.UtcNow;
+                                }
+                            }
+                        }
+                        if (expected > 0 && written != expected) throw new IOException("Download ended early (" + written + "/" + expected + " bytes)");
+                        if (written < 500) throw new IOException("Invalid or empty official release asset.");
+                    }
+                    if (File.Exists(path)) File.Delete(path);
+                    File.Move(part, path);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    lastError = ex;
+                    // 416 means a partial file cannot be resumed. Start again safely.
+                    WebException webError = ex as WebException;
+                    HttpWebResponse badResponse = webError != null ? webError.Response as HttpWebResponse : null;
+                    if (badResponse != null && badResponse.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
+                    { try { if (File.Exists(part)) File.Delete(part); } catch { } }
+                    WriteInstallStatus("downloading", "Retrying " + Path.GetFileName(path) + " (attempt " + (attempt + 1) + "/4)", targetVersion);
+                    if (attempt < 3) Thread.Sleep(900 * (attempt + 1));
+                }
+            }
+            throw new IOException("Unable to download " + Path.GetFileName(path) + " after 4 attempts", lastError);
+        }
+
 
         public UpdateManager(EngineManager engine, Action<string> onNotification)
         {
@@ -2767,7 +2912,7 @@ namespace FastDownloader
                 }
             }
             catch { }
-            return "2026.10.21";
+            return "Unknown";
         }
 
         public string GetAria2Version()
@@ -2796,7 +2941,7 @@ namespace FastDownloader
                 }
             }
             catch { }
-            return "1.37.0";
+            return "Unknown";
         }
 
         public class UpdateCheckResult
@@ -2930,6 +3075,17 @@ namespace FastDownloader
 
         public EngineUpdateResult UpdateYtDlp(bool force)
         {
+            CheckYtDlpUpstream(force);
+            string current = GetYtDlpVersion();
+            if (string.IsNullOrEmpty(latestYtDlpUpstream) ||
+                (current != "Not Installed" && ParseVersionSafe(latestYtDlpUpstream) <= ParseVersionSafe(current)))
+                return new EngineUpdateResult {
+                    ok = true, updated = false, engine = "yt-dlp", currentVersion = current,
+                    latestVersion = latestYtDlpUpstream,
+                    message = string.IsNullOrEmpty(latestYtDlpUpstream)
+                        ? "Upstream version unavailable; no update was attempted."
+                        : "yt-dlp is already up to date (" + current + ")."
+                };
             return UpdateYtDlpInternal(false);
         }
 
@@ -3054,10 +3210,10 @@ namespace FastDownloader
                 latestVersion = "1.37.0",
                 ok = true,
                 updated = false,
-                message = "aria2c core " + GetAria2Version() + " is optimal and up to date."
+                message = "Installed aria2 version: " + GetAria2Version() + ". Use the official engine tools for upgrades."
             };
             res.logs.Add("[" + DateTime.Now.ToString("HH:mm:ss") + "] aria2c version: " + res.currentVersion);
-            res.logs.Add("[" + DateTime.Now.ToString("HH:mm:ss") + "] aria2c 16-chunk parallel core is operational.");
+            res.logs.Add("[" + DateTime.Now.ToString("HH:mm:ss") + "] Checked local aria2 version.");
             return res;
         }
 
@@ -3102,7 +3258,7 @@ namespace FastDownloader
             }
         }
 
-        public bool ApplyAppUpdate(out string msg)
+        private bool ApplyAppUpdate(out string msg)
         {
             msg = "";
             if (Interlocked.CompareExchange(ref updateInProgress, 1, 0) != 0)
@@ -3121,6 +3277,7 @@ namespace FastDownloader
                     return false;
                 }
                 string version = check.latestVersion;
+                WriteInstallStatus("downloading", "Downloading official release assets", version, 0);
                 Version parsedVersion = ParseVersionSafe(version);
                 if (parsedVersion <= ParseVersionSafe(CurrentAppVersion))
                     throw new InvalidOperationException("Update version must be newer than the installed version.");
@@ -3136,13 +3293,15 @@ namespace FastDownloader
                     { "fast-downloader-extension.zip", Path.Combine(tempDir, "extension.zip") },
                     { "fast-downloader-ui.zip", Path.Combine(tempDir, "ui.zip") }
                 };
-                using (WebClient wc = new WebClient())
+                int index = 0;
+                foreach (var package in packages)
                 {
-                    wc.Headers["User-Agent"] = "FastDownloader-App/" + CurrentAppVersion;
-                    foreach (var package in packages)
-                        wc.DownloadFile(releaseBase + package.Key, package.Value);
+                    DownloadAssetWithResume(releaseBase + package.Key, package.Value, version, index, packages.Count);
+                    index++;
                 }
+                WriteInstallStatus("verifying", "Verifying SHA-256 checksums for all update files", version, 100);
                 VerifyReleaseHashes(tag, packages);
+                WriteInstallStatus("verified", "All assets verified. Preparing safe restart", version, 100);
 
                 string scriptPath = Path.Combine(tempDir, "apply-update.ps1");
                 using (Stream resource = Assembly.GetExecutingAssembly().GetManifestResourceStream("FastDownloader.updater.ps1"))
@@ -3153,9 +3312,7 @@ namespace FastDownloader
                 }
 
                 string currentExe = Process.GetCurrentProcess().MainModule.FileName;
-                string statusDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FastDownloader");
-                Directory.CreateDirectory(statusDir);
-                string statusFile = Path.Combine(statusDir, "last-update.json");
+                string statusFile = InstallStatusFile;
                 ProcessStartInfo psi = new ProcessStartInfo
                 {
                     FileName = "powershell.exe",
@@ -3212,17 +3369,21 @@ namespace FastDownloader
             appInfo["releaseNotes"] = AppReleaseNotes ?? "";
             appInfo["downloadUrl"] = AppDownloadUrl ?? "";
             dict["app"] = appInfo;
+            dict["installation"] = ReadInstallStatus();
 
             var ytdlpInfo = new Dictionary<string, object>();
             ytdlpInfo["currentVersion"] = CachedYtDlpVersion ?? GetYtDlpVersion();
-            ytdlpInfo["latestVersion"] = CachedYtDlpVersion ?? GetYtDlpVersion();
+            ytdlpInfo["latestVersion"] = latestYtDlpUpstream;
+            ytdlpInfo["updateAvailable"] = !string.IsNullOrEmpty(latestYtDlpUpstream) &&
+                (ytdlpInfo["currentVersion"].ToString() == "Not Installed" ||
+                ParseVersionSafe(latestYtDlpUpstream) > ParseVersionSafe(ytdlpInfo["currentVersion"].ToString()));
             ytdlpInfo["status"] = IsYtDlpUpdating ? "updating" : "ready";
             ytdlpInfo["isUpdating"] = IsYtDlpUpdating;
             dict["ytdlp"] = ytdlpInfo;
 
             var ariaInfo = new Dictionary<string, object>();
             ariaInfo["currentVersion"] = CachedAria2Version ?? GetAria2Version();
-            ariaInfo["latestVersion"] = "1.37.0";
+            ariaInfo["latestVersion"] = "";
             ariaInfo["status"] = "ready";
             dict["aria2"] = ariaInfo;
 
@@ -4560,6 +4721,7 @@ namespace FastDownloader
                         if (updateManager != null)
                         {
                             updateManager.CheckAppUpdate();
+                            updateManager.CheckYtDlpUpstream(true);
                         }
                         var statusDict = updateManager != null ? updateManager.GetStatusDict() : new Dictionary<string, object>();
                         string json = JsonHelper.Serialize(statusDict);
@@ -4616,7 +4778,7 @@ namespace FastDownloader
                     if (urlPath == "/api/update/app" && method == "POST")
                     {
                         string msg = "";
-                        bool ok = updateManager != null && updateManager.ApplyAppUpdate(out msg);
+                        bool ok = updateManager != null && updateManager.QueueAppUpdate(out msg);
                         var respObj = new { ok = ok, message = msg, targetVersion = updateManager != null ? updateManager.LatestAppVersion : "" };
                         string json = JsonHelper.Serialize(respObj);
                         byte[] bytes = Encoding.UTF8.GetBytes(json);

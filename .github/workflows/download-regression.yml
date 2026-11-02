@@ -35,6 +35,8 @@ jobs:
         run: node tests/extension_intercept.test.cjs
       - name: Table configuration and live data
         run: node tests/table_columns.test.cjs
+      - name: Smart updater lifecycle and yt-dlp availability
+        run: node tests/smart_updater.test.cjs
 
   windows-compile:
     name: Compile Windows executable
