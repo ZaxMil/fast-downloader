@@ -129,6 +129,7 @@ jobs:
 
           $resourceNames = [Reflection.Assembly]::LoadFile($newExe).GetManifestResourceNames()
           if ($resourceNames -notcontains 'FastDownloader.updater.ps1') { throw 'External updater was not embedded in Windows app' }
+          $global:LASTEXITCODE = 0 # The intentionally rejected update returned exit code 1.
           Write-Host 'Updater staging, version rejection, and embedded resource verified.'
 
       - name: Upload release candidate (not published automatically)
