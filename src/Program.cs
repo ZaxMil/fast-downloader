@@ -1666,6 +1666,15 @@ namespace FastDownloader
                 options["split"] = "32";
                 options["max-connection-per-server"] = "16";
                 options["min-split-size"] = "1M";
+                // Facebook's short-lived CDN links are sensitive to high initial
+                // parallelism. Start conservatively to avoid 0-byte stalls.
+                if (url.IndexOf("fbcdn.net", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    url.IndexOf("facebook.com", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    options["split"] = "4";
+                    options["max-connection-per-server"] = "4";
+                    options["min-split-size"] = "4M";
+                }
                 options["pause"] = startNow ? "false" : "true";
                 if (!string.IsNullOrEmpty(filename))
                 {
@@ -2168,7 +2177,7 @@ namespace FastDownloader
             string formatArg = "-S \"vcodec:h264,res,acodec:m4a\" -f \"hd/sd/b[vcodec^=avc1]/bv*[vcodec^=avc1]+ba[acodec^=mp4a]/b/bv*+ba/best\" --merge-output-format mp4";
             if (quality == "1080p") formatArg = "-S \"vcodec:h264,res:1080,acodec:m4a\" -f \"hd/b[height<=1080][vcodec^=avc1]/bv*[height<=1080][vcodec^=avc1]+ba/b[height<=1080]/bv*[height<=1080]+ba/best\" --merge-output-format mp4";
             else if (quality == "720p") formatArg = "-S \"vcodec:h264,res:720,acodec:m4a\" -f \"hd/b[height<=720][vcodec^=avc1]/bv*[height<=720][vcodec^=avc1]+ba/b[height<=720]/bv*[height<=720]+ba/best\" --merge-output-format mp4";
-            else if (quality == "480p") formatArg = "-S \"vcodec:h264,res:480,acodec:m4a\" -f \"sd/b[height<=480][vcodec^=avc1]/bv*[height<=480][vcodec^=avc1]+ba/b[height<=480]/bv*[height<=480]+ba/best\" --merge-output-format mp4";
+            else if (quality == "480p") formatArg = "-f \"bv*[height<=480]+ba/b[height<=480]/best[height<=480]\" --merge-output-format mp4";
             else if (quality == "audio") formatArg = "-x --audio-format mp3";
 
             string extraHeaders = "";
@@ -5659,7 +5668,7 @@ namespace FastDownloader
                     engine.ResumeTask(gid);
                     isPaused = false;
                     btnPauseResume.Text = "⏸ Pause";
-                    lblStatus.Text = "⚡ Status: Downloading (16x Turbo)...";
+                    lblStatus.Text = "⚡ Status: Downloading...";
                     lblStatus.ForeColor = Color.FromArgb(16, 185, 129);
                 }
                 else
@@ -5755,7 +5764,7 @@ namespace FastDownloader
             {
                 isPaused = false;
                 btnPauseResume.Text = "⏸ Pause";
-                lblStatus.Text = "⚡ Status: Downloading (16x Turbo)...";
+                lblStatus.Text = "⚡ Status: Downloading...";
                 lblStatus.ForeColor = Color.FromArgb(16, 185, 129);
             }
 
