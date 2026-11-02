@@ -1,0 +1,17 @@
+'use strict';
+const fs = require('fs');
+const assert = require('assert').strict;
+const source = fs.readFileSync('src/Program.cs', 'utf8');
+const start = source.indexOf('public static void LaunchDashboard(string appDir)');
+const end = source.indexOf('private void CheckSchedulerTick()', start);
+assert(start >= 0 && end > start, 'Dashboard launcher must exist');
+const launch = source.slice(start, end);
+assert(launch.includes('Environment.SpecialFolder.LocalApplicationData'), 'Dashboard profile must be in writable user data, not installation directory');
+assert(launch.includes('Directory.CreateDirectory(profileDir)'), 'Dashboard profile must be created before launch');
+assert(!launch.includes('Path.Combine(appDir, ".app_profile")'), 'Do not place Chromium profile beside the executable');
+assert(!launch.includes('CleanProfileLocks(profileDir)'), 'Never remove lock files from an active Chromium profile');
+assert(launch.includes('--app=\\\"http://127.0.0.1:6801/\\\"'), 'Launch standalone application mode');
+assert(launch.includes('--new-window'), 'Explicitly launch a new standalone window');
+assert(launch.includes('--user-data-dir='), 'Use independent per-user browser profile');
+assert(source.includes('!title.Contains(" - Microsoft Edge")'), 'Do not misidentify normal Edge tabs as a dashboard window');
+console.log('PASS: dashboard app window launch, writable per-user profile, and Edge tab detection');
