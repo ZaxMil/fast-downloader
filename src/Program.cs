@@ -5074,6 +5074,7 @@ namespace FastDownloader
                     {
                         // Ensure it's not a regular browser window with tabs
                         if (!title.Contains(" - Google Chrome") &&
+                            !title.Contains(" - Microsoft Edge") &&
                             !title.Contains(" - Personal - Microsoft") &&
                             !title.Contains(" - Work - Microsoft") &&
                             !title.Contains(" and ") &&
@@ -6746,8 +6747,23 @@ namespace FastDownloader
 
         public static void LaunchDashboard(string appDir)
         {
-            string profileDir = Path.Combine(appDir, ".app_profile");
-            CleanProfileLocks(profileDir);
+            // Chromium needs a per-user, writable, independent profile. The installation
+            // directory can be read-only (e.g. Program Files); deleting profile lock
+            // files on each dashboard click can also steal an existing app session.
+            string profileDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "FastDownloader", "DashboardProfile");
+            try
+            {
+                Directory.CreateDirectory(profileDir);
+            }
+            catch (Exception ex)
+            {
+                try { File.AppendAllText(Path.Combine(appDir, "startup.log"), "Dashboard profile error: " + ex.Message + "\r\n"); } catch { }
+                // Still avoid the (possibly read-only) installation folder.
+                profileDir = Path.Combine(Path.GetTempPath(), "FastDownloader", "DashboardProfile");
+                Directory.CreateDirectory(profileDir);
+            }
 
             string targetBrowser = FindChromiumBrowser();
 
@@ -6758,8 +6774,8 @@ namespace FastDownloader
                     ProcessStartInfo psi = new ProcessStartInfo
                     {
                         FileName = targetBrowser,
-                        // Note: --app creates the dedicated standalone window; omitting --new-window prevents regular browser tabs.
-                        Arguments = string.Format("--app=http://127.0.0.1:6801/ --user-data-dir=\"{0}\" --window-size=1240,800 --no-first-run --no-default-browser-check --disable-features=Translate,OptimizationHints --disable-extensions --disable-background-mode --disable-http-cache", profileDir),
+                        // Use a separate user profile and explicitly request a standalone app window.
+                        Arguments = string.Format("--user-data-dir=\"{0}\" --app=\"http://127.0.0.1:6801/\" --new-window --window-size=1240,800 --no-first-run --no-default-browser-check --disable-features=Translate,OptimizationHints --disable-extensions --disable-background-mode --disable-http-cache", profileDir),
                         CreateNoWindow = false,
                         UseShellExecute = true
                     };
