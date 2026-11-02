@@ -3060,49 +3060,81 @@ namespace FastDownloader
                 string appDir = engine != null ? engine.AppDir : Path.GetDirectoryName(currentExe);
                 string extTargetDir = Path.Combine(appDir, "extension");
                 string uiTargetDir = Path.Combine(appDir, "ui");
-                string batPath = Path.Combine(tempDir, "apply_update.bat");
-                string batScript =
-                    "@echo off\r\n" +
-                    "chcp 65001 > nul\r\n" +
-                    "ping 127.0.0.1 -n 2 > nul\r\n" +
-                    ":retry\r\n" +
-                    "copy /y \"" + newExe + "\" \"" + currentExe + "\" > nul 2>&1\r\n" +
-                    "if errorlevel 1 (\r\n" +
-                    "    taskkill /F /IM FastDownloader.exe > nul 2>&1\r\n" +
-                    "    ping 127.0.0.1 -n 2 > nul\r\n" +
-                    "    goto retry\r\n" +
-                    ")\r\n" +
-                    "if exist \"" + extZip + "\" (\r\n" +
-                    "    powershell -NoProfile -Command \"Expand-Archive -Path '" + extZip.Replace("'", "''") + "' -DestinationPath '" + extTargetDir.Replace("'", "''") + "' -Force\" > nul 2>&1\r\n" +
-                    ")\r\n" +
-                    "if exist \"" + uiZip + "\" (\r\n" +
-                    "    powershell -NoProfile -Command \"Expand-Archive -Path '" + uiZip.Replace("'", "''") + "' -DestinationPath '" + uiTargetDir.Replace("'", "''") + "' -Force\" > nul 2>&1\r\n" +
-                    ")\r\n" +
-                    "rmdir /s /q \"" + Path.Combine(appDir, ".app_profile", "Default", "Cache") + "\" > nul 2>&1\r\n" +
-                    "rmdir /s /q \"" + Path.Combine(appDir, ".app_profile", "Default", "Code Cache") + "\" > nul 2>&1\r\n" +
-                    "start \"\" /D \"" + appDir + "\" \"" + currentExe + "\"\r\n" +
-                    "del \"%~f0\"\r\n";
-
-                File.WriteAllText(batPath, batScript, Encoding.Default);
+                // A separate helper must wait until THIS app process exits before replacing the .exe.
+                // The previous unbounded batch loop could remain stuck and kill unrelated app instances.
+                string scriptPath = Path.Combine(tempDir, "apply_update.ps1");
+                string logPath = Path.Combine(tempDir, "apply_update.log");
+                string oldExe = Path.Combine(tempDir, "FastDownloader.backup.exe");
+                int oldPid = Process.GetCurrentProcess().Id;
+                Func<string, string> psLiteral = value => "'" + (value ?? "").Replace("'", "''") + "'";
+                string[] scriptLines = new string[]
+                {
+                    "$ErrorActionPreference = 'Stop'",
+                    "$oldPid = " + oldPid.ToString(),
+                    "$source = " + psLiteral(newExe),
+                    "$target = " + psLiteral(currentExe),
+                    "$backup = " + psLiteral(oldExe),
+                    "$extZip = " + psLiteral(extZip),
+                    "$uiZip = " + psLiteral(uiZip),
+                    "$extDir = " + psLiteral(extTargetDir),
+                    "$uiDir = " + psLiteral(uiTargetDir),
+                    "$appDir = " + psLiteral(appDir),
+                    "$log = " + psLiteral(logPath),
+                    "try {",
+                    "  Start-Sleep -Milliseconds 700",
+                    "  try { Wait-Process -Id $oldPid -Timeout 25 -ErrorAction Stop } catch {",
+                    "    if (Get-Process -Id $oldPid -ErrorAction SilentlyContinue) { throw 'Old FastDownloader process did not exit; close it before retrying.' }",
+                    "  }",
+                    "  Copy-Item -LiteralPath $target -Destination $backup -Force -ErrorAction Stop",
+                    "  $copied = $false",
+                    "  for ($attempt = 0; $attempt -lt 5 -and -not $copied; $attempt++) {",
+                    "    try {",
+                    "      Copy-Item -LiteralPath $source -Destination $target -Force -ErrorAction Stop",
+                    "      if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash) { throw 'Executable checksum mismatch' }",
+                    "      $copied = $true",
+                    "    } catch { if ($attempt -eq 4) { throw }; Start-Sleep -Seconds 1 }",
+                    "  }",
+                    "  if (Test-Path -LiteralPath $extZip) { Expand-Archive -LiteralPath $extZip -DestinationPath $extDir -Force -ErrorAction Stop }",
+                    "  if (Test-Path -LiteralPath $uiZip) { Expand-Archive -LiteralPath $uiZip -DestinationPath $uiDir -Force -ErrorAction Stop }",
+                    "  $proc = Start-Process -FilePath $target -WorkingDirectory $appDir -PassThru -ErrorAction Stop",
+                    "  Start-Sleep -Seconds 3",
+                    "  if ($proc.HasExited) { throw 'Updated FastDownloader exited immediately after launch' }",
+                    "  ('SUCCESS: Updated FastDownloader started, PID ' + $proc.Id) | Out-File -LiteralPath $log -Encoding UTF8",
+                    "  exit 0",
+                    "} catch {",
+                    "  ('FAILED: ' + $_.Exception.Message) | Out-File -LiteralPath $log -Encoding UTF8",
+                    "  if (Test-Path -LiteralPath $backup) {",
+                    "    try { Copy-Item -LiteralPath $backup -Destination $target -Force -ErrorAction Stop; 'Backup restored.' | Add-Content -LiteralPath $log } catch { ('Rollback failed: ' + $_.Exception.Message) | Add-Content -LiteralPath $log }",
+                    "  }",
+                    "  exit 1",
+                    "}"
+                };
+                File.WriteAllText(scriptPath, string.Join("\r\n", scriptLines), new UTF8Encoding(false));
 
                 ProcessStartInfo psi = new ProcessStartInfo
                 {
-                    FileName = "cmd.exe",
-                    Arguments = "/c \"" + batPath + "\"",
+                    FileName = "powershell.exe",
+                    Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" + scriptPath + "\"",
+                    WorkingDirectory = tempDir,
                     CreateNoWindow = true,
                     UseShellExecute = false
                 };
-                Process.Start(psi);
+                Process helper = Process.Start(psi);
+                if (helper == null)
+                {
+                    msg = "Could not start the update helper; please use the official setup installer.";
+                    return false;
+                }
 
+                // The HTTP bridge must return its response before the application exits.
+                // Never release a thread-owned mutex from a ThreadPool thread.
                 ThreadPool.QueueUserWorkItem(_ =>
                 {
-                    try { if (engine != null) engine.StopAria2(); } catch { }
-                    Program.ReleaseSingleInstanceMutex();
-                    Thread.Sleep(300);
+                    Thread.Sleep(1800);
                     Environment.Exit(0);
                 });
 
-                msg = "FastDownloader is restarting with the updated version...";
+                msg = "Update downloaded; FastDownloader is closing and the updater will restart it. If this fails, see apply_update.log in your temporary FastDownloader_Update folder.";
                 return true;
             }
             catch (Exception ex)
