@@ -2928,7 +2928,7 @@
               <span style="font-weight:600; color:var(--text-main);" id="bottomSessionBytes">0 MB</span>
             </div>
             <div class="stat-metric">
-              <span data-i18n="activeTasks">📊 Active Streams:</span>
+              <span data-i18n="activeTasks">📊 Tasks:</span>
               <span style="font-weight:600; color:var(--cyan);" id="bottomActiveTasks">0 Active / 0 Queued</span>
             </div>
           </div>
@@ -3530,7 +3530,7 @@
         <h3 style="margin:0 0 4px 0; font-size:18px; font-weight:700;">FastDownloader <span class="brand-pro-tag">PRO</span></h3>
         <p style="margin:0 0 16px 0; font-size:12px; color:var(--text-dim);">Version 0.1.4 • Ultra-Fast Native Acceleration</p>
         <div style="background:var(--bg-base); padding:12px; border-radius:8px; border:1px solid var(--border-subtle); text-align:left; font-size:12px; line-height:1.7; color:var(--text-muted); margin-bottom:18px;">
-          <div>⚡ <strong>aria2 Core:</strong> 32-chunk parallel multi-source turbo downloading</div>
+          <div>⚡ <strong>aria2 Core:</strong> Parallel downloads (connection count varies by server)</div>
           <div>🎬 <strong>yt-dlp Engine:</strong> 4K/8K video & live stream extraction</div>
           <div>🎯 <strong>Smart Grabber:</strong> Real-time browser download interception</div>
           <div>🛡️ <strong>Private & Local:</strong> Zero telemetry, zero bloat, portable</div>
@@ -3968,7 +3968,7 @@
         
         totalSpeed: "⚡ Total Speed:",
         sessionDownloaded: "⬇ Session Downloaded:",
-        activeTasks: "📊 Active Streams:",
+        activeTasks: "📊 Tasks:",
         hideGraph: "Hide Live Waveform",
         showGraph: "Show Live Waveform",
 
@@ -4118,7 +4118,7 @@
         
         totalSpeed: "⚡ السرعة الإجمالية:",
         sessionDownloaded: "⬇ إجمالي الجلسة:",
-        activeTasks: "📊 التنزيلات النشطة:",
+        activeTasks: "📊 المهام:",
         hideGraph: "إخفاء الرسم البياني",
         showGraph: "إظهار الرسم البياني",
 
@@ -4724,7 +4724,10 @@
         const colId = th.getAttribute('data-col');
         const span = th.querySelector('.th-content');
         if (span) {
-          span.textContent = getCustomColumnLabel(colId);
+          const label = getCustomColumnLabel(colId);
+          span.textContent = label;
+          // The full label remains accessible on small columns.
+          th.title = label;
         }
       });
     }
@@ -4842,7 +4845,7 @@
     }
 
     function updateSortIcons() {
-      const cols = ['name', 'queue', 'size', 'progress', 'speed', 'eta', 'status'];
+      const cols = ['name', 'queue', 'size', 'progress', 'speed', 'eta', 'status', 'dateAdded', 'dateFinished'];
       cols.forEach(c => {
         const icon = document.getElementById('sort-' + c);
         if (!icon) return;
