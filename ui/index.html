@@ -4504,10 +4504,9 @@
       const order = getColumnOrder();
       order.forEach(colId => {
         const th = theadTr.querySelector(`th[data-col="${colId}"]`);
-        if (th) {
-          theadTr.appendChild(th);
-        }
+        if (th) theadTr.appendChild(th);
       });
+      syncDownloadTableWidth();
     }
 
     function moveColumnOrder(colId, dir) {
@@ -4758,7 +4757,8 @@
       const minW = parseInt(th.dataset.minWidth || th.style.minWidth) || 75;
       const finalWidth = Math.min(600, Math.max(minW, Math.ceil(maxWidth)));
       th.style.width = finalWidth + 'px';
-      th.style.minWidth = finalWidth + 'px';
+      th.style.minWidth = minW + 'px';
+      syncDownloadTableWidth();
 
       const widths = JSON.parse(localStorage.getItem('fast_col_widths') || '{}');
       widths[colId] = finalWidth;
@@ -4783,7 +4783,7 @@
       applyColumnOrder();
 
       const defaultWidths = {
-        name: '',
+        name: '280px',
         queue: '95px',
         size: '85px',
         progress: '145px',
@@ -4807,6 +4807,8 @@
         });
       }
 
+      applyColumnVisibility();
+      syncDownloadTableWidth();
       currentSort = { col: null, direction: 'asc' };
       updateSortIcons();
       applyLanguage(currentLang);
@@ -5016,14 +5018,18 @@
       if (!table) return;
       const headers = table.querySelectorAll('th[data-col]');
       
-      const savedWidths = JSON.parse(localStorage.getItem('fast_col_widths') || '{}');
+      let savedWidths = {};
+      try { savedWidths = JSON.parse(localStorage.getItem('fast_col_widths') || '{}') || {}; } catch (error) {}
       headers.forEach(th => {
         const colName = th.getAttribute('data-col');
-        if (savedWidths[colName]) {
-          th.style.width = savedWidths[colName] + 'px';
-          th.style.minWidth = savedWidths[colName] + 'px';
+        const minimum = Number(th.dataset.minWidth) || 75;
+        const saved = Number(savedWidths[colName]);
+        if (Number.isFinite(saved) && saved > 0) {
+          th.style.width = Math.min(800, Math.max(minimum, saved)) + 'px';
+          th.style.minWidth = minimum + 'px';
         }
       });
+      syncDownloadTableWidth();
 
       headers.forEach(th => {
         const resizer = th.querySelector('.resizer');
@@ -5038,7 +5044,8 @@
           const minW = parseInt(th.dataset.minWidth || th.style.minWidth) || 60;
           const newWidth = Math.max(minW, startWidth + diff);
           th.style.width = newWidth + 'px';
-          th.style.minWidth = newWidth + 'px';
+          th.style.minWidth = minW + 'px';
+          syncDownloadTableWidth();
         };
 
         const onMouseUp = () => {
@@ -5047,12 +5054,13 @@
           window.removeEventListener('mousemove', onMouseMove);
           window.removeEventListener('mouseup', onMouseUp);
 
-          const widths = {};
-          table.querySelectorAll('th[data-col]').forEach(h => {
-            const col = h.getAttribute('data-col');
-            widths[col] = h.offsetWidth;
-          });
+          let widths = {};
+          try { widths = JSON.parse(localStorage.getItem('fast_col_widths') || '{}') || {}; } catch (error) {}
+          // Save only the resized column. Hidden columns have zero offsetWidth
+          // and must not overwrite their previously saved sizes.
+          widths[colName] = Math.round(parseFloat(th.style.width) || th.offsetWidth);
           localStorage.setItem('fast_col_widths', JSON.stringify(widths));
+          syncDownloadTableWidth();
         };
 
         resizer.addEventListener('mousedown', (e) => {
@@ -7212,16 +7220,17 @@
     function resetColumnWidths() {
       closeAllMenus();
       localStorage.removeItem('fast_col_widths');
-      const ths = document.querySelectorAll('#downloadsTable th');
-      const defs = [null, '90px', '85px', '200px', '95px', '75px', '85px', '65px'];
-      ths.forEach((th, idx) => {
-        if (defs[idx]) {
-          th.style.width = defs[idx];
-        } else {
-          th.style.width = '';
-        }
+      const defaultWidths = {
+        name: 280, queue: 110, size: 85, progress: 145, speed: 145,
+        eta: 115, status: 100, dateAdded: 130, dateFinished: 130, actions: 110
+      };
+      document.querySelectorAll('#downloadsTable th[data-col]').forEach(th => {
+        const col = th.dataset.col;
+        th.style.width = defaultWidths[col] + 'px';
+        th.style.minWidth = (Number(th.dataset.minWidth) || 75) + 'px';
       });
-      showToast('📐 Table columns reset to default layout!');
+      syncDownloadTableWidth();
+      showToast('Table column widths reset; visibility and order preserved.');
     }
 
     // CLEAR FINISHED DOWNLOADS
@@ -7883,6 +7892,7 @@
     applyColumnVisibility();
     applyColumnLabels();
     initColumnResizers();
+    window.addEventListener('resize', syncDownloadTableWidth);
     initHeaderDragAndDrop();
     setupHeaderDblClickEdit();
 
