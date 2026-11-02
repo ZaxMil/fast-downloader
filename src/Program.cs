@@ -1434,8 +1434,9 @@ namespace FastDownloader
                     return info;
                 }
 
-                // If not found, derive from local file or current time
-                string added = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                // For older tasks not recorded at enqueue time, derive from actual
+                // file metadata if available. Never invent a historical timestamp.
+                string added = "";
                 string fin = "";
                 if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
                 {
@@ -1450,9 +1451,6 @@ namespace FastDownloader
                     }
                     catch { }
                 }
-                else if (status == "complete" || status == "completed")
-                {
-                    fin = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
                 }
 
                 info = new TaskDateInfo { DateAdded = added, DateFinished = fin };
@@ -1723,6 +1721,7 @@ namespace FastDownloader
                     if (dict != null && dict.ContainsKey("result") && dict["result"] != null)
                     {
                         string gid = dict["result"].ToString();
+                        if (!string.IsNullOrEmpty(gid)) RecordTaskAdded(gid);
                         if (startNow && !string.IsNullOrEmpty(gid))
                             MonitorNewAriaDownload(gid);
                         return gid;
@@ -2298,6 +2297,7 @@ namespace FastDownloader
             {
                 YtTasks.Insert(0, taskInfo);
             }
+            RecordTaskAdded(gid);
 
             if (startNow)
             {
@@ -2598,6 +2598,7 @@ namespace FastDownloader
                     {
                         taskInfo.Progress = 100;
                         taskInfo.Status = "completed";
+                        RecordTaskFinished(taskInfo.Gid);
                     }
                     else
                     {
