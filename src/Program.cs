@@ -2636,7 +2636,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.9";
+        public const string CurrentAppVersion = "0.1.10";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -3236,6 +3236,54 @@ namespace FastDownloader
         }
     }
 
+    // Disk metrics must come from the volume containing the actual downloads folder.
+    // Never guess the user's available disk space or use the system drive by default.
+    public static class DownloadDiskSpace
+    {
+        public static Dictionary<string, object> GetStatus(string downloadsFolder)
+        {
+            var result = new Dictionary<string, object>();
+            try
+            {
+                if (string.IsNullOrWhiteSpace(downloadsFolder))
+                    throw new IOException("Downloads directory is not configured.");
+
+                string folder = Path.GetFullPath(downloadsFolder);
+                string root = Path.GetPathRoot(folder);
+                if (string.IsNullOrEmpty(root))
+                    throw new IOException("Unable to resolve downloads drive.");
+
+                DriveInfo drive = new DriveInfo(root);
+                if (!drive.IsReady)
+                    throw new IOException("Downloads drive is not ready.");
+
+                long total = drive.TotalSize;
+                long available = drive.AvailableFreeSpace;
+                if (total <= 0 || available < 0)
+                    throw new IOException("Disk capacity information is unavailable.");
+
+                // AvailableFreeSpace is what the current user can actually write.
+                long cappedAvailable = Math.Min(available, total);
+                long used = total - cappedAvailable;
+                double usedPercent = Math.Max(0.0, Math.Min(100.0, 100.0 * used / total));
+                result["ok"] = true;
+                result["downloadsPath"] = folder;
+                result["drive"] = drive.Name;
+                result["totalBytes"] = total;
+                result["freeBytes"] = cappedAvailable;
+                result["usedBytes"] = used;
+                result["usedPercent"] = Math.Round(usedPercent, 1);
+            }
+            catch (Exception)
+            {
+                // Do not show misleading hard-coded values when the drive is inaccessible.
+                result["ok"] = false;
+                result["error"] = "Disk information unavailable";
+            }
+            return result;
+        }
+    }
+
     public class HttpBridgeServer
     {
         private TcpListener listener;
@@ -3477,6 +3525,18 @@ namespace FastDownloader
                             writer.BaseStream.Flush();
                             return;
                         }
+                    }
+
+                    // Real-time storage data for the drive that holds the downloads folder.
+                    if (urlPath == "/api/storage" && method == "GET")
+                    {
+                        var storage = DownloadDiskSpace.GetStatus(engine.DownloadsFolder);
+                        string storageJson = JsonHelper.Serialize(storage);
+                        byte[] storageBytes = Encoding.UTF8.GetBytes(storageJson);
+                        SendHeaders(writer, 200, "OK", "application/json; charset=utf-8", storageBytes.Length);
+                        writer.Write(storageJson);
+                        writer.Flush();
+                        return;
                     }
 
                     // 2. STATUS API
