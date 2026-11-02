@@ -32,7 +32,7 @@ function mockTable() {
   ctx.applyColumnVisibility();
   assert.ok(env.flags.has("hide-col-dateAdded"));
   assert.ok(env.flags.has("hide-col-dateFinished"));
-  assert.equal(env.table.style.width,"950px");
+  assert.equal(env.table.style.width,"1126px", "Configured widths should exceed the viewport and scroll instead of squashing the name");
   ctx.toggleColumnVisibility("dateAdded",true);
   assert.ok(!env.flags.has("hide-col-dateAdded"));
   assert.ok(env.flags.has("hide-col-dateFinished"));
