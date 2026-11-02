@@ -4504,7 +4504,7 @@ namespace FastDownloader
                     {
                         string msg = "";
                         bool ok = updateManager != null && updateManager.ApplyAppUpdate(out msg);
-                        var respObj = new { ok = ok, message = msg };
+                        var respObj = new { ok = ok, message = msg, targetVersion = updateManager != null ? updateManager.LatestAppVersion : "" };
                         string json = JsonHelper.Serialize(respObj);
                         byte[] bytes = Encoding.UTF8.GetBytes(json);
                         SendHeaders(writer, 200, "OK", "application/json; charset=utf-8", bytes.Length);
