@@ -2909,7 +2909,7 @@
         <div class="empty-state" id="emptyState" style="display:none;">
           <div class="empty-state-icon">🚀</div>
           <div style="font-size:15px; font-weight:600; color:var(--text-main);" data-i18n="emptyTitle">No downloads in this view</div>
-          <div style="font-size:12px;" data-i18n="emptySub">Click "+ Add URL" or copy any download link to start downloading at maximum 32-chunk speed!</div>
+          <div style="font-size:12px;" data-i18n="emptySub">Click "+ Add URL" or paste a download link to start a new transfer.</div>
           <button class="btn btn-primary" onclick="showAddModal()" style="margin-top:6px;" data-i18n="emptyBtn">+ Add Download</button>
         </div>
       </div>
@@ -3870,6 +3870,7 @@
     let selectedGids = new Set();
     let speedHistory = new Array(60).fill(0);
     let sessionBytes = 0;
+    const observedTaskBytes = new Map();
     let totalSpeed = 0;
     let isGraphVisible = true;
 
@@ -5248,13 +5249,27 @@
 
     function processIncomingTasks(newTasks) {
       tasks = newTasks.map(t => {
-        // Retain queue assignment
-        if (!taskQueueMap[t.gid]) {
-          taskQueueMap[t.gid] = 'MainQueue';
-        }
+        // Retain queue assignment. File metadata is supplied by the backend.
+        if (!taskQueueMap[t.gid]) taskQueueMap[t.gid] = 'MainQueue';
         t.queue = taskQueueMap[t.gid];
         return t;
       });
+
+      // Count transferred byte deltas, not instantaneous B/s readings.
+      // The initial sample establishes a baseline for tasks already running.
+      tasks.forEach(t => {
+        const completed = Number(t.completedLength);
+        if (!Number.isFinite(completed) || completed < 0 || !t.gid) return;
+        const prior = observedTaskBytes.get(t.gid);
+        if (prior !== undefined && completed > prior) sessionBytes += completed - prior;
+        observedTaskBytes.set(t.gid, completed);
+      });
+      if (observedTaskBytes.size > 5000) {
+        const activeIds = new Set(tasks.map(t => t.gid));
+        for (const gid of observedTaskBytes.keys()) {
+          if (!activeIds.has(gid)) observedTaskBytes.delete(gid);
+        }
+      }
 
       // Calculate totals
       let activeCount = 0;
@@ -5282,8 +5297,6 @@
       });
 
       totalSpeed = currentTotalSpeed;
-      sessionBytes += totalSpeed;
-
       // Update sidebar badges
       document.getElementById('countAll').textContent = tasks.length;
       document.getElementById('countActive').textContent = activeCount;
@@ -5296,7 +5309,7 @@
       // Bottom bar
       document.getElementById('bottomTotalSpeed').textContent = `${formatBytes(totalSpeed)}/s`;
       document.getElementById('bottomSessionBytes').textContent = formatBytes(sessionBytes);
-      document.getElementById('bottomActiveTasks').textContent = `${activeCount} Active / ${pausedCount} Queued`;
+      document.getElementById('bottomActiveTasks').textContent = `${activeCount} Active / ${pausedCount} Paused or waiting`;
 
       // Update Speed Graph History
       speedHistory.shift();
@@ -5460,7 +5473,7 @@
               <div class="file-meta">
                 <div class="file-name" title="${escapeHtml(t.name)}">${escapeHtml(t.name)}</div>
                 <div class="file-subtext">
-                  <span>${t.engine === 'torrent' || t.isTorrent ? (currentLang === 'ar' ? '🧲 تورنت (P2P + DHT)' : '🧲 BitTorrent (P2P + DHT)') : (t.engine === 'yt-dlp' ? 'yt-dlp + ffmpeg' : (currentLang === 'ar' ? 'aria2 ٣٢ اتصالاً' : 'aria2 32-connections'))}</span>
+                  <span>${t.engine === 'torrent' || t.isTorrent ? (currentLang === 'ar' ? '🧲 تورنت (P2P + DHT)' : '🧲 BitTorrent (P2P + DHT)') : (t.engine === 'yt-dlp' ? 'yt-dlp' : ('aria2' + (Number(t.connections) > 0 ? ' · ' + Number(t.connections) + (currentLang === 'ar' ? ' اتصالات' : ' connections') : '')))}</span>
                 </div>
               </div>
             </div>
@@ -6723,7 +6736,8 @@
       const isLight = currentActiveTheme === 'light';
       const isZaxcore = currentActiveTheme === 'zaxcore';
 
-      const maxVal = Math.max(...speedHistory, 1024 * 1024); // at least 1MB scale
+      const peakSpeed = Math.max(0, ...speedHistory);
+      const maxVal = Math.max(peakSpeed * 1.15, 8192); // visual scale, not the measured peak
       const step = width / (speedHistory.length - 1);
 
       // Gradient Fill
@@ -6781,7 +6795,7 @@
       // Peak label
       ctx.fillStyle = isLight ? '#94A3B8' : '#64748B';
       ctx.font = '10px -apple-system, BlinkMacSystemFont, Segoe UI, Roboto';
-      ctx.fillText(`Peak: ${formatBytes(maxVal)}/s`, width - 110, 14);
+      ctx.fillText(`Peak: ${formatBytes(peakSpeed)}/s`, width - 110, 14);
     }
 
     // MENUBAR INTERACTIVITY (Modern Desktop Fluent Style)
