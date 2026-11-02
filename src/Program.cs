@@ -1721,7 +1721,12 @@ namespace FastDownloader
                 {
                     var dict = JsonHelper.ParseDict(reader.ReadToEnd());
                     if (dict != null && dict.ContainsKey("result") && dict["result"] != null)
-                        return dict["result"].ToString();
+                    {
+                        string gid = dict["result"].ToString();
+                        if (startNow && !string.IsNullOrEmpty(gid))
+                            MonitorNewAriaDownload(gid);
+                        return gid;
+                    }
                     // An explicit RPC error is not a startup race; retrying it would hide a real problem.
                     break;
                 }
@@ -1738,6 +1743,39 @@ namespace FastDownloader
             if (attempt < 5) Thread.Sleep(350);
             }
             return null;
+        }
+
+        // One-time recovery for a genuinely stalled new aria2 transfer.
+        // If the remote server never sends the first byte, repeat the same
+        // pause/resume intervention that users previously had to do manually.
+        // Never touch paused, queued or already-progressing downloads.
+        private void MonitorNewAriaDownload(string gid)
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                Thread.Sleep(20000);
+                UnifiedTaskInfo state = GetTaskInfo(gid);
+                if (state == null || state.Engine != "aria2" ||
+                    state.Status != "active" || state.CompletedLength != 0 ||
+                    state.DownloadSpeed != 0) return;
+
+                Thread.Sleep(3000);
+                state = GetTaskInfo(gid);
+                if (state == null || state.Status != "active" ||
+                    state.CompletedLength != 0 || state.DownloadSpeed != 0) return;
+
+                try
+                {
+                    SendAriaAction("aria2.forcePause", gid);
+                    Thread.Sleep(1000);
+                    // Respect user intervention if the task was removed or completed.
+                    state = GetTaskInfo(gid);
+                    if (state == null || state.Status == "removed" ||
+                        state.Status == "complete" || state.Status == "error") return;
+                    SendAriaAction("aria2.unpause", gid);
+                }
+                catch { }
+            });
         }
 
         public List<Dictionary<string, object>> GetAriaTasks()
