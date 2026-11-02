@@ -1682,6 +1682,8 @@
     #downloadsTable.hide-col-speed th[data-col="speed"], #downloadsTable.hide-col-speed td[data-col="speed"],
     #downloadsTable.hide-col-eta th[data-col="eta"], #downloadsTable.hide-col-eta td[data-col="eta"],
     #downloadsTable.hide-col-status th[data-col="status"], #downloadsTable.hide-col-status td[data-col="status"],
+    #downloadsTable.hide-col-dateAdded th[data-col="dateAdded"], #downloadsTable.hide-col-dateAdded td[data-col="dateAdded"],
+    #downloadsTable.hide-col-dateFinished th[data-col="dateFinished"], #downloadsTable.hide-col-dateFinished td[data-col="dateFinished"],
     #downloadsTable.hide-col-actions th[data-col="actions"], #downloadsTable.hide-col-actions td[data-col="actions"] {
       display: none !important;
     }
@@ -1728,9 +1730,9 @@
       flex-shrink: 0;
     }
 
-    .file-meta {
-      overflow: hidden;
-    }
+    .file-cell { min-width: 0; }
+    .file-meta { min-width: 0; flex: 1 1 auto; overflow: hidden; }
+    #downloadsTable td[data-col="name"] { overflow: hidden; }
 
     .file-name {
       font-weight: 600;
@@ -2706,6 +2708,7 @@
           <input type="text" class="search-input" id="searchInput" data-i18n-ph="filterTasks" placeholder="Filter tasks..." oninput="renderTable()">
         </div>
 
+        <button class="btn btn-tb-customize" onclick="openColumnCustomizer(event)" title="Customize table columns" aria-label="Customize table columns">☷</button>
         <button class="btn btn-tb-customize" onclick="openToolbarCustomizer(event)" title="Customize Toolbar / Right-click toolbar">
           ⚙️
         </button>
@@ -2827,7 +2830,7 @@
               <th style="width:36px; min-width:36px; max-width:36px; text-align:center;">
                 <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this.checked)" title="Select all">
               </th>
-              <th data-col="name" data-min-width="160" style="min-width:160px;" onclick="handleHeaderClick(event, 'name')" oncontextmenu="handleHeaderContextMenu(event, 'name')">
+              <th data-col="name" data-min-width="220" style="width:280px; min-width:220px;" onclick="handleHeaderClick(event, 'name')" oncontextmenu="handleHeaderContextMenu(event, 'name')">
                 <div class="th-inner">
                   <span class="th-content" data-i18n="colFileName" title="Double-click to rename | Click to sort">File Name</span>
                   <span class="sort-icon" id="sort-name"></span>
@@ -2907,7 +2910,7 @@
         <div class="empty-state" id="emptyState" style="display:none;">
           <div class="empty-state-icon">🚀</div>
           <div style="font-size:15px; font-weight:600; color:var(--text-main);" data-i18n="emptyTitle">No downloads in this view</div>
-          <div style="font-size:12px;" data-i18n="emptySub">Click "+ Add URL" or copy any download link to start downloading at maximum 32-chunk speed!</div>
+          <div style="font-size:12px;" data-i18n="emptySub">Click "+ Add URL" or paste a download link to start a new transfer.</div>
           <button class="btn btn-primary" onclick="showAddModal()" style="margin-top:6px;" data-i18n="emptyBtn">+ Add Download</button>
         </div>
       </div>
@@ -2925,7 +2928,7 @@
               <span style="font-weight:600; color:var(--text-main);" id="bottomSessionBytes">0 MB</span>
             </div>
             <div class="stat-metric">
-              <span data-i18n="activeTasks">📊 Active Streams:</span>
+              <span data-i18n="activeTasks">📊 Tasks:</span>
               <span style="font-weight:600; color:var(--cyan);" id="bottomActiveTasks">0 Active / 0 Queued</span>
             </div>
           </div>
@@ -3527,7 +3530,7 @@
         <h3 style="margin:0 0 4px 0; font-size:18px; font-weight:700;">FastDownloader <span class="brand-pro-tag">PRO</span></h3>
         <p style="margin:0 0 16px 0; font-size:12px; color:var(--text-dim);">Version 0.1.4 • Ultra-Fast Native Acceleration</p>
         <div style="background:var(--bg-base); padding:12px; border-radius:8px; border:1px solid var(--border-subtle); text-align:left; font-size:12px; line-height:1.7; color:var(--text-muted); margin-bottom:18px;">
-          <div>⚡ <strong>aria2 Core:</strong> 32-chunk parallel multi-source turbo downloading</div>
+          <div>⚡ <strong>aria2 Core:</strong> Parallel downloads (connection count varies by server)</div>
           <div>🎬 <strong>yt-dlp Engine:</strong> 4K/8K video & live stream extraction</div>
           <div>🎯 <strong>Smart Grabber:</strong> Real-time browser download interception</div>
           <div>🛡️ <strong>Private & Local:</strong> Zero telemetry, zero bloat, portable</div>
@@ -3604,7 +3607,7 @@
               <div>
                 <div style="font-weight:700; font-size:13px; color:var(--text-main); display:flex; align-items:center; gap:6px;">FastDownloader <span class="brand-pro-tag" style="font-size:9px;">PRO</span></div>
                 <div style="font-size:11px; color:var(--text-dim);">
-                  Installed: <strong id="appCurrentVerText" style="color:var(--text-main);">v0.1.10</strong> • Latest: <strong id="appLatestVerText" style="color:var(--emerald);">v0.1.10</strong>
+                  Installed: <strong id="appCurrentVerText" style="color:var(--text-main);">v0.1.11</strong> • Latest: <strong id="appLatestVerText" style="color:var(--emerald);">v0.1.10</strong>
                 </div>
               </div>
             </div>
@@ -3630,7 +3633,7 @@
               <span style="font-size:9px; padding:1px 5px; border-radius:6px; background:rgba(6,182,212,0.15); color:#06B6D4; font-weight:700;">Upstream</span>
             </div>
             <div style="font-size:11px; color:var(--text-muted);">
-              Version: <strong id="ytdlpVerText" style="color:var(--text-main);">2026.10.26</strong>
+              Version: <strong id="ytdlpVerText" style="color:var(--text-main);">Checking…</strong>
             </div>
             <button class="btn btn-sm btn-primary" id="btnUpdateYtdlp" onclick="updateEngine('ytdlp')" style="width:100%; font-size:11px; padding:3px 8px;">
               ⚡ Update yt-dlp
@@ -3644,7 +3647,7 @@
               <span style="font-size:9px; padding:1px 5px; border-radius:6px; background:rgba(16,185,129,0.15); color:var(--emerald); font-weight:700;">32x Turbo</span>
             </div>
             <div style="font-size:11px; color:var(--text-muted);">
-              Version: <strong id="aria2VerText" style="color:var(--text-main);">1.37.0</strong>
+              Version: <strong id="aria2VerText" style="color:var(--text-main);">Checking…</strong>
             </div>
             <button class="btn btn-sm" id="btnCheckAria" onclick="updateEngine('aria2')" style="width:100%; font-size:11px; padding:3px 8px;">
               Check aria2
@@ -3868,6 +3871,7 @@
     let selectedGids = new Set();
     let speedHistory = new Array(60).fill(0);
     let sessionBytes = 0;
+    const observedTaskBytes = new Map();
     let totalSpeed = 0;
     let isGraphVisible = true;
 
@@ -3959,12 +3963,12 @@
         statusError: "Failed / Error",
         
         emptyTitle: "No downloads in this view",
-        emptySub: "Click \"+ Add URL\" or copy any download link to start downloading at maximum 32-chunk speed!",
+        emptySub: "Click \"+ Add URL\" or paste a link to begin a transfer.",
         emptyBtn: "+ Add Download",
         
         totalSpeed: "⚡ Total Speed:",
         sessionDownloaded: "⬇ Session Downloaded:",
-        activeTasks: "📊 Active Streams:",
+        activeTasks: "📊 Tasks:",
         hideGraph: "Hide Live Waveform",
         showGraph: "Show Live Waveform",
 
@@ -4109,12 +4113,12 @@
         statusError: "فشل التحميل",
         
         emptyTitle: "لا توجد تنزيلات في هذا القسم",
-        emptySub: "انقر على \"+ إضافة رابط\" أو انسخ أي رابط لبدء التحميل فوراً بأقصى سرعة!",
+        emptySub: "اضغط على إضافة رابط أو الصق رابطًا لبدء التحميل.",
         emptyBtn: "+ إضافة تنزيل",
         
         totalSpeed: "⚡ السرعة الإجمالية:",
         sessionDownloaded: "⬇ إجمالي الجلسة:",
-        activeTasks: "📊 التنزيلات النشطة:",
+        activeTasks: "📊 المهام:",
         hideGraph: "إخفاء الرسم البياني",
         showGraph: "إظهار الرسم البياني",
 
@@ -4502,10 +4506,9 @@
       const order = getColumnOrder();
       order.forEach(colId => {
         const th = theadTr.querySelector(`th[data-col="${colId}"]`);
-        if (th) {
-          theadTr.appendChild(th);
-        }
+        if (th) theadTr.appendChild(th);
       });
+      syncDownloadTableWidth();
     }
 
     function moveColumnOrder(colId, dir) {
@@ -4596,34 +4599,55 @@
     }
 
     function getColumnVisibility() {
-      const saved = localStorage.getItem('fast_col_visibility');
-      if (saved) {
-        try { return JSON.parse(saved); } catch(e) {}
-      }
-      return {
-        name: true,
-        queue: true,
-        size: true,
-        progress: true,
-        speed: true,
-        eta: true,
-        status: true,
-        actions: true
+      // Preserve user preferences; hide low-priority dates on a fresh install.
+      const defaults = {
+        name: true, queue: true, size: true, progress: true,
+        speed: true, eta: true, status: true,
+        dateAdded: false, dateFinished: false, actions: true
       };
+      try {
+        const saved = JSON.parse(localStorage.getItem('fast_col_visibility') || '{}');
+        if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+          DEFAULT_COLUMN_ORDER.forEach(col => {
+            if (typeof saved[col] === 'boolean') defaults[col] = saved[col];
+          });
+        }
+      } catch (error) {}
+      defaults.name = true; // Keep task identities readable.
+      return defaults;
+    }
+
+    function syncDownloadTableWidth() {
+      const table = document.getElementById('downloadsTable');
+      const container = document.querySelector('.table-container');
+      if (!table || !container) return;
+      const vis = getColumnVisibility();
+      let required = 36;
+      table.querySelectorAll('thead th[data-col]').forEach(th => {
+        const col = th.getAttribute('data-col');
+        if (vis[col] === false) return;
+        const minimum = Number(th.dataset.minWidth) || 75;
+        const configured = parseFloat(th.style.width);
+        required += Math.max(minimum, Number.isFinite(configured) ? configured : minimum);
+      });
+      // Preserve the filename and per-column widths even in narrow windows.
+      table.style.width = Math.ceil(Math.max(required, container.clientWidth || 0)) + 'px';
     }
 
     function applyColumnVisibility() {
       const table = document.getElementById('downloadsTable');
       if (!table) return;
       const vis = getColumnVisibility();
-      for (const col of Object.keys(vis)) {
-        table.classList.toggle('hide-col-' + col, !vis[col]);
-      }
+      DEFAULT_COLUMN_ORDER.forEach(col => {
+        table.classList.toggle('hide-col-' + col, vis[col] === false);
+      });
+      syncDownloadTableWidth();
     }
 
     function toggleColumnVisibility(colName, isVisible) {
+      if (!DEFAULT_COLUMN_ORDER.includes(colName) || colName === 'name') return;
       const vis = getColumnVisibility();
-      vis[colName] = isVisible;
+      vis[colName] = Boolean(isVisible);
       localStorage.setItem('fast_col_visibility', JSON.stringify(vis));
       applyColumnVisibility();
       renderColumnCustomizerList();
@@ -4700,7 +4724,10 @@
         const colId = th.getAttribute('data-col');
         const span = th.querySelector('.th-content');
         if (span) {
-          span.textContent = getCustomColumnLabel(colId);
+          const label = getCustomColumnLabel(colId);
+          span.textContent = label;
+          // The full label remains accessible on small columns.
+          th.title = label;
         }
       });
     }
@@ -4735,7 +4762,8 @@
       const minW = parseInt(th.dataset.minWidth || th.style.minWidth) || 75;
       const finalWidth = Math.min(600, Math.max(minW, Math.ceil(maxWidth)));
       th.style.width = finalWidth + 'px';
-      th.style.minWidth = finalWidth + 'px';
+      th.style.minWidth = minW + 'px';
+      syncDownloadTableWidth();
 
       const widths = JSON.parse(localStorage.getItem('fast_col_widths') || '{}');
       widths[colId] = finalWidth;
@@ -4760,7 +4788,7 @@
       applyColumnOrder();
 
       const defaultWidths = {
-        name: '',
+        name: '280px',
         queue: '95px',
         size: '85px',
         progress: '145px',
@@ -4784,6 +4812,8 @@
         });
       }
 
+      applyColumnVisibility();
+      syncDownloadTableWidth();
       currentSort = { col: null, direction: 'asc' };
       updateSortIcons();
       applyLanguage(currentLang);
@@ -4815,7 +4845,7 @@
     }
 
     function updateSortIcons() {
-      const cols = ['name', 'queue', 'size', 'progress', 'speed', 'eta', 'status'];
+      const cols = ['name', 'queue', 'size', 'progress', 'speed', 'eta', 'status', 'dateAdded', 'dateFinished'];
       cols.forEach(c => {
         const icon = document.getElementById('sort-' + c);
         if (!icon) return;
@@ -4993,14 +5023,18 @@
       if (!table) return;
       const headers = table.querySelectorAll('th[data-col]');
       
-      const savedWidths = JSON.parse(localStorage.getItem('fast_col_widths') || '{}');
+      let savedWidths = {};
+      try { savedWidths = JSON.parse(localStorage.getItem('fast_col_widths') || '{}') || {}; } catch (error) {}
       headers.forEach(th => {
         const colName = th.getAttribute('data-col');
-        if (savedWidths[colName]) {
-          th.style.width = savedWidths[colName] + 'px';
-          th.style.minWidth = savedWidths[colName] + 'px';
+        const minimum = Number(th.dataset.minWidth) || 75;
+        const saved = Number(savedWidths[colName]);
+        if (Number.isFinite(saved) && saved > 0) {
+          th.style.width = Math.min(800, Math.max(minimum, saved)) + 'px';
+          th.style.minWidth = minimum + 'px';
         }
       });
+      syncDownloadTableWidth();
 
       headers.forEach(th => {
         const resizer = th.querySelector('.resizer');
@@ -5015,7 +5049,8 @@
           const minW = parseInt(th.dataset.minWidth || th.style.minWidth) || 60;
           const newWidth = Math.max(minW, startWidth + diff);
           th.style.width = newWidth + 'px';
-          th.style.minWidth = newWidth + 'px';
+          th.style.minWidth = minW + 'px';
+          syncDownloadTableWidth();
         };
 
         const onMouseUp = () => {
@@ -5024,12 +5059,13 @@
           window.removeEventListener('mousemove', onMouseMove);
           window.removeEventListener('mouseup', onMouseUp);
 
-          const widths = {};
-          table.querySelectorAll('th[data-col]').forEach(h => {
-            const col = h.getAttribute('data-col');
-            widths[col] = h.offsetWidth;
-          });
+          let widths = {};
+          try { widths = JSON.parse(localStorage.getItem('fast_col_widths') || '{}') || {}; } catch (error) {}
+          // Save only the resized column. Hidden columns have zero offsetWidth
+          // and must not overwrite their previously saved sizes.
+          widths[colName] = Math.round(parseFloat(th.style.width) || th.offsetWidth);
           localStorage.setItem('fast_col_widths', JSON.stringify(widths));
+          syncDownloadTableWidth();
         };
 
         resizer.addEventListener('mousedown', (e) => {
@@ -5217,13 +5253,27 @@
 
     function processIncomingTasks(newTasks) {
       tasks = newTasks.map(t => {
-        // Retain queue assignment
-        if (!taskQueueMap[t.gid]) {
-          taskQueueMap[t.gid] = 'MainQueue';
-        }
+        // Retain queue assignment. File metadata is supplied by the backend.
+        if (!taskQueueMap[t.gid]) taskQueueMap[t.gid] = 'MainQueue';
         t.queue = taskQueueMap[t.gid];
         return t;
       });
+
+      // Count transferred byte deltas, not instantaneous B/s readings.
+      // The initial sample establishes a baseline for tasks already running.
+      tasks.forEach(t => {
+        const completed = Number(t.completedLength);
+        if (!Number.isFinite(completed) || completed < 0 || !t.gid) return;
+        const prior = observedTaskBytes.get(t.gid);
+        if (prior !== undefined && completed > prior) sessionBytes += completed - prior;
+        observedTaskBytes.set(t.gid, completed);
+      });
+      if (observedTaskBytes.size > 5000) {
+        const activeIds = new Set(tasks.map(t => t.gid));
+        for (const gid of observedTaskBytes.keys()) {
+          if (!activeIds.has(gid)) observedTaskBytes.delete(gid);
+        }
+      }
 
       // Calculate totals
       let activeCount = 0;
@@ -5251,8 +5301,6 @@
       });
 
       totalSpeed = currentTotalSpeed;
-      sessionBytes += totalSpeed;
-
       // Update sidebar badges
       document.getElementById('countAll').textContent = tasks.length;
       document.getElementById('countActive').textContent = activeCount;
@@ -5265,7 +5313,7 @@
       // Bottom bar
       document.getElementById('bottomTotalSpeed').textContent = `${formatBytes(totalSpeed)}/s`;
       document.getElementById('bottomSessionBytes').textContent = formatBytes(sessionBytes);
-      document.getElementById('bottomActiveTasks').textContent = `${activeCount} Active / ${pausedCount} Queued`;
+      document.getElementById('bottomActiveTasks').textContent = `${activeCount} Active / ${pausedCount} Paused or waiting`;
 
       // Update Speed Graph History
       speedHistory.shift();
@@ -5429,7 +5477,7 @@
               <div class="file-meta">
                 <div class="file-name" title="${escapeHtml(t.name)}">${escapeHtml(t.name)}</div>
                 <div class="file-subtext">
-                  <span>${t.engine === 'torrent' || t.isTorrent ? (currentLang === 'ar' ? '🧲 تورنت (P2P + DHT)' : '🧲 BitTorrent (P2P + DHT)') : (t.engine === 'yt-dlp' ? 'yt-dlp + ffmpeg' : (currentLang === 'ar' ? 'aria2 ٣٢ اتصالاً' : 'aria2 32-connections'))}</span>
+                  <span>${t.engine === 'torrent' || t.isTorrent ? (currentLang === 'ar' ? '🧲 تورنت (P2P + DHT)' : '🧲 BitTorrent (P2P + DHT)') : (t.engine === 'yt-dlp' ? 'yt-dlp' : ('aria2' + (Number(t.connections) > 0 ? ' · ' + Number(t.connections) + (currentLang === 'ar' ? ' اتصالات' : ' connections') : '')))}</span>
                 </div>
               </div>
             </div>
@@ -5439,7 +5487,7 @@
               ${queueLabel}
             </span>
           </td>`,
-          size: `<td data-col="size"><strong>${formatBytes(t.totalLength)}</strong></td>`,
+          size: `<td data-col="size"><strong>${t.totalLength > 0 ? formatBytes(t.totalLength) : (isDone && t.completedLength > 0 ? formatBytes(t.completedLength) : "—")}</strong></td>`,
           progress: `<td data-col="progress">
             <div class="progress-cell">
               <div class="progress-container">
@@ -6692,7 +6740,8 @@
       const isLight = currentActiveTheme === 'light';
       const isZaxcore = currentActiveTheme === 'zaxcore';
 
-      const maxVal = Math.max(...speedHistory, 1024 * 1024); // at least 1MB scale
+      const peakSpeed = Math.max(0, ...speedHistory);
+      const maxVal = Math.max(peakSpeed * 1.15, 8192); // visual scale, not the measured peak
       const step = width / (speedHistory.length - 1);
 
       // Gradient Fill
@@ -6750,7 +6799,7 @@
       // Peak label
       ctx.fillStyle = isLight ? '#94A3B8' : '#64748B';
       ctx.font = '10px -apple-system, BlinkMacSystemFont, Segoe UI, Roboto';
-      ctx.fillText(`Peak: ${formatBytes(maxVal)}/s`, width - 110, 14);
+      ctx.fillText(`Peak: ${formatBytes(peakSpeed)}/s`, width - 110, 14);
     }
 
     // MENUBAR INTERACTIVITY (Modern Desktop Fluent Style)
@@ -7189,16 +7238,17 @@
     function resetColumnWidths() {
       closeAllMenus();
       localStorage.removeItem('fast_col_widths');
-      const ths = document.querySelectorAll('#downloadsTable th');
-      const defs = [null, '90px', '85px', '200px', '95px', '75px', '85px', '65px'];
-      ths.forEach((th, idx) => {
-        if (defs[idx]) {
-          th.style.width = defs[idx];
-        } else {
-          th.style.width = '';
-        }
+      const defaultWidths = {
+        name: 280, queue: 110, size: 85, progress: 145, speed: 145,
+        eta: 115, status: 100, dateAdded: 130, dateFinished: 130, actions: 110
+      };
+      document.querySelectorAll('#downloadsTable th[data-col]').forEach(th => {
+        const col = th.dataset.col;
+        th.style.width = defaultWidths[col] + 'px';
+        th.style.minWidth = (Number(th.dataset.minWidth) || 75) + 'px';
       });
-      showToast('📐 Table columns reset to default layout!');
+      syncDownloadTableWidth();
+      showToast('Table column widths reset; visibility and order preserved.');
     }
 
     // CLEAR FINISHED DOWNLOADS
@@ -7339,7 +7389,7 @@
         appCurrent.textContent = 'v' + app.currentVersion + ' (Beta)';
       }
       if (appLatest) {
-        appLatest.textContent = 'v' + (app.latestVersion || app.currentVersion || '0.1.9') + ' (Beta)';
+        appLatest.textContent = 'v' + (app.latestVersion || app.currentVersion || '0.1.11') + ' (Beta)';
       }
 
       if (app.updateAvailable) {
@@ -7367,11 +7417,11 @@
       // 2. Engines
       const yt = data.ytdlp || {};
       const ytdlpVer = document.getElementById('ytdlpVerText');
-      if (ytdlpVer) ytdlpVer.textContent = yt.currentVersion || '2026.10.21';
+      if (ytdlpVer) ytdlpVer.textContent = yt.currentVersion || 'Unknown';
 
       const ar = data.aria2 || {};
       const ariaVer = document.getElementById('aria2VerText');
-      if (ariaVer) ariaVer.textContent = ar.currentVersion || '1.37.0';
+      if (ariaVer) ariaVer.textContent = ar.currentVersion || 'Unknown';
 
       // 3. Automation Settings
       const s = data.settings || {};
@@ -7860,6 +7910,7 @@
     applyColumnVisibility();
     applyColumnLabels();
     initColumnResizers();
+    window.addEventListener('resize', syncDownloadTableWidth);
     initHeaderDragAndDrop();
     setupHeaderDblClickEdit();
 

@@ -1424,40 +1424,38 @@ namespace FastDownloader
             lock (dateLock)
             {
                 TaskDateInfo info;
-                if (taskDates.TryGetValue(gid, out info))
+                bool isComplete = status == "complete" || status == "completed";
+                bool fileAvailable = !string.IsNullOrEmpty(filePath) && File.Exists(filePath);
+                if (!taskDates.TryGetValue(gid, out info))
                 {
-                    if ((status == "complete" || status == "completed") && string.IsNullOrEmpty(info.DateFinished))
-                    {
-                        info.DateFinished = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-                        SaveTaskDates();
-                    }
-                    return info;
+                    // Older tasks have no reliable enqueue timestamp. Use actual
+                    // file metadata where available, not the time of a UI poll.
+                    info = new TaskDateInfo { DateAdded = "", DateFinished = "" };
+                    taskDates[gid] = info;
                 }
 
-                // If not found, derive from local file or current time
-                string added = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-                string fin = "";
-                if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
+                bool changed = false;
+                if (fileAvailable)
                 {
                     try
                     {
-                        var fi = new FileInfo(filePath);
-                        added = fi.CreationTime.ToString("yyyy-MM-dd HH:mm:ss");
-                        if (status == "complete" || status == "completed")
+                        FileInfo fi = new FileInfo(filePath);
+                        if (string.IsNullOrEmpty(info.DateAdded))
                         {
-                            fin = fi.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss");
+                            info.DateAdded = fi.CreationTime.ToString("yyyy-MM-dd HH:mm:ss");
+                            changed = true;
+                        }
+                        if (isComplete && string.IsNullOrEmpty(info.DateFinished))
+                        {
+                            info.DateFinished = fi.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss");
+                            changed = true;
                         }
                     }
                     catch { }
                 }
-                else if (status == "complete" || status == "completed")
-                {
-                    fin = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-                }
-
-                info = new TaskDateInfo { DateAdded = added, DateFinished = fin };
-                taskDates[gid] = info;
-                SaveTaskDates();
+                // If there is no recorded completion and no verifiable file,
+                // keep the cell empty instead of showing a fabricated date.
+                if (changed) SaveTaskDates();
                 return info;
             }
         }
@@ -1723,6 +1721,7 @@ namespace FastDownloader
                     if (dict != null && dict.ContainsKey("result") && dict["result"] != null)
                     {
                         string gid = dict["result"].ToString();
+                        if (!string.IsNullOrEmpty(gid)) RecordTaskAdded(gid);
                         if (startNow && !string.IsNullOrEmpty(gid))
                             MonitorNewAriaDownload(gid);
                         return gid;
@@ -2298,6 +2297,7 @@ namespace FastDownloader
             {
                 YtTasks.Insert(0, taskInfo);
             }
+            RecordTaskAdded(gid);
 
             if (startNow)
             {
@@ -2598,6 +2598,7 @@ namespace FastDownloader
                     {
                         taskInfo.Progress = 100;
                         taskInfo.Status = "completed";
+                        RecordTaskFinished(taskInfo.Gid);
                     }
                     else
                     {
@@ -2636,7 +2637,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.10";
+        public const string CurrentAppVersion = "0.1.11";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -3554,7 +3555,7 @@ namespace FastDownloader
                             extensionOutdated = extOutdated,
                             autoCapture = engine.AutoCaptureEnabled,
                             appUpdateAvailable = updateManager != null && updateManager.AppUpdateAvailable,
-                            latestAppVersion = updateManager != null ? updateManager.LatestAppVersion : "0.1.0-beta",
+                            latestAppVersion = updateManager != null ? updateManager.LatestAppVersion : UpdateManager.CurrentAppVersion,
                             ytdlpVersion = updateManager != null ? updateManager.CachedYtDlpVersion : ""
                         };
                         string json = JsonHelper.Serialize(statusObj);
@@ -3656,6 +3657,11 @@ namespace FastDownloader
                             item["totalLength"] = totalLength;
                             item["completedLength"] = completedLength;
                             item["downloadSpeed"] = downloadSpeed;
+                            // Connection count must come from aria2, not a fixed marketing number.
+                            int liveConnections = 0;
+                            if (t.ContainsKey("connections") && t["connections"] != null)
+                                int.TryParse(t["connections"].ToString(), out liveConnections);
+                            item["connections"] = liveConnections;
                             item["progress"] = progress;
                             item["eta"] = eta;
                             item["status"] = status;
@@ -3664,6 +3670,11 @@ namespace FastDownloader
                             item["isTorrent"] = isTorrent;
                             item["filePath"] = !string.IsNullOrEmpty(resolvedPath) ? resolvedPath.Replace('/', '\\') : "";
                             item["url"] = resolvedUrl;
+                            // These dates are already persisted by EngineManager, but were never
+                            // included in the response consumed by the Date Added/Finished columns.
+                            TaskDateInfo dates = engine.GetTaskDates(gid, resolvedPath, status);
+                            item["dateAdded"] = dates.DateAdded;
+                            item["dateFinished"] = dates.DateFinished;
                             unifiedList.Add(item);
                         }
 
@@ -3683,7 +3694,11 @@ namespace FastDownloader
                                 item["engine"] = "yt-dlp";
                                 item["url"] = yt.Url;
                                 string ytSaveDir = !string.IsNullOrEmpty(yt.SaveDir) ? yt.SaveDir : engine.DownloadsFolder;
-                                item["filePath"] = Path.Combine(ytSaveDir, yt.Name).Replace('/', '\\');
+                                string ytFilePath = Path.Combine(ytSaveDir, yt.Name);
+                                item["filePath"] = ytFilePath.Replace('/', '\\');
+                                TaskDateInfo ytDates = engine.GetTaskDates(yt.Gid, ytFilePath, yt.Status);
+                                item["dateAdded"] = ytDates.DateAdded;
+                                item["dateFinished"] = ytDates.DateFinished;
                             unifiedList.Insert(0, item);
                         }
 
