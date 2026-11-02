@@ -44,6 +44,8 @@ jobs:
           node --check extension/background.js
           node tests/extension_intercept.test.cjs
           if ($LASTEXITCODE -ne 0) { throw "Extension regression suite failed" }
+          node tests/disk_space.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw "Disk widget regression suite failed" }
 
       - name: Fetch official aria2 and yt-dlp engines for installer
         shell: pwsh
@@ -110,13 +112,13 @@ jobs:
             '-ExtensionZip',$ext,'-UiZip',$ui,
             '-StatusFile',$statusFile,'-SkipRestart'
           )
-          & powershell.exe @argsCommon '-ExpectedVersion' '0.1.9'
+          & powershell.exe @argsCommon '-ExpectedVersion' '0.1.10'
           if ($LASTEXITCODE -ne 0) { throw 'Updater staging test failed' }
           $status = Get-Content $statusFile -Raw | ConvertFrom-Json
           if ($status.status -ne 'success') { throw "Updater did not report success: $($status.message)" }
           if ((Get-FileHash $targetExe).Hash -ne (Get-FileHash $newExe).Hash) { throw 'Executable was not updated' }
           $manifest = Get-Content (Join-Path $appDir 'extension/manifest.json') -Raw | ConvertFrom-Json
-          if ($manifest.version -ne '0.1.9') { throw 'Extension package was not applied' }
+          if ($manifest.version -ne '0.1.10') { throw 'Extension package was not applied' }
           if (-not (Test-Path (Join-Path $appDir 'ui/index.html'))) { throw 'UI package was not applied' }
 
           # Mismatched extension package must fail without overwriting an installed executable.
@@ -131,6 +133,29 @@ jobs:
           if ($resourceNames -notcontains 'FastDownloader.updater.ps1') { throw 'External updater was not embedded in Windows app' }
           $global:LASTEXITCODE = 0 # The intentionally rejected update returned exit code 1.
           Write-Host 'Updater staging, version rejection, and embedded resource verified.'
+
+      - name: Verify live downloads disk metrics against Windows volume
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'FastDownloader.exe').Path
+          $assembly = [Reflection.Assembly]::LoadFile($exe)
+          $type = $assembly.GetType('FastDownloader.DownloadDiskSpace')
+          if (-not $type) { throw 'DownloadDiskSpace is missing from Windows app' }
+          $method = $type.GetMethod('GetStatus')
+          $folder = Join-Path $env:RUNNER_TEMP 'downloads-test'
+          $invokeArgs = [object[]]::new(1)
+          $invokeArgs[0] = [string]$folder
+          $metrics = $method.Invoke($null, $invokeArgs)
+          if (-not $metrics['ok']) { throw 'DriveInfo failed to read the downloads volume' }
+          $drive = [System.IO.DriveInfo]::new([System.IO.Path]::GetPathRoot($folder))
+          if ($metrics['totalBytes'] -ne $drive.TotalSize) { throw 'Incorrect downloads disk capacity' }
+          if ([Math]::Abs([double]$metrics['freeBytes'] - [double]$drive.AvailableFreeSpace) -gt 1073741824) { throw 'Incorrect downloads disk free space' }
+          if ($metrics['usedPercent'] -lt 0 -or $metrics['usedPercent'] -gt 100) { throw 'Invalid disk usage percentage' }
+          $invokeArgs[0] = [string]$null
+          $invalid = $method.Invoke($null, $invokeArgs)
+          if ($invalid['ok']) { throw 'Invalid folder returned fabricated disk values' }
+          Write-Host "Downloads volume $($metrics['drive']) has $($metrics['freeBytes']) bytes available."
 
       - name: Upload release candidate (not published automatically)
         uses: actions/upload-artifact@v4

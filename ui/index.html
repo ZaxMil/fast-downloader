@@ -1403,7 +1403,8 @@
     .disk-progress-fill {
       height: 100%;
       background: linear-gradient(90deg, #10B981, #06B6D4);
-      width: 45%;
+      width: 0%;
+      transition: width 0.35s ease;
     }
 
     /* MAIN VIEW TABLE */
@@ -2797,10 +2798,10 @@
       <div class="sidebar-footer">
         <div class="disk-space-card">
           <div class="disk-space-header">
-            <span data-i18n="diskSpace">Downloads Disk</span>
-            <span id="diskFreeText">Free: 120 GB</span>
+            <span><span data-i18n="diskSpace">Downloads Disk</span><span id="diskDriveText"></span></span>
+            <span id="diskFreeText">Free: —</span>
           </div>
-          <div class="disk-progress-bar">
+          <div class="disk-progress-bar" id="diskProgressBar" role="progressbar" aria-label="Downloads disk usage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
             <div class="disk-progress-fill" id="diskProgressFill"></div>
           </div>
         </div>
@@ -3603,7 +3604,7 @@
               <div>
                 <div style="font-weight:700; font-size:13px; color:var(--text-main); display:flex; align-items:center; gap:6px;">FastDownloader <span class="brand-pro-tag" style="font-size:9px;">PRO</span></div>
                 <div style="font-size:11px; color:var(--text-dim);">
-                  Installed: <strong id="appCurrentVerText" style="color:var(--text-main);">v0.1.9</strong> • Latest: <strong id="appLatestVerText" style="color:var(--emerald);">v0.1.9</strong>
+                  Installed: <strong id="appCurrentVerText" style="color:var(--text-main);">v0.1.10</strong> • Latest: <strong id="appLatestVerText" style="color:var(--emerald);">v0.1.10</strong>
                 </div>
               </div>
             </div>
@@ -4253,6 +4254,7 @@
     function applyLanguage(lang) {
       currentLang = lang;
       localStorage.setItem('fast_lang', lang);
+      if (lastDiskSpace) renderDiskSpace(lastDiskSpace);
       const isRtl = lang === 'ar';
       document.documentElement.setAttribute('dir', isRtl ? 'rtl' : 'ltr');
       document.documentElement.setAttribute('lang', lang);
@@ -5118,6 +5120,68 @@
       if (name.endsWith('.exe') || name.endsWith('.msi') || name.endsWith('.apk') || name.endsWith('.dmg') || name.endsWith('.bin') || name.endsWith('.bat') || name.endsWith('.cmd')) return 'programs';
       if (name.endsWith('.pdf') || name.endsWith('.doc') || name.endsWith('.docx') || name.endsWith('.xls') || name.endsWith('.xlsx') || name.endsWith('.ppt') || name.endsWith('.pptx') || name.endsWith('.txt')) return 'documents';
       return 'other';
+    }
+
+    // Live metrics from the Windows drive containing the downloads folder.
+    let lastDiskSpace = null;
+    let diskFetchInProgress = false;
+
+    function formatDiskSize(bytes) {
+      if (!Number.isFinite(bytes) || bytes < 0) return '—';
+      if (bytes >= 1024 ** 4) return (bytes / (1024 ** 4)).toFixed(1) + ' TB';
+      if (bytes >= 1024 ** 3) return (bytes / (1024 ** 3)).toFixed(1) + ' GB';
+      if (bytes >= 1024 ** 2) return (bytes / (1024 ** 2)).toFixed(1) + ' MB';
+      return (bytes / 1024).toFixed(1) + ' KB';
+    }
+
+    function renderDiskSpace(info) {
+      const label = document.getElementById('diskFreeText');
+      const driveText = document.getElementById('diskDriveText');
+      const fill = document.getElementById('diskProgressFill');
+      const bar = document.getElementById('diskProgressBar');
+      const card = document.querySelector('.disk-space-card');
+      if (!label || !driveText || !fill || !bar || !card) return;
+
+      const isArabic = currentLang === 'ar';
+      const free = Number(info && info.freeBytes);
+      const total = Number(info && info.totalBytes);
+      const valid = !!(info && info.ok === true && Number.isFinite(free) &&
+        Number.isFinite(total) && free >= 0 && total > 0 && free <= total);
+      if (!valid) {
+        label.textContent = isArabic ? 'المتاح: غير معروف' : 'Free: unavailable';
+        driveText.textContent = '';
+        fill.style.width = '0%';
+        fill.style.background = '';
+        bar.setAttribute('aria-valuenow', '0');
+        card.title = isArabic ? 'تعذر قراءة مساحة قرص التحميلات' : 'Cannot read downloads drive space';
+        return;
+      }
+
+      const used = Math.min(100, Math.max(0, (1 - free / total) * 100));
+      const drive = typeof info.drive === 'string' ? info.drive.replace(/[\\/]+$/, '') : '';
+      label.textContent = (isArabic ? 'المتاح: ' : 'Free: ') + formatDiskSize(free);
+      driveText.textContent = drive ? ' · ' + drive : '';
+      fill.style.width = used.toFixed(1) + '%';
+      fill.style.background = used >= 90 ? 'linear-gradient(90deg, #f59e0b, #ef4444)' : '';
+      bar.setAttribute('aria-valuenow', Math.round(used).toString());
+      card.title = (info.downloadsPath || drive) + ' | ' +
+        formatDiskSize(free) + ' free of ' + formatDiskSize(total) + ' | ' +
+        used.toFixed(1) + '% used';
+    }
+
+    async function refreshDiskSpace() {
+      if (diskFetchInProgress) return;
+      diskFetchInProgress = true;
+      try {
+        const response = await fetch(API_BASE + '/api/storage', { cache: 'no-store' });
+        if (!response.ok) throw new Error('Storage API unavailable');
+        lastDiskSpace = await response.json();
+      } catch (err) {
+        lastDiskSpace = { ok: false };
+      } finally {
+        diskFetchInProgress = false;
+        renderDiskSpace(lastDiskSpace);
+      }
     }
 
     // Fetch Tasks from Backend
@@ -7802,6 +7866,8 @@
     // Start Polling Loop
     pollBackend();
     setInterval(pollBackend, 1000);
+    refreshDiskSpace();
+    setInterval(refreshDiskSpace, 30000);
     checkExtensionStatus();
     setInterval(checkExtensionStatus, 3000);
 
