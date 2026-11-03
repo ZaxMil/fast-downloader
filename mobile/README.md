@@ -1,12 +1,12 @@
 # FastDownloader Mobile
 
-Android-first native app in Kotlin + Jetpack Compose, independent from the desktop Electron preview.
+Android-first Kotlin + Jetpack Compose application, independent from the desktop builds.
 
-- Android source: [android/](android/)
-- Seal research and implementation gates: [research/SEAL_ANALYSIS.md](research/SEAL_ANALYSIS.md)
-- Current milestone: **foundation only** — launch UI, paste link, Android share target, HTTP/HTTPS URL validation.
-- **Not yet a functional downloader**: transfer engine, metadata extraction, yt-dlp, background service, history and notifications are pending.
-- No APK release or user-facing install claim until CI builds and real-device checks pass.
-- Existing Windows/macOS/Linux desktop builds are unaffected.
+- [Android source](android/)
+- [Seal research](research/SEAL_ANALYSIS.md)
+- **Current alpha:** paste/share links; enqueue direct HTTPS file downloads using Android DownloadManager; system-managed background transfer, retry and notifications; open Android Downloads and check last transfer status.
+- **Not supported yet:** yt-dlp video-page extraction, quality selection, manual pause/resume, in-app download list and advanced filename handling.
+- DownloadManager owns transfer persistence. It may rename duplicate destinations or reject some URLs; actual media page URLs generally require extraction first.
+- No signed APK release or real-device verification yet. Existing desktop releases unaffected.
 
-To build, use Android Studio with JDK 17 and Android SDK 35; run Gradle \`assembleDebug\`.
+Build with JDK 17, Android SDK 35 and Gradle 8.11.1 (\`gradle assembleDebug\` or Android Studio).
