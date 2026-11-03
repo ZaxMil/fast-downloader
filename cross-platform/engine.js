@@ -22,6 +22,13 @@ function defaultDataDir() {
 }
 function defaultDownloadsDir() { return path.join(os.homedir(), 'Downloads', 'FastDownloader'); }
 function resolveBinary(name) {
+  const binary = process.platform === 'win32' ? name + '.exe' : name;
+  const folders = [process.resourcesPath && path.join(process.resourcesPath, 'bin'),
+    path.join(__dirname, 'bin')].filter(Boolean);
+  for (const folder of folders) {
+    const bundled = path.join(folder, binary);
+    if (fs.existsSync(bundled)) return bundled;
+  }
   const candidate = process.env[name === 'yt-dlp' ? 'FASTDOWNLOADER_YTDLP' : 'FASTDOWNLOADER_ARIA2'];
   if (candidate && fs.existsSync(candidate)) return candidate;
   const probe = spawnSync(process.platform === 'win32' ? 'where' : 'which', [name], { encoding: 'utf8', timeout: 2000 });

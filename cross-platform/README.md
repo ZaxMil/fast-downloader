@@ -6,7 +6,7 @@ The original Windows app uses .NET Framework/Windows Forms. This new, separate i
 
 ## Available now
 - Direct HTTP/HTTPS downloads with pause/resume (when the remote server supports HTTP Range), progress, history and persistent task state.
-- yt-dlp media downloads **if yt-dlp is installed and available on PATH**. Supported sites and formats depend on yt-dlp and any needed FFmpeg.
+- yt-dlp media downloads using a SHA-256-verified binary bundled in desktop preview builds. For direct Node.js use, yt-dlp can be installed on PATH. Supported sites and formats depend on yt-dlp and any needed FFmpeg.
 - Download file naming, 480p/720p/1080p selection for yt-dlp, safe task removal without deleting completed files.
 - Responsive local interface and desktop shell for Windows, macOS and Linux.
 - Local-only API on 127.0.0.1, same-origin POST validation and no cloud service.
@@ -22,7 +22,7 @@ Requires Node.js 22 or later.
     cd cross-platform
     node server.js
 
-Open the printed local URL. Direct downloads work without other tools. For video URLs, install yt-dlp and optionally FFmpeg first.
+Open the printed local URL. Direct downloads work without other tools. For video URLs in the CLI preview, install yt-dlp and optionally FFmpeg first. Desktop packages include verified yt-dlp; FFmpeg may still be needed to merge separate video/audio streams.
 
 To run as a desktop app:
 
@@ -30,7 +30,7 @@ To run as a desktop app:
     npm run desktop
 
 ## Packaging
-GitHub Actions workflow "Cross-platform preview" tests Windows, macOS and Linux and builds unsigned preview artifacts. These are **not** automatically published as official releases.
+The desktop packaging script fetches the official pinned yt-dlp binary and verifies its SHA-256 checksum before packaging. GitHub Actions workflow "Cross-platform preview" tests Windows, macOS and Linux and builds unsigned preview artifacts. These are **not** automatically published as official releases.
 
 ## Data safety
 The cross-platform app keeps state under the OS user data folder, and downloads in ~/Downloads/FastDownloader. It does not touch the existing Windows app's download history or installation. Removing a task does not delete the downloaded file.

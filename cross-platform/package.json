@@ -8,9 +8,9 @@
     "start": "node server.js",
     "test": "node --test tests/*.test.js",
     "desktop": "electron .",
-    "dist:linux": "electron-builder --linux AppImage --x64",
-    "dist:windows": "electron-builder --win portable --x64",
-    "dist:mac": "electron-builder --mac dmg --x64 --arm64"
+    "dist:linux": "node scripts/fetch-ytdlp.js && electron-builder --linux AppImage --x64",
+    "dist:windows": "node scripts/fetch-ytdlp.js && electron-builder --win portable --x64",
+    "dist:mac": "node scripts/fetch-ytdlp.js && electron-builder --mac dmg --x64 --arm64"
   },
   "engines": {
     "node": ">=22"
@@ -46,6 +46,15 @@
       "target": "dmg",
       "hardenedRuntime": false,
       "icon": "build/icon.png"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
   }
 }
