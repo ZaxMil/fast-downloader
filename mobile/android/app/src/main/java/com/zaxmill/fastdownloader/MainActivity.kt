@@ -44,7 +44,7 @@ class MainActivity : ComponentActivity() {
             Intent.ACTION_VIEW -> intent.dataString
             else -> null
         } ?: return
-        incomingLink.value = Regex("""https?://[^\\s<>"]+""").find(text)?.value ?: ""
+        incomingLink.value = Regex("""https?://[^\s<>"]+""").find(text)?.value ?: ""
     }
 }
 
@@ -56,7 +56,7 @@ internal fun queueDirectDownload(context: Context, input: String): Result<Long> 
     }
     val lastSegment = uri.path?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "download"
     val filename = Uri.decode(lastSegment)
-        .replace(Regex("""[\\/\\u0000-\\u001f\\u007f]"""), "_")
+        .replace(Regex("""[\/\u0000-\u001f\u007f]"""), "_")
         .take(100).ifBlank { "download" }
     val request = DownloadManager.Request(Uri.parse(uri.toASCIIString()))
         .setTitle(filename)
