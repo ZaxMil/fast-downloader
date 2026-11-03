@@ -68,6 +68,10 @@ FastDownloader Pro combines a Windows desktop app, a visual download queue and a
 
 > **Speed depends on the source server, connection quality, and file.** Parallel connections are a feature — not a promise that every download will be faster. Media availability varies by website and access rights.
 
+## 🌍 Cross-platform preview (experimental)
+
+A separate cross-platform desktop preview for **Windows, macOS and Linux** is under development in [cross-platform/](cross-platform/). It includes a local HTTP download engine, optional yt-dlp integration and a responsive interface. It is **not yet feature-equivalent** to the stable Windows application and does not provide native Android/iOS apps.
+
 ## 📥 Get started
 
 <details open>
