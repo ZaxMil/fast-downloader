@@ -34,7 +34,6 @@ jobs:
 
   package:
     name: Desktop preview (${{ matrix.os }})
-    needs: test
     strategy:
       fail-fast: false
       matrix:
@@ -51,6 +50,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Verify download engine before packaging
+        working-directory: cross-platform
+        run: node --test tests/*.test.js
       - name: Install desktop dependencies
         working-directory: cross-platform
         run: npm ci
