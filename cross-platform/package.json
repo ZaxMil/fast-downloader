@@ -1,0 +1,60 @@
+{
+  "name": "fastdownloader-cross-platform",
+  "version": "0.2.0-preview.1",
+  "private": true,
+  "description": "FastDownloader Pro cross-platform desktop preview",
+  "main": "main.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test tests/*.test.js",
+    "desktop": "electron .",
+    "dist:linux": "node scripts/fetch-ytdlp.js && electron-builder --linux AppImage --x64",
+    "dist:windows": "node scripts/fetch-ytdlp.js && electron-builder --win portable --x64",
+    "dist:mac": "node scripts/fetch-ytdlp.js && electron-builder --mac dmg --x64 --arm64"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.zaxmill.fastdownloader.preview",
+    "productName": "FastDownloader Pro Preview",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "server.js",
+      "engine.js",
+      "public/**",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": "portable",
+      "icon": "build/icon.ico"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Network",
+      "icon": "build/icon.png"
+    },
+    "mac": {
+      "target": "dmg",
+      "hardenedRuntime": false,
+      "icon": "build/icon.png"
+    },
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1019">
+  <meta name="description" content="FastDownloader Pro cross-platform preview — local download manager.">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+  <title>FastDownloader Pro — Cross-platform Preview</title>
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand"><img src="/icon.svg" width="38" height="38" alt=""><span><b>FastDownloader</b><small>PRO · CROSS-PLATFORM</small></span></div>
+      <div class="nav-item active">◉ <span>Downloads</span></div>
+      <div class="sidebar-bottom"><div class="status-dot"></div> Local & private <small>Preview build · 0.2.0</small></div>
+    </aside>
+    <main>
+      <header class="topbar"><div><div class="eyebrow">YOUR DOWNLOAD WORKSPACE</div><h1>Downloads <span class="preview">PREVIEW</span></h1><p>Save files and supported videos, all in one place.</p></div><button id="openFolder" class="button subtle" type="button">Open downloads folder</button></header>
+      <section class="stats">
+        <div class="stat"><span>ACTIVE</span><strong id="activeCount">0</strong></div>
+        <div class="stat"><span>COMPLETED</span><strong id="completeCount">0</strong></div>
+        <div class="stat"><span>TRANSFER SPEED</span><strong id="totalSpeed">0 B/s</strong></div>
+        <div class="stat"><span>FREE SPACE</span><strong id="freeSpace">—</strong></div>
+      </section>
+      <section class="panel add">
+        <div class="section-heading"><div><h2>New download</h2><p>Paste a direct file link or a supported video URL.</p></div></div>
+        <form id="downloadForm">
+          <label for="url">DOWNLOAD URL</label>
+          <input id="url" type="url" required autocomplete="url" placeholder="https://example.com/file.zip">
+          <div class="form-row">
+            <div><label for="filename">FILENAME (OPTIONAL)</label><input id="filename" placeholder="Keep original name"></div>
+            <div><label for="type">DOWNLOAD TYPE</label><select id="type"><option value="auto">Auto detect</option><option value="video">Video (yt-dlp)</option><option value="file">Direct file</option></select></div>
+          </div>
+          <div class="quality-row"><label for="quality">VIDEO QUALITY</label><select id="quality"><option value="best">Best available</option><option value="1080">1080p or lower</option><option value="720">720p or lower</option><option value="480">480p or lower</option></select></div>
+          <div class="form-actions"><span id="engineInfo">Checking available engines…</span><button id="addButton" class="button primary" type="submit">+ Start download</button></div>
+        </form>
+      </section>
+      <section class="panel queue">
+        <div class="section-heading"><div><h2>Download queue <span id="taskCount" class="counter">0</span></h2><p>Transfers are saved locally on this device.</p></div><button id="refresh" class="button subtle small" type="button">Refresh</button></div>
+        <div id="taskList" class="task-list"><div class="empty">No downloads yet. Add a link to get started.</div></div>
+      </section>
+      <footer>FastDownloader Pro · Cross-platform preview. Windows-only features are not yet available here. Files download to the computer running this app.</footer>
+    </main>
+  </div>
+  <div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
