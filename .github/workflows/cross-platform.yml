@@ -1,0 +1,70 @@
+name: Cross-platform preview
+
+on:
+  push:
+    branches: [feature/cross-platform-core]
+    paths:
+      - 'cross-platform/**'
+      - '.github/workflows/cross-platform.yml'
+  pull_request:
+    paths:
+      - 'cross-platform/**'
+      - '.github/workflows/cross-platform.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Core tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run cross-platform tests
+        working-directory: cross-platform
+        run: node --test tests/*.test.js
+
+  package:
+    name: Desktop preview (${{ matrix.os }})
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux
+          - os: windows-latest
+            target: windows
+          - os: macos-latest
+            target: mac
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install desktop dependencies
+        working-directory: cross-platform
+        run: npm ci
+      - name: Build desktop preview
+        working-directory: cross-platform
+        run: npm run dist:${{ matrix.target }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fastdownloader-preview-${{ matrix.target }}
+          path: |
+            cross-platform/dist/*.exe
+            cross-platform/dist/*.AppImage
+            cross-platform/dist/*.dmg
+          if-no-files-found: error
+          retention-days: 14
