@@ -1,0 +1,34 @@
+name: FastDownloader Remote VPS checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'remote/**'
+      - 'cross-platform/engine.js'
+      - '.github/workflows/remote-vps.yml'
+  pull_request:
+    paths:
+      - 'remote/**'
+      - 'cross-platform/engine.js'
+      - '.github/workflows/remote-vps.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  secure-remote:
+    name: Remote API, SSRF and server transfer tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check JavaScript
+        run: |
+          node --check remote/server.js
+          node --check remote/public/app.js
+          node --check cross-platform/engine.js
+      - name: Run cross-platform and remote tests
+        run: node --test cross-platform/tests/*.test.js remote/tests/*.test.js
