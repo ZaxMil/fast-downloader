@@ -72,6 +72,10 @@ FastDownloader Pro combines a Windows desktop app, a visual download queue and a
 
 A separate cross-platform desktop preview for **Windows, macOS and Linux** is under development in [cross-platform/](cross-platform/). It includes a local HTTP download engine, optional yt-dlp integration and a responsive interface. It is **not yet feature-equivalent** to the stable Windows application and does not provide native Android/iOS apps.
 
+## ☁️ Private VPS Mode (experimental)
+
+[**FastDownloader Remote**](remote/README.md) runs transfers on your own Linux server. Control downloads from a phone or browser without downloading the files onto that device. After connecting a cloud provider with rclone, you can upload completed files **from the VPS to cloud storage** without consuming your mobile data for the file transfer. The private dashboard is token-protected and loopback-only by default. It is not a publicly hosted service or a replacement for the Windows app.
+
 ## 📥 Get started
 
 <details open>
