@@ -54,6 +54,8 @@ class DownloadManager {
     this.dataDir = opts.dataDir || defaultDataDir();
     this.downloadsDir = opts.downloadsDir || defaultDownloadsDir();
     this.ytdlp = opts.ytdlp === undefined ? resolveBinary('yt-dlp') : opts.ytdlp;
+    this.urlGuard = opts.urlGuard || null;
+    this.maxFileBytes = opts.maxFileBytes || 0;
     this.tasks = new Map();
     this.active = new Map();
     this.saveTimer = null;
@@ -194,6 +196,7 @@ class DownloadManager {
     let url = task.url;
     let response;
     for (let hop = 0; hop < 6; hop++) {
+      if (this.urlGuard) await this.urlGuard(url);
       response = await fetch(url, {
         signal, redirect: 'manual',
         headers: offset ? { Range: 'bytes=' + offset + '-' } : {},
@@ -213,6 +216,7 @@ class DownloadManager {
     if (!append) offset = 0; // Range ignored: restart safely, never append duplicate bytes.
     const length = Number(response.headers.get('content-length')) || 0;
     task.totalLength = length ? length + offset : 0;
+    if (this.maxFileBytes && task.totalLength > this.maxFileBytes) throw new Error('File exceeds the server download size limit');
     task.completedLength = offset;
     task.connections = 1;
     const stream = fs.createWriteStream(task.filePath, { flags: append ? 'a' : 'w' });
@@ -225,6 +229,7 @@ class DownloadManager {
         if (streamError) throw streamError;
         if (!stream.write(chunk)) await once(stream, 'drain');
         task.completedLength += chunk.length;
+        if (this.maxFileBytes && task.completedLength > this.maxFileBytes) throw new Error('File exceeds the server download size limit');
         const now = Date.now();
         if (now - sampleTime >= 400) {
           task.downloadSpeed = Math.max(0, Math.round((task.completedLength - sampleBytes) * 1000 / (now - sampleTime)));
