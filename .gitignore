@@ -36,3 +36,10 @@ scratch/
 # Cross-platform desktop build outputs
 node_modules/
 dist/
+
+# Android local build state
+mobile/android/.gradle/
+mobile/android/.kotlin/
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/local.properties
