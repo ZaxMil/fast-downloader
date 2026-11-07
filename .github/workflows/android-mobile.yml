@@ -29,10 +29,9 @@ jobs:
           cache-dependency-path: |
             mobile/android/**/*.gradle.kts
             mobile/android/gradle/wrapper/gradle-wrapper.properties
-      - name: Install Android SDK
-        uses: android-actions/setup-android@v3
-      - name: Prepare build tools
-        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+      - name: Use runner's preinstalled Android SDK
+        run: |
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
       - name: Test and build ARM64 debug APK
         working-directory: mobile/android
         run: |
