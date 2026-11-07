@@ -1,12 +1,28 @@
-# FastDownloader Mobile
+# FastDownloader Mobile — Android Alpha
 
-Android-first Kotlin + Jetpack Compose application, independent from the desktop builds.
+Native Kotlin/Jetpack Compose Android application; independent of desktop.
 
-- [Android source](android/)
-- [Seal research](research/SEAL_ANALYSIS.md)
-- **Current alpha:** paste/share links; enqueue direct HTTPS file downloads using Android DownloadManager; system-managed background transfer, retry and notifications; open Android Downloads and check last transfer status.
-- **Not supported yet:** yt-dlp video-page extraction, quality selection, manual pause/resume, in-app download list and advanced filename handling.
-- DownloadManager owns transfer persistence. It may rename duplicate destinations or reject some URLs; actual media page URLs generally require extraction first.
-- No signed APK release or real-device verification yet. Existing desktop releases unaffected.
+**Status:** Development alpha, NOT a stable release. Android 10+ (API 29) and arm64-v8a.
+See [Alpha release notes](ALPHA_RELEASE_NOTES.md) for scope and untested features.
 
-Build with JDK 17, Android SDK 35 and Gradle 8.11.1 (\`gradle assembleDebug\` or Android Studio).
+## Features under development
+- Paste/share secure HTTPS URLs.
+- Direct file transfers with Android's DownloadManager.
+- Embedded yt-dlp media downloads, selected best/720p/480p/MP3 formats.
+- Foreground download notifications, pause and attempted continuation of .part files.
+- Finished media exported through MediaStore to public Downloads/FastDownloader.
+- No login, analytics or remote proxy.
+
+## Testing
+```sh
+cd mobile/android
+./gradlew :app:testDebugUnitTest :app:assembleDebug
+```
+Requires Java 17 and Android SDK platform 35. Build also runs in GitHub Actions.
+The CI-built APK is a debug-signed **test APK**, not verified on a physical phone.
+Real device install, download quality, background, storage, pause/resume and UI tests are outstanding.
+
+## Licensing
+The mobile application integrates GPL-3.0 components. See [mobile GPL license](LICENSE-GPL-3.0),
+[third-party notices](THIRD_PARTY_NOTICES.md), and the public sources under `mobile/android`.
+Unrelated desktop code remains under the root license.

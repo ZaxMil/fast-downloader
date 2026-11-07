@@ -8,10 +8,11 @@ android {
     compileSdk = 35
     defaultConfig {
         applicationId = "com.zaxmill.fastdownloader"
-        minSdk = 26
+        minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-alpha"
+        versionCode = 2
+        versionName = "0.2.0-alpha.1"
+        ndk { abiFilters += listOf("arm64-v8a") }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -19,6 +20,8 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    packaging { jniLibs.useLegacyPackaging = true }
+    testOptions { unitTests.isReturnDefaultValues = true }
 }
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2025.04.01")
@@ -28,5 +31,9 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui-tooling-preview")
+    // Bundled yt-dlp/Python and FFmpeg; Android module distributed under GPL-3.0.
+    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    testImplementation("junit:junit:4.13.2")
 }

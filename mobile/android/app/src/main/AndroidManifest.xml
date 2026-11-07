@@ -1,6 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
-    <application android:allowBackup="false" android:label="FastDownloader"
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <application
+        android:allowBackup="false"
+        android:label="FastDownloader"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:exported="true">
@@ -13,12 +18,10 @@
                 <category android:name="android.intent.category.DEFAULT"/>
                 <data android:mimeType="text/plain"/>
             </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="https"/>
-            </intent-filter>
         </activity>
+        <service
+            android:name=".MediaDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"/>
     </application>
 </manifest>

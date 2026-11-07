@@ -1,9 +1,12 @@
 package com.zaxmill.fastdownloader
 
+import android.Manifest
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import androidx.activity.ComponentActivity
@@ -14,125 +17,247 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import java.net.URI
+import java.util.UUID
 
 class MainActivity : ComponentActivity() {
     private val incomingLink = mutableStateOf("")
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         acceptLink(intent)
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 701)
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(
                 background = Color(0xFF0B1019),
                 surface = Color(0xFF141D2B),
-                primary = Color(0xFF53E6AD)
+                primary = Color(0xFF53E6AD),
+                secondary = Color(0xFF70ACED)
             )) { DownloadHome(incomingLink.value) }
         }
     }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         acceptLink(intent)
     }
+
     private fun acceptLink(intent: Intent?) {
-        val text = when (intent?.action) {
-            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
-            Intent.ACTION_VIEW -> intent.dataString
-            else -> null
-        } ?: return
-        incomingLink.value = Regex("""https?://[^\s<>"]+""").find(text)?.value ?: ""
+        if (intent?.action != Intent.ACTION_SEND) return
+        intent.getStringExtra(Intent.EXTRA_TEXT)?.let { shared ->
+            UrlTools.fromSharedText(shared)?.let { incomingLink.value = it }
+        }
     }
 }
 
-/** The Android OS owns transfers after enqueue; they can continue after this Activity closes. */
 internal fun queueDirectDownload(context: Context, input: String): Result<Long> = runCatching {
+    require(UrlTools.isHttps(input)) { "Enter a valid public HTTPS file URL." }
     val uri = URI(input.trim())
-    require(uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null) {
-        "Only public HTTPS links are accepted in this preview."
-    }
-    val lastSegment = uri.path?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "download"
-    val filename = Uri.decode(lastSegment)
-        .replace(Regex("""[\/\u0000-\u001f\u007f]"""), "_")
-        .take(100).ifBlank { "download" }
+    val originalName = Uri.decode(uri.path?.substringAfterLast('/') ?: "")
+    val filename = originalName
+        .replace(Regex("""[\\/\u0000-\u001f\u007f:]"""), "_")
+        .trim('.', ' ')
+        .take(100)
+        .ifBlank { "download" }
     val request = DownloadManager.Request(Uri.parse(uri.toASCIIString()))
         .setTitle(filename)
-        .setDescription("FastDownloader direct file")
+        .setDescription("Direct file — Android system download")
         .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
         .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename)
         .setAllowedOverMetered(true)
         .setAllowedOverRoaming(false)
-    (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+    (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager)
+        .enqueue(request).also { JobStore.saveDirect(context, it) }
+}
+
+private fun directStatus(context: Context, id: Long): String {
+    if (id == -1L) return "No direct file queued yet"
+    val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+    return runCatching {
+        manager.query(DownloadManager.Query().setFilterById(id))?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use "Download not found in Android Downloads"
+            when (cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))) {
+                DownloadManager.STATUS_SUCCESSFUL -> "Completed — see Android Downloads"
+                DownloadManager.STATUS_RUNNING -> "Downloading in background"
+                DownloadManager.STATUS_PAUSED -> "Waiting for Android download service / network"
+                DownloadManager.STATUS_FAILED -> "Failed — check link or free storage"
+                else -> "Queued by Android"
+            }
+        } ?: "Download status unavailable"
+    }.getOrElse { "Could not read Android Downloads status" }
 }
 
 @Composable
 private fun DownloadHome(sharedLink: String) {
     val context = LocalContext.current
-    var url by remember { mutableStateOf(sharedLink) }
-    var status by remember { mutableStateOf("") }
-    var lastId by remember { mutableStateOf<Long?>(null) }
+    var url by rememberSaveable { mutableStateOf(sharedLink) }
+    var mediaMode by rememberSaveable { mutableStateOf(true) }
+    var quality by rememberSaveable { mutableStateOf("best") }
+    var qualityMenu by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
+    var mediaJob by remember { mutableStateOf(JobStore.read(context)) }
+    var directInfo by remember { mutableStateOf(directStatus(context, JobStore.directId(context))) }
+
     LaunchedEffect(sharedLink) { if (sharedLink.isNotBlank()) url = sharedLink }
-    Surface(modifier = Modifier.fillMaxSize()) {
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1250)
+            mediaJob = JobStore.read(context)
+            directInfo = directStatus(context, JobStore.directId(context))
+        }
+    }
+    val busy = mediaJob?.state in setOf("Starting", "Downloading", "Queued") &&
+        MediaDownloadService.activeJobId != null
+    val qualityLabels = mapOf(
+        "best" to "Best available video",
+        "720" to "Up to 720p",
+        "480" to "Up to 480p",
+        "audio" to "MP3 audio only"
+    )
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Spacer(Modifier.height(22.dp))
-            Text("FastDownloader", style = MaterialTheme.typography.headlineMedium)
-            Text("Android · Direct download alpha", color = MaterialTheme.colorScheme.primary)
-            Text("Paste a direct HTTPS file link, or share one from another app.")
+            Spacer(Modifier.height(10.dp))
+            Text("FastDownloader", style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.primary)
+            Text("Android media and file downloader · ALPHA TEST",
+                style = MaterialTheme.typography.titleSmall)
+            Text("Paste a secure link or share one from another app.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = mediaMode,
+                    onClick = { mediaMode = true },
+                    label = { Text("Video / audio") }
+                )
+                FilterChip(
+                    selected = !mediaMode,
+                    onClick = { mediaMode = false },
+                    label = { Text("Direct file") }
+                )
+            }
+
             OutlinedTextField(
-                value = url, onValueChange = { url = it },
-                modifier = Modifier.fillMaxWidth(), label = { Text("File URL") },
-                minLines = 2
+                value = url,
+                onValueChange = { url = it },
+                label = { Text("HTTPS link") },
+                placeholder = { Text("https://...") },
+                minLines = 2,
+                maxLines = 4,
+                modifier = Modifier.fillMaxWidth(),
+                isError = url.isNotBlank() && !UrlTools.isHttps(url)
             )
-            Button(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                onClick = {
-                    queueDirectDownload(context, url).fold(
-                        onSuccess = { id ->
-                            lastId = id
-                            status = "Queued in Android Downloads (ID $id)."
-                        },
-                        onFailure = { status = it.message ?: "Could not start download." }
-                    )
-                }
-            ) { Text("Download file") }
-            OutlinedButton(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = {
-                    context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
-                }
-            ) { Text("Open downloads") }
-            lastId?.let { id ->
-                OutlinedButton(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                        manager.query(DownloadManager.Query().setFilterById(id))?.use { cursor ->
-                            status = if (cursor.moveToFirst()) {
-                                val state = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-                                when (state) {
-                                    DownloadManager.STATUS_SUCCESSFUL -> "Download complete."
-                                    DownloadManager.STATUS_FAILED -> "Download failed. Check Android Downloads."
-                                    DownloadManager.STATUS_RUNNING -> "Downloading…"
-                                    DownloadManager.STATUS_PAUSED -> "Paused by Android; waiting for network."
-                                    else -> "Waiting in queue…"
-                                }
-                            } else "Download no longer exists."
+
+            if (mediaMode) {
+                Box {
+                    OutlinedButton(onClick = { qualityMenu = true },
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text("Quality: ${qualityLabels[quality] ?: quality}")
+                    }
+                    DropdownMenu(expanded = qualityMenu, onDismissRequest = { qualityMenu = false }) {
+                        for ((key, label) in qualityLabels) {
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = { quality = key; qualityMenu = false }
+                            )
                         }
                     }
-                ) { Text("Check last download") }
+                }
             }
-            if (status.isNotBlank()) Text(status)
-            Text(
-                "Direct HTTPS files only. Video-page extraction, manual pause/resume and yt-dlp are not available yet. Android manages network retries and notifications.",
-                style = MaterialTheme.typography.bodySmall
-            )
+
+            Button(
+                onClick = {
+                    if (!UrlTools.isHttps(url)) {
+                        message = "Enter a valid HTTPS URL first."
+                    } else if (mediaMode) {
+                        if (busy) {
+                            message = "Pause the current video task before starting another."
+                        } else {
+                            JobStore.save(context, MediaJob(
+                                id = UUID.randomUUID().toString(),
+                                url = url.trim(),
+                                quality = quality
+                            ))
+                            mediaJob = JobStore.read(context)
+                            MediaDownloadService.send(context, MediaDownloadService.START)
+                            message = "Starting media download. Keep your notification permissions enabled."
+                        }
+                    } else {
+                        queueDirectDownload(context, url).fold(
+                            onSuccess = {
+                                directInfo = "Queued in Android Downloads"
+                                message = "Direct download queued. Android handles the transfer."
+                            },
+                            onFailure = { message = it.message ?: "Could not queue direct download." }
+                        )
+                    }
+                },
+                enabled = url.isNotBlank() && !(mediaMode && busy),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (mediaMode) "Download video / audio" else "Download direct file") }
+
+            if (message.isNotBlank()) Text(message,
+                color = MaterialTheme.colorScheme.secondary,
+                style = MaterialTheme.typography.bodySmall)
+
+            mediaJob?.let { job ->
+                HorizontalDivider()
+                Text("Media task", style = MaterialTheme.typography.titleMedium)
+                Text("${job.state} · ${qualityLabels[job.quality] ?: job.quality}",
+                    color = MaterialTheme.colorScheme.primary)
+                LinearProgressIndicator(progress = { job.progress / 100f },
+                    modifier = Modifier.fillMaxWidth())
+                Text("${job.progress}% · ${job.detail}",
+                    style = MaterialTheme.typography.bodySmall)
+                if (job.state in setOf("Downloading", "Starting") && busy) {
+                    OutlinedButton(
+                        onClick = {
+                            MediaDownloadService.send(context, MediaDownloadService.PAUSE)
+                            message = "Pausing. Partial data will be kept for resume."
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Pause video task") }
+                } else if (job.state in setOf("Paused", "Failed", "Starting", "Downloading")) {
+                    OutlinedButton(
+                        onClick = {
+                            MediaDownloadService.send(context, MediaDownloadService.RESUME)
+                            message = "Attempting to continue partial download."
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Resume video task") }
+                }
+            }
+
+            HorizontalDivider()
+            Text("Latest direct file", style = MaterialTheme.typography.titleMedium)
+            Text(directInfo)
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS)) }
+            ) { Text("Open Android Downloads") }
+
+            HorizontalDivider()
+            Text("Alpha limits: one video at a time. Resume depends on the source server. " +
+                "Some sites require login, block extraction, or use DRM and are not supported. " +
+                "No playlists, cookies, scheduled jobs or in-app download history yet. " +
+                "Test on an Android phone before treating this as a stable release.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(16.dp))
         }
     }
 }
