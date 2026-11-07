@@ -31,7 +31,10 @@ jobs:
             mobile/android/gradle/wrapper/gradle-wrapper.properties
       - name: Use runner's preinstalled Android SDK
         run: |
-          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+          sdk_root="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          sdkmanager_bin="$(find "$sdk_root/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -x "$sdkmanager_bin"
+          "$sdkmanager_bin" --install "platforms;android-35" "build-tools;35.0.0"
       - name: Test and build ARM64 debug APK
         working-directory: mobile/android
         run: |
