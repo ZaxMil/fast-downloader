@@ -1,0 +1,72 @@
+name: Android mobile alpha
+
+on:
+  pull_request:
+    paths:
+      - "mobile/**"
+      - ".github/workflows/android-mobile.yml"
+  push:
+    branches:
+      - feature/android-foundation
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android-alpha:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            mobile/android/**/*.gradle.kts
+            mobile/android/gradle/wrapper/gradle-wrapper.properties
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Prepare build tools
+        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+      - name: Test and build ARM64 debug APK
+        working-directory: mobile/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace --console=plain
+      - name: Verify APK and checksum
+        working-directory: mobile/android
+        run: |
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk FastDownloader-Android-0.2.0-alpha.1-arm64.apk
+          sha256sum FastDownloader-Android-0.2.0-alpha.1-arm64.apk > FastDownloader-Android-0.2.0-alpha.1-arm64.apk.sha256
+          ls -lh FastDownloader-Android-0.2.0-alpha.1-arm64.apk
+      - name: Upload installable alpha APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FastDownloader-Android-0.2.0-alpha.1-arm64
+          path: |
+            mobile/android/FastDownloader-Android-0.2.0-alpha.1-arm64.apk
+            mobile/android/FastDownloader-Android-0.2.0-alpha.1-arm64.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish clearly labeled alpha GitHub prerelease
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feature/android-foundation'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="android-v0.2.0-alpha.1"
+          apk="mobile/android/FastDownloader-Android-0.2.0-alpha.1-arm64.apk"
+          sum="${apk}.sha256"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$apk" "$sum" --clobber
+          else
+            gh release create "$tag" "$apk" "$sum" \
+              --target "$GITHUB_SHA" --prerelease \
+              --title "FastDownloader Android 0.2.0 alpha.1 (TEST ONLY)" \
+              --notes-file mobile/ALPHA_RELEASE_NOTES.md
+          fi
