@@ -2626,6 +2626,11 @@
           🌐 <span class="btn-label">العربية</span>
         </button>
 
+        <button class="btn-titlebar-pill" id="notificationToggleBtn" onclick="toggleNotifications()" title="Mute desktop notifications" aria-pressed="false">
+          <span id="notificationToggleIcon">🔔</span>
+          <span class="btn-label" id="notificationToggleText">Alerts On</span>
+        </button>
+
         <button class="btn-titlebar-pill btn-support" id="supportBtn" onclick="showSupportModal()" title="Support FastDownloader development (Ko-fi)">
           💖 <span class="btn-label" data-i18n="btnSupport">Support</span>
         </button>
@@ -3870,6 +3875,80 @@
 
     // Global Application State
     const API_BASE = "http://127.0.0.1:6801";
+    let notificationsEnabled = true;
+    let notificationsSaving = false;
+    let notificationPreferenceLoaded = false;
+    let notificationPreferenceLoading = false;
+
+    function updateNotificationButton() {
+      const button = document.getElementById('notificationToggleBtn');
+      const icon = document.getElementById('notificationToggleIcon');
+      const label = document.getElementById('notificationToggleText');
+      if (!button || !icon || !label) return;
+      button.setAttribute('aria-pressed', String(!notificationsEnabled));
+      button.title = notificationsEnabled ? 'Mute all desktop alerts and completion popups' : 'Unmute desktop alerts';
+      button.style.opacity = notificationsEnabled ? '1' : '0.65';
+      icon.textContent = notificationsEnabled ? '🔔' : '🔕';
+      label.textContent = notificationsEnabled ? 'Alerts On' : 'Muted';
+      button.disabled = notificationsSaving;
+    }
+
+    async function loadNotificationPreference() {
+      if (notificationPreferenceLoaded || notificationPreferenceLoading) return;
+      notificationPreferenceLoading = true;
+      try {
+        const response = await fetch(API_BASE + '/api/settings', { cache: 'no-store' });
+        if (!response.ok) return;
+        const settings = await response.json();
+        if (typeof settings.notificationsEnabled === 'boolean') {
+          if (!notificationsSaving) notificationsEnabled = settings.notificationsEnabled;
+          notificationPreferenceLoaded = true;
+        }
+        updateNotificationButton();
+      } catch (_) { /* Backend may still be starting. */ }
+      finally { notificationPreferenceLoading = false; }
+    }
+
+    async function toggleNotifications() {
+      if (notificationsSaving) return;
+      notificationsSaving = true;
+      updateNotificationButton();
+      try {
+        const response = await fetch(API_BASE + '/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ notificationsEnabled: !notificationsEnabled }),
+          cache: 'no-store'
+        });
+        if (!response.ok) throw new Error('Could not save notification preference');
+        const settings = await response.json();
+        if (typeof settings.notificationsEnabled !== 'boolean')
+          throw new Error('Notification setting was not confirmed');
+        notificationsEnabled = settings.notificationsEnabled;
+        notificationPreferenceLoaded = true;
+        showToast(notificationsEnabled ? 'Desktop notifications enabled' : 'Desktop notifications muted');
+      } catch (error) {
+        showToast(error.message || 'Notification settings unavailable');
+      } finally {
+        notificationsSaving = false;
+        updateNotificationButton();
+      }
+    }
+
+    // Percentages come from bytes transferred by the engine, not an animated estimate.
+    function getTaskProgress(task) {
+      if (task.status === 'complete' || task.status === 'completed') return 100;
+      const total = Number(task.totalLength);
+      const downloaded = Number(task.completedLength);
+      if (Number.isFinite(total) && total > 0 &&
+          Number.isFinite(downloaded) && downloaded >= 0)
+        return Math.min(100, Math.max(0, downloaded * 100 / total));
+      const exact = Number(task.progressExact);
+      if (task.engine === 'yt-dlp' && Number.isFinite(exact) && exact >= 0)
+        return Math.min(100, Math.max(0, exact));
+      return null; // Unknown Content-Length; never invent a percentage.
+    }
+
     let tasks = [];
     let currentCategory = 'all';
     let currentQueueFilter = null;
@@ -5225,10 +5304,18 @@
       }
     }
 
-    // Fetch Tasks from Backend
+    // Never overlap polls: out-of-order responses can roll live progress backwards.
+    let taskPollInFlight = false;
     async function pollBackend() {
+      if (taskPollInFlight) return;
+      taskPollInFlight = true;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 7000);
       try {
-        const resp = await fetch(`${API_BASE}/api/tasks`);
+        const resp = await fetch(API_BASE + '/api/tasks', {
+          cache: 'no-store',
+          signal: controller.signal
+        });
         if (resp.ok) {
           const bootSplash = document.getElementById('appBootSplash');
           if (bootSplash) {
@@ -5244,6 +5331,7 @@
           }
           const data = await resp.json();
           processIncomingTasks(data.tasks || []);
+          if (!notificationPreferenceLoaded) loadNotificationPreference();
           // Native IDM dialog handles interceptions; suppress duplicate web modal
           // if (data.pending && data.pending.length > 0) { handlePendingInterceptions(data.pending); }
           if (currentDetailGid) {
@@ -5252,7 +5340,10 @@
           }
         }
       } catch (err) {
-        // Retry silently
+        // Retry silently when the engine is starting or unavailable.
+      } finally {
+        clearTimeout(timeout);
+        taskPollInFlight = false;
       }
     }
 
@@ -5357,6 +5448,46 @@
       }
     }
 
+    // Keep the same progress DOM nodes between samples so the fill smoothly tracks
+    // measured byte changes instead of resetting its CSS transition every second.
+    function reconcileLiveRows(tbody, markup) {
+      const staging = document.createElement('tbody');
+      staging.innerHTML = markup;
+      const oldRows = Array.from(tbody.children);
+      const newRows = Array.from(staging.children);
+      const sameRows = oldRows.length > 0 && oldRows.length === newRows.length &&
+        oldRows.every((row, i) => row.getAttribute('ondblclick') === newRows[i].getAttribute('ondblclick') &&
+          row.className === newRows[i].className &&
+          row.children.length === newRows[i].children.length &&
+          Array.from(row.children).every((cell, j) => cell.dataset.col === newRows[i].children[j].dataset.col));
+      if (!sameRows) {
+        tbody.innerHTML = markup;
+        return;
+      }
+      oldRows.forEach((row, i) => {
+        const fresh = newRows[i];
+        Array.from(row.children).forEach((cell, j) => {
+          const replacement = fresh.children[j];
+          if (cell.dataset.col === 'progress') {
+            const oldFill = cell.querySelector('.progress-fill');
+            const newFill = replacement.querySelector('.progress-fill');
+            if (oldFill && newFill) {
+              oldFill.style.width = newFill.style.width;
+              oldFill.className = newFill.className;
+              const oldValues = cell.querySelectorAll('.progress-labels span');
+              const newValues = replacement.querySelectorAll('.progress-labels span');
+              oldValues.forEach((value, k) => {
+                if (newValues[k]) value.textContent = newValues[k].textContent;
+              });
+              return;
+            }
+          }
+          if (cell.innerHTML !== replacement.innerHTML)
+            cell.innerHTML = replacement.innerHTML;
+        });
+      });
+    }
+
     // Render Main Downloads Table
     function renderTable() {
       const tbody = document.getElementById('tableBody');
@@ -5441,7 +5572,9 @@
       let html = '';
       filtered.forEach(t => {
         const isSelected = selectedGids.has(t.gid);
-        const percent = Math.min(100, Math.max(0, t.progress || 0));
+        const actualPercent = getTaskProgress(t);
+        const percent = actualPercent === null ? 0 : actualPercent;
+        const percentLabel = actualPercent === null ? '—' : percent.toFixed(1) + '%';
         const isPaused = t.status === 'paused' || t.status === 'waiting';
         const isDone = t.status === 'complete' || t.status === 'completed';
         const isError = t.status === 'error';
@@ -5458,7 +5591,9 @@
         let statusText = I18N[currentLang] ? I18N[currentLang].statusQueued : 'Queued';
         if (t.status === 'active' || t.status === 'downloading') {
           statusClass = 'downloading';
-          statusText = I18N[currentLang] ? I18N[currentLang].statusDownloading : 'Downloading';
+          statusText = Number(t.completedLength) > 0 || Number(t.downloadSpeed) > 0 ?
+            (I18N[currentLang] ? I18N[currentLang].statusDownloading : 'Downloading') :
+            (currentLang === 'ar' ? 'جاري الاتصال...' : 'Connecting...');
         } else if (isPaused) {
           statusClass = 'paused';
           statusText = I18N[currentLang] ? I18N[currentLang].statusPaused : 'Paused';
@@ -5500,7 +5635,7 @@
                   <div class="progress-fill ${isPaused ? 'paused' : ''} ${isError ? 'error' : ''}" style="width: ${percent}%;"></div>
                 </div>
                 <div class="progress-labels">
-                  <span>${percent}%</span>
+                  <span>${percentLabel}</span>
                   <span>${formatBytes(t.completedLength)}</span>
                 </div>
               </div>
@@ -5550,7 +5685,7 @@
         `;
       });
 
-      tbody.innerHTML = html;
+      reconcileLiveRows(tbody, html);
     }
 
     // ==========================================
@@ -7623,7 +7758,8 @@
       const isDone = t.status === 'complete' || t.status === 'completed';
       const isPaused = t.status === 'paused' || t.status === 'waiting';
       const isError = t.status === 'error';
-      const percent = Math.min(100, Math.max(0, t.progress || 0));
+      const actualPercent = getTaskProgress(t);
+      const percent = actualPercent === null ? 0 : actualPercent;
 
       document.getElementById('detailSizeVal').textContent = `${formatBytes(t.completedLength)} / ${t.totalLength > 0 ? formatBytes(t.totalLength) : 'Unknown'}`;
       document.getElementById('detailSpeedVal').textContent = t.downloadSpeed > 0 ? `${formatBytes(t.downloadSpeed)}/s` : (isDone ? 'Finished' : '0 KB/s');
@@ -7635,7 +7771,7 @@
       else if (isPaused) statusText = 'Paused';
       else if (isError) statusText = 'Error / Interrupted';
       document.getElementById('detailStatusLabel').textContent = statusText;
-      document.getElementById('detailPercentLabel').textContent = `${percent}%`;
+      document.getElementById('detailPercentLabel').textContent = actualPercent === null ? '—' : percent.toFixed(1) + '%';
       document.getElementById('detailProgressFill').style.width = `${percent}%`;
 
       const pauseBtn = document.getElementById('detailPauseResumeBtn');
@@ -7928,6 +8064,7 @@
     setupHeaderDblClickEdit();
 
     // Start Polling Loop
+    loadNotificationPreference();
     pollBackend();
     setInterval(pollBackend, 1000);
     refreshDiskSpace();
