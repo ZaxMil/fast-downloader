@@ -35,6 +35,8 @@ jobs:
         run: node tests/extension_intercept.test.cjs
       - name: Table configuration and live data
         run: node tests/table_columns.test.cjs
+      - name: Real-time transfer and notifications safeguards
+        run: node tests/live_transfers.test.cjs
       - name: Smart updater lifecycle and yt-dlp availability
         run: node tests/smart_updater.test.cjs
 

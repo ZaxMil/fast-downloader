@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
@@ -1071,12 +1072,14 @@ namespace FastDownloader
         public string Quality { get; set; }
         public string Queue { get; set; }
         public int Progress { get; set; }
+        public double ProgressExact { get; set; }
         public string Status { get; set; } // "downloading", "paused", "completed", "error"
         public long DownloadSpeed { get; set; }
         public long TotalLength { get; set; }
         public long CompletedLength { get; set; }
         public long Eta { get; set; }
         public Process Process { get; set; }
+        public int RunGeneration;
         public string YtExe { get; set; }
         public string FfmpegDir { get; set; }
         public string FormatArg { get; set; }
@@ -1184,6 +1187,7 @@ namespace FastDownloader
         public bool AutoUpdateEngines { get; set; }
         public bool AutoUpdateApp { get; set; }
         public bool NotifyOnUpdate { get; set; }
+        public bool NotificationsEnabled { get; set; }
         public string LastUpdateCheck { get; set; }
         private string settingsFilePath;
         private readonly object pendingLock = new object();
@@ -1282,6 +1286,7 @@ namespace FastDownloader
             AutoUpdateEngines = true;
             AutoUpdateApp = true;
             NotifyOnUpdate = true;
+            NotificationsEnabled = true;
             LastUpdateCheck = "";
             settingsFilePath = Path.Combine(AppDir, "settings.json");
             LoadSettings();
@@ -1309,6 +1314,7 @@ namespace FastDownloader
                         if (dict.ContainsKey("autoUpdateEngines")) AutoUpdateEngines = Convert.ToBoolean(dict["autoUpdateEngines"]);
                         if (dict.ContainsKey("autoUpdateApp")) AutoUpdateApp = Convert.ToBoolean(dict["autoUpdateApp"]);
                         if (dict.ContainsKey("notifyOnUpdate")) NotifyOnUpdate = Convert.ToBoolean(dict["notifyOnUpdate"]);
+                        if (dict.ContainsKey("notificationsEnabled")) NotificationsEnabled = Convert.ToBoolean(dict["notificationsEnabled"]);
                         if (dict.ContainsKey("lastUpdateCheck") && dict["lastUpdateCheck"] != null) LastUpdateCheck = dict["lastUpdateCheck"].ToString();
                     }
                 }
@@ -1325,6 +1331,7 @@ namespace FastDownloader
                 dict["autoUpdateEngines"] = AutoUpdateEngines;
                 dict["autoUpdateApp"] = AutoUpdateApp;
                 dict["notifyOnUpdate"] = NotifyOnUpdate;
+                dict["notificationsEnabled"] = NotificationsEnabled;
                 if (!string.IsNullOrEmpty(LastUpdateCheck)) dict["lastUpdateCheck"] = LastUpdateCheck;
                 File.WriteAllText(settingsFilePath, JsonHelper.Serialize(dict));
             }
@@ -1517,8 +1524,8 @@ namespace FastDownloader
                     FileName = ariaExe,
                     Arguments = string.Format(
                         "--enable-rpc --rpc-listen-all=false --rpc-listen-port=6800 --rpc-secret=\"{1}\" --disable-ipv6=true " +
-                        "--file-allocation=none --max-tries=5 --retry-wait=3 --connect-timeout=15 " +
-                        "--max-connection-per-server=16 --split=32 --min-split-size=1M " +
+                        "--file-allocation=none --max-tries=8 --retry-wait=2 --connect-timeout=12 " +
+                        "--max-connection-per-server=8 --split=8 --min-split-size=2M " +
                         "--max-concurrent-downloads=5 --continue=true --dir=\"{0}\" " +
                         "--enable-dht=true --enable-peer-exchange=true --bt-enable-lpd=true --bt-max-peers=55 --seed-time=0 --bt-save-metadata=true --bt-stop-timeout=300",
                         safeDir, ariaRpcSecret),
@@ -1661,16 +1668,16 @@ namespace FastDownloader
                 req.Timeout = 2500;
                 req.ReadWriteTimeout = 2500;
                 var options = new Dictionary<string, object>();
-                options["split"] = "32";
-                options["max-connection-per-server"] = "16";
-                options["min-split-size"] = "1M";
+                options["split"] = "8";
+                options["max-connection-per-server"] = "8";
+                options["min-split-size"] = "2M";
                 // Facebook's short-lived CDN links are sensitive to high initial
                 // parallelism. Start conservatively to avoid 0-byte stalls.
                 if (url.IndexOf("fbcdn.net", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     url.IndexOf("facebook.com", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
-                    options["split"] = "4";
-                    options["max-connection-per-server"] = "4";
+                    options["split"] = "2";
+                    options["max-connection-per-server"] = "2";
                     options["min-split-size"] = "4M";
                 }
                 options["pause"] = startNow ? "false" : "true";
@@ -1744,45 +1751,85 @@ namespace FastDownloader
             return null;
         }
 
-        // One-time recovery for a genuinely stalled new aria2 transfer.
-        // If the remote server never sends the first byte, repeat the same
-        // pause/resume intervention that users previously had to do manually.
-        // Never touch paused, queued or already-progressing downloads.
+        // Start-up watchdog: recover a genuine 0-byte stall without asking the user
+        // to manually pause/resume. Never alter queued, paused or progressing tasks.
         private void MonitorNewAriaDownload(string gid)
         {
             ThreadPool.QueueUserWorkItem(_ =>
             {
-                Thread.Sleep(20000);
-                UnifiedTaskInfo state = GetTaskInfo(gid);
-                if (state == null || state.Engine != "aria2" ||
-                    state.Status != "active" || state.CompletedLength != 0 ||
-                    state.DownloadSpeed != 0) return;
-
-                Thread.Sleep(3000);
-                state = GetTaskInfo(gid);
-                if (state == null || state.Status != "active" ||
-                    state.CompletedLength != 0 || state.DownloadSpeed != 0) return;
-
-                try
+                // Some servers take a moment to negotiate redirects or TLS.
+                Thread.Sleep(6000);
+                for (int attempt = 0; attempt < 2; attempt++)
                 {
-                    SendAriaAction("aria2.forcePause", gid);
-                    Thread.Sleep(1000);
-                    // Respect user intervention if the task was removed or completed.
+                    var state = GetTaskInfo(gid);
+                    if (state == null || state.Engine != "aria2" || state.Status != "active" ||
+                        state.CompletedLength > 0 || state.DownloadSpeed > 0) return;
+                    Thread.Sleep(3000);
                     state = GetTaskInfo(gid);
-                    if (state == null || state.Status == "removed" ||
-                        state.Status == "complete" || state.Status == "error") return;
+                    if (state == null || state.Status != "active" ||
+                        state.CompletedLength > 0 || state.DownloadSpeed > 0) return;
+
+                    // A paused transfer renegotiates its connection on unpause.
+                    // Use one connection on the second attempt for hostile CDNs.
+                    SendAriaAction("aria2.forcePause", gid);
+                    // Wait for aria2 to acknowledge the pause before renegotiation.
+                    // Do not leave an in-flight pause command stranded.
+                    for (int i = 0; i < 10; i++)
+                    {
+                        Thread.Sleep(400);
+                        state = GetTaskInfo(gid);
+                        if (state == null || state.Status == "complete" ||
+                            state.Status == "error" || state.Status == "removed") return;
+                        if (state.Status == "paused") break;
+                    }
+                    if (state == null || state.Status != "paused") return;
+                    if (attempt == 1)
+                        SetAriaTaskOptions(gid, new Dictionary<string, object> {
+                            { "split", "1" }, { "max-connection-per-server", "1" }
+                        });
                     SendAriaAction("aria2.unpause", gid);
+                    Thread.Sleep(10000);
                 }
-                catch { }
             });
+        }
+
+        private void SetAriaTaskOptions(string gid, Dictionary<string, object> options)
+        {
+            try
+            {
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:6800/jsonrpc");
+                req.Method = "POST";
+                req.ContentType = "application/json";
+                req.Timeout = 1500;
+                var payload = new { jsonrpc = "2.0", id = "recover", method = "aria2.changeOption",
+                    @params = new object[] { "token:" + ariaRpcSecret, gid, options } };
+                byte[] data = Encoding.UTF8.GetBytes(JsonHelper.Serialize(payload));
+                req.ContentLength = data.Length;
+                using (var stream = req.GetRequestStream()) stream.Write(data, 0, data.Length);
+                using (var response = req.GetResponse()) { }
+            }
+            catch { }
         }
 
         public List<Dictionary<string, object>> GetAriaTasks()
         {
+            return QueryAriaTasks(false);
+        }
+
+        // Tray previews only need active transfers; avoid two extra RPC round trips.
+        public List<Dictionary<string, object>> GetActiveAriaTasks()
+        {
+            return QueryAriaTasks(true);
+        }
+
+        private List<Dictionary<string, object>> QueryAriaTasks(bool activeOnly)
+        {
             List<Dictionary<string, object>> tasks = new List<Dictionary<string, object>>();
             try
             {
-                string[] methods = new string[] { "aria2.tellActive", "aria2.tellWaiting", "aria2.tellStopped" };
+                string[] methods = activeOnly ?
+                    new string[] { "aria2.tellActive" } :
+                    new string[] { "aria2.tellActive", "aria2.tellWaiting", "aria2.tellStopped" };
                 foreach (var method in methods)
                 {
                     HttpWebRequest req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:6800/jsonrpc");
@@ -1994,6 +2041,7 @@ namespace FastDownloader
                     var yt = YtTasks.Find(t => t.Gid == gid);
                     if (yt != null)
                     {
+                        Interlocked.Increment(ref yt.RunGeneration);
                         yt.Status = "paused";
                         yt.DownloadSpeed = 0;
                         yt.Eta = 0;
@@ -2014,6 +2062,7 @@ namespace FastDownloader
                     var yt = YtTasks.Find(t => t.Gid == gid);
                     if (yt != null && (yt.Status == "paused" || yt.Status == "error"))
                     {
+                        Interlocked.Increment(ref yt.RunGeneration);
                         yt.Status = "downloading";
                         var taskRef = yt;
                         Thread t = new Thread(() =>
@@ -2038,6 +2087,7 @@ namespace FastDownloader
                 var yt = YtTasks.Find(t => t.Gid == gid);
                 if (yt != null)
                 {
+                    Interlocked.Increment(ref yt.RunGeneration);
                     yt.Status = "removed";
                     KillProcessTree(yt.Process);
                     YtTasks.Remove(yt);
@@ -2054,6 +2104,7 @@ namespace FastDownloader
                 {
                     if (yt.Status == "downloading" || yt.Status == "processing")
                     {
+                        Interlocked.Increment(ref yt.RunGeneration);
                         yt.Status = "paused";
                         yt.DownloadSpeed = 0;
                         yt.Eta = 0;
@@ -2071,6 +2122,7 @@ namespace FastDownloader
                 {
                     if (yt.Status == "paused" || yt.Status == "error")
                     {
+                        Interlocked.Increment(ref yt.RunGeneration);
                         yt.Status = "downloading";
                         var taskRef = yt;
                         Thread t = new Thread(() =>
@@ -2307,9 +2359,41 @@ namespace FastDownloader
                 });
                 t.IsBackground = true;
                 t.Start();
+                MonitorNewYtDownload(taskInfo);
             }
 
             return gid;
+        }
+
+        // Restart one truly idle initial extractor process (for signed Facebook links
+        // and other streams) while preserving yt-dlp .part files.
+        private void MonitorNewYtDownload(YtTaskInfo task)
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                Thread.Sleep(25000);
+                for (int i = 0; i < 2; i++)
+                {
+                    if (task.Status != "downloading" || task.CompletedLength > 0 ||
+                        task.ProgressExact > 0 || task.DownloadSpeed > 0) return;
+                    Thread.Sleep(5000);
+                }
+                lock (ytLock)
+                {
+                    if (!YtTasks.Contains(task) || task.Status != "downloading" ||
+                        task.CompletedLength > 0 || task.ProgressExact > 0 ||
+                        task.DownloadSpeed > 0) return;
+                    // Invalidate stale output/exit notifications from the old process.
+                    Interlocked.Increment(ref task.RunGeneration);
+                    KillProcessTree(task.Process);
+                    var retry = new Thread(() =>
+                        RunYtDlpProcess(task, task.YtExe, task.FfmpegDir,
+                            task.FormatArg, task.ExtraHeaders, task.SaveDir,
+                            task.Url, task.IsYouTube, true));
+                    retry.IsBackground = true;
+                    retry.Start();
+                }
+            });
         }
 
         private static readonly Regex Aria2ProgressRegex = new Regex(
@@ -2435,6 +2519,7 @@ namespace FastDownloader
                         pct = (int)((overallCompleted * 100) / overallTotal);
                     }
                     if (pct > taskInfo.Progress && pct < 100) taskInfo.Progress = pct;
+                    if (overallTotal > 0) taskInfo.ProgressExact = Math.Max(taskInfo.ProgressExact, Math.Min(99.99, overallCompleted * 100.0 / overallTotal));
                     taskInfo.Status = "downloading";
                     return;
                 }
@@ -2450,12 +2535,13 @@ namespace FastDownloader
                     {
                         int pct = (int)pctVal;
                         if (pct > taskInfo.Progress && pct < 100) taskInfo.Progress = pct;
+                        taskInfo.ProgressExact = Math.Max(taskInfo.ProgressExact, Math.Min(99.99, pctVal));
                     }
                     long tot = ParseByteString(m.Groups[2].Value);
                     if (tot > 0)
                     {
                         taskInfo.TotalLength = tot;
-                        taskInfo.CompletedLength = (long)(tot * (taskInfo.Progress / 100.0));
+                        taskInfo.CompletedLength = (long)(tot * (taskInfo.ProgressExact / 100.0));
                     }
                     if (m.Groups[3].Success)
                     {
@@ -2473,6 +2559,7 @@ namespace FastDownloader
             if (line.Contains("[Merger]") || line.Contains("[ExtractAudio]") || line.Contains("Fixing headers"))
             {
                 taskInfo.Progress = 99;
+                taskInfo.ProgressExact = 99;
                 taskInfo.Status = "processing";
                 taskInfo.DownloadSpeed = 0;
                 taskInfo.Eta = 0;
@@ -2481,6 +2568,7 @@ namespace FastDownloader
 
         private void RunYtDlpProcess(YtTaskInfo taskInfo, string ytExe, string ffmpegDir, string formatArg, string extraHeaders, string saveDir, string url, bool isYouTube, bool allowRetry)
         {
+            int generation = Interlocked.Increment(ref taskInfo.RunGeneration);
             StringBuilder errLog = new StringBuilder();
             try
             {
@@ -2506,7 +2594,7 @@ namespace FastDownloader
                     FileName = ytExe,
                     // yt-dlp's native HTTP downloader is more reliable for Facebook's signed media links.
                     // Nested aria2 handoff could stall at zero until manually restarted.
-                    Arguments = string.Format("--encoding utf-8 --retries 5 --fragment-retries 5 --socket-timeout 20 --ffmpeg-location \"{0}\" {1}{2} -o \"{3}\" --windows-filenames --downloader dash:native --downloader m3u8:native --downloader http:native --downloader https:native -P \"{4}\" -- \"{5}\"",
+                    Arguments = string.Format("--encoding utf-8 --continue --newline --retries 5 --fragment-retries 5 --socket-timeout 20 --ffmpeg-location \"{0}\" {1}{2} -o \"{3}\" --windows-filenames --downloader dash:native --downloader m3u8:native --downloader http:native --downloader https:native -P \"{4}\" -- \"{5}\"",
                         ffmpegDir, formatArg, extraHeaders, safeOutputTemplate, safeSaveDir, safeUrl),
                     CreateNoWindow = true,
                     UseShellExecute = false,
@@ -2519,6 +2607,11 @@ namespace FastDownloader
 
                 using (Process p = Process.Start(psi))
                 {
+                    if (generation != Interlocked.CompareExchange(ref taskInfo.RunGeneration, 0, 0))
+                    {
+                        KillProcessTree(p);
+                        return;
+                    }
                     taskInfo.Process = p;
                     p.ErrorDataReceived += (s, e) =>
                     {
@@ -2547,7 +2640,8 @@ namespace FastDownloader
                                 {
                                     string line = sb.ToString();
                                     sb.Length = 0;
-                                    ParseYtOutputLine(taskInfo, line, ref previousStreamBytes, ref currentStreamTotal, ref currentStreamCompleted);
+                                    if (generation == Interlocked.CompareExchange(ref taskInfo.RunGeneration, 0, 0))
+                                        ParseYtOutputLine(taskInfo, line, ref previousStreamBytes, ref currentStreamTotal, ref currentStreamCompleted);
                                 }
                             }
                             else
@@ -2558,10 +2652,14 @@ namespace FastDownloader
                     }
                     if (sb.Length > 0)
                     {
-                        ParseYtOutputLine(taskInfo, sb.ToString(), ref previousStreamBytes, ref currentStreamTotal, ref currentStreamCompleted);
+                        if (generation == Interlocked.CompareExchange(ref taskInfo.RunGeneration, 0, 0))
+                            ParseYtOutputLine(taskInfo, sb.ToString(), ref previousStreamBytes, ref currentStreamTotal, ref currentStreamCompleted);
                     }
 
                     p.WaitForExit();
+                    // A newer resume/retry owns this task; old exits must not mark it failed.
+                    if (generation != Interlocked.CompareExchange(ref taskInfo.RunGeneration, 0, 0))
+                        return;
 
                     string allErrors = errLog.ToString();
                     if (!string.IsNullOrEmpty(allErrors))
@@ -2597,6 +2695,7 @@ namespace FastDownloader
                     if (p.ExitCode == 0)
                     {
                         taskInfo.Progress = 100;
+                        taskInfo.ProgressExact = 100;
                         taskInfo.Status = "completed";
                         RecordTaskFinished(taskInfo.Gid);
                     }
@@ -2630,14 +2729,15 @@ namespace FastDownloader
             catch (Exception ex)
             {
                 try { File.WriteAllText(Path.Combine(AppDir, "ytdlp_last_error.log"), ex.ToString() + "\n" + errLog.ToString()); } catch { }
-                taskInfo.Status = "error";
+                if (generation == Interlocked.CompareExchange(ref taskInfo.RunGeneration, 0, 0))
+                    taskInfo.Status = "error";
             }
         }
     }
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.13";
+        public const string CurrentAppVersion = "0.1.14";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -3824,6 +3924,7 @@ namespace FastDownloader
                                 int.TryParse(t["connections"].ToString(), out liveConnections);
                             item["connections"] = liveConnections;
                             item["progress"] = progress;
+                            item["progressExact"] = totalLength > 0 ? Math.Min(100.0, completedLength * 100.0 / totalLength) : -1.0;
                             item["eta"] = eta;
                             item["status"] = status;
                             bool isTorrent = t.ContainsKey("bittorrent");
@@ -3850,6 +3951,7 @@ namespace FastDownloader
                                 item["completedLength"] = yt.CompletedLength;
                                 item["downloadSpeed"] = yt.DownloadSpeed;
                                 item["progress"] = yt.Progress;
+                                item["progressExact"] = yt.ProgressExact;
                                 item["eta"] = yt.Eta;
                                 item["status"] = yt.Status;
                                 item["engine"] = "yt-dlp";
@@ -4473,14 +4575,17 @@ namespace FastDownloader
                             try
                             {
                                 var data = JsonHelper.ParseDict(requestBody);
-                                if (data != null && data.ContainsKey("autoCapture"))
+                                if (data != null)
                                 {
-                                    engine.AutoCaptureEnabled = Convert.ToBoolean(data["autoCapture"]);
-                                    engine.SaveSettings();
-                                    if (onNotification != null)
+                                    if (data.ContainsKey("notificationsEnabled"))
+                                        engine.NotificationsEnabled = Convert.ToBoolean(data["notificationsEnabled"]);
+                                    if (data.ContainsKey("autoCapture"))
                                     {
-                                        onNotification(engine.AutoCaptureEnabled ? "🎯 Auto-Grab activated" : "⏸️ Auto-Grab paused");
+                                        engine.AutoCaptureEnabled = Convert.ToBoolean(data["autoCapture"]);
+                                        if (onNotification != null)
+                                            onNotification(engine.AutoCaptureEnabled ? "🎯 Auto-Grab activated" : "⏸️ Auto-Grab paused");
                                     }
+                                    engine.SaveSettings();
                                 }
                             }
                             catch { }
@@ -4488,7 +4593,8 @@ namespace FastDownloader
 
                         var resp = new
                         {
-                            autoCapture = engine.AutoCaptureEnabled
+                            autoCapture = engine.AutoCaptureEnabled,
+                            notificationsEnabled = engine.NotificationsEnabled
                         };
                         string json = JsonHelper.Serialize(resp);
                         byte[] bytes = Encoding.UTF8.GetBytes(json);
@@ -6021,7 +6127,9 @@ namespace FastDownloader
             if (task == null) return;
 
             progBar.Value = task.Progress;
-            lblPct.Text = task.Progress + "%";
+            lblPct.Text = task.TotalLength > 0 ?
+                Math.Min(100.0, task.CompletedLength * 100.0 / task.TotalLength).ToString("0.0", CultureInfo.InvariantCulture) + "%" :
+                (task.CompletedLength > 0 ? "Transferring..." : "Connecting...");
             chunkVisualizer.UpdateProgress(task.Progress, task.Status == "downloading" || task.Status == "active");
 
             string totalFormatted = task.TotalLength > 0 ? UrlProbeHelper.FormatBytes(task.TotalLength) : "Unknown";
@@ -6295,6 +6403,207 @@ namespace FastDownloader
         }
     }
 
+    // Lightweight IDM-style live transfer flyout opened with a single tray click.
+    // It uses only engine-reported bytes and speed, never a simulated timer percentage.
+    public class TrayDownloadsForm : Form
+    {
+        private sealed class TrayTransfer
+        {
+            public string Name;
+            public long Completed;
+            public long Total;
+            public long Speed;
+            public double ExactProgress;
+        }
+
+        private readonly EngineManager engine;
+        private readonly Action openDashboard;
+        private readonly FlowLayoutPanel list;
+        private readonly Label headerLabel;
+        private readonly System.Windows.Forms.Timer refreshTimer;
+        private int refreshInFlight;
+
+        public TrayDownloadsForm(EngineManager engine, Action openDashboard)
+        {
+            this.engine = engine;
+            this.openDashboard = openDashboard;
+            Width = 400;
+            Height = 386;
+            FormBorderStyle = FormBorderStyle.FixedSingle;
+            ShowInTaskbar = false;
+            ControlBox = false;
+            StartPosition = FormStartPosition.Manual;
+            TopMost = true;
+            BackColor = Color.FromArgb(20, 24, 34);
+            ForeColor = Color.White;
+
+            var header = new Panel { Dock = DockStyle.Top, Height = 52,
+                BackColor = Color.FromArgb(28, 34, 47) };
+            headerLabel = new Label { Text = "Active Downloads", ForeColor = Color.White,
+                Location = new Point(14, 16), AutoSize = true,
+                Font = new Font("Segoe UI", 11F, FontStyle.Bold) };
+            var closeButton = new Button { Text = "×", Width = 32, Height = 28,
+                Location = new Point(349, 11), FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(38, 45, 58), ForeColor = Color.White };
+            closeButton.FlatAppearance.BorderSize = 0;
+            closeButton.Click += (s, e) => Hide();
+            header.Controls.Add(headerLabel);
+            header.Controls.Add(closeButton);
+
+            var footer = new Panel { Dock = DockStyle.Bottom, Height = 49,
+                BackColor = Color.FromArgb(28, 34, 47) };
+            var openButton = new Button { Text = "Open Full Dashboard", Width = 355,
+                Height = 32, Location = new Point(17, 8), FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(16, 185, 129), ForeColor = Color.White,
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold) };
+            openButton.FlatAppearance.BorderSize = 0;
+            openButton.Click += (s, e) => { Hide(); openDashboard(); };
+            footer.Controls.Add(openButton);
+
+            list = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true,
+                FlowDirection = FlowDirection.TopDown, WrapContents = false,
+                Padding = new Padding(10, 10, 10, 8), BackColor = BackColor };
+            Controls.Add(list);
+            Controls.Add(footer);
+            Controls.Add(header);
+
+            refreshTimer = new System.Windows.Forms.Timer { Interval = 1200 };
+            refreshTimer.Tick += (s, e) => RefreshTransfers();
+            Deactivate += (s, e) => Hide();
+            VisibleChanged += (s, e) => {
+                if (Visible) { refreshTimer.Start(); RefreshTransfers(); }
+                else refreshTimer.Stop();
+            };
+            FormClosed += (s, e) => refreshTimer.Dispose();
+        }
+
+        public void ShowNearTray()
+        {
+            Rectangle area = Screen.FromPoint(Cursor.Position).WorkingArea;
+            Location = new Point(Math.Max(area.Left, area.Right - Width - 8),
+                Math.Max(area.Top, area.Bottom - Height - 8));
+            Show();
+            BringToFront();
+        }
+
+        private void RefreshTransfers()
+        {
+            if (Interlocked.Exchange(ref refreshInFlight, 1) != 0) return;
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    var snapshot = new List<TrayTransfer>();
+                    foreach (var task in engine.GetActiveAriaTasks())
+                    {
+                        if (!task.ContainsKey("status") ||
+                            Convert.ToString(task["status"]) != "active") continue;
+                        long downloaded = ParseLong(task, "completedLength");
+                        long total = ParseLong(task, "totalLength");
+                        long speed = ParseLong(task, "downloadSpeed");
+                        string filename = "Download";
+                        ArrayList files;
+                        if (task.ContainsKey("files") && (files = task["files"] as ArrayList) != null &&
+                            files.Count > 0)
+                        {
+                            var file = files[0] as Dictionary<string, object>;
+                            if (file != null && file.ContainsKey("path"))
+                            {
+                                var path = Convert.ToString(file["path"]);
+                                if (!string.IsNullOrEmpty(path)) filename = Path.GetFileName(path);
+                            }
+                        }
+                        snapshot.Add(new TrayTransfer {
+                            Name = filename, Completed = downloaded, Total = total,
+                            Speed = speed, ExactProgress = total > 0 ? downloaded * 100.0 / total : -1
+                        });
+                    }
+                    foreach (var task in engine.GetYtTasksSnapshot())
+                    {
+                        if (task.Status != "downloading" && task.Status != "processing") continue;
+                        snapshot.Add(new TrayTransfer {
+                            Name = task.Name, Completed = task.CompletedLength,
+                            Total = task.TotalLength, Speed = task.DownloadSpeed,
+                            ExactProgress = task.TotalLength > 0 ?
+                                task.CompletedLength * 100.0 / task.TotalLength : task.ProgressExact
+                        });
+                    }
+                    if (!IsDisposed && IsHandleCreated)
+                    {
+                        BeginInvoke((Action)(() => {
+                            try { if (Visible) RenderTransfers(snapshot); }
+                            finally { Interlocked.Exchange(ref refreshInFlight, 0); }
+                        }));
+                    }
+                    else Interlocked.Exchange(ref refreshInFlight, 0);
+                }
+                catch { Interlocked.Exchange(ref refreshInFlight, 0); }
+            });
+        }
+
+        private static long ParseLong(Dictionary<string, object> dict, string key)
+        {
+            long result;
+            if (dict.ContainsKey(key) && dict[key] != null &&
+                long.TryParse(Convert.ToString(dict[key]), out result))
+                return result;
+            return 0;
+        }
+
+        private void RenderTransfers(List<TrayTransfer> transfers)
+        {
+            headerLabel.Text = transfers.Count == 1 ? "1 Active Download" :
+                transfers.Count + " Active Downloads";
+            list.SuspendLayout();
+            try
+            {
+                while (list.Controls.Count > 0)
+                {
+                    Control oldCard = list.Controls[0];
+                    list.Controls.RemoveAt(0);
+                    oldCard.Dispose();
+                }
+                if (transfers.Count == 0)
+                {
+                    list.Controls.Add(new Label {
+                        Text = "No active transfers\nNew downloads will appear here automatically.",
+                        Width = 345, Height = 70, TextAlign = ContentAlignment.MiddleCenter,
+                        ForeColor = Color.FromArgb(168, 180, 199),
+                        Font = new Font("Segoe UI", 9F)
+                    });
+                    return;
+                }
+                foreach (var transfer in transfers.Take(20))
+                {
+                    var card = new Panel { Width = 353, Height = 82,
+                        Margin = new Padding(0, 0, 0, 8),
+                        BackColor = Color.FromArgb(31, 38, 52) };
+                    var name = new Label { Text = transfer.Name ?? "Download",
+                        Width = 331, Height = 21, Location = new Point(10, 7),
+                        AutoEllipsis = true, ForeColor = Color.White,
+                        Font = new Font("Segoe UI", 9F, FontStyle.Bold) };
+                    double pct = Math.Max(0, Math.Min(100, transfer.ExactProgress));
+                    var bar = new ProgressBar { Location = new Point(10, 32),
+                        Width = 331, Height = 11, Minimum = 0, Maximum = 1000,
+                        Value = transfer.ExactProgress >= 0 ? (int)Math.Round(pct * 10) : 0,
+                        Style = ProgressBarStyle.Continuous };
+                    var label = new Label { Location = new Point(10, 50),
+                        Width = 331, Height = 20, ForeColor = Color.FromArgb(177, 193, 212),
+                        Font = new Font("Segoe UI", 8F),
+                        Text = (transfer.Total > 0 ? pct.ToString("0.0", CultureInfo.InvariantCulture) + "% · " : "") +
+                            UrlProbeHelper.FormatBytes(transfer.Completed) +
+                            (transfer.Total > 0 ? " / " + UrlProbeHelper.FormatBytes(transfer.Total) : " transferred") +
+                            " · " + UrlProbeHelper.FormatBytes(transfer.Speed) + "/s" };
+                    card.Controls.Add(name);
+                    card.Controls.Add(bar);
+                    card.Controls.Add(label);
+                    list.Controls.Add(card);
+                }
+            }
+            finally { list.ResumeLayout(); }
+        }
+    }
+
     public class DownloaderAppContext : ApplicationContext
     {
         public static EngineManager CurrentEngine { get; private set; }
@@ -6308,6 +6617,10 @@ namespace FastDownloader
         private ClipboardListener clipWindow;
         private string lastClipboardUrl = "";
         private MenuItem autoCaptureMenuItem;
+        private MenuItem notificationsMenuItem;
+        private TrayDownloadsForm trayDownloadsForm;
+        private readonly object notificationLock = new object();
+        private readonly Dictionary<string, DateTime> recentNotifications = new Dictionary<string, DateTime>();
         private readonly object completedGidsLock = new object();
         private HashSet<string> completedGids = new HashSet<string>();
 
@@ -6340,7 +6653,8 @@ namespace FastDownloader
                     Text = "⚡ FastDownloader Pro",
                     Visible = true
                 };
-                trayIcon.DoubleClick += (s, e) => LaunchEdgeApp();
+                trayIcon.MouseClick += (s, e) => { if (e.Button == MouseButtons.Left) ToggleTrayDownloads(); };
+                trayIcon.DoubleClick += (s, e) => { if (trayDownloadsForm != null) trayDownloadsForm.Hide(); LaunchEdgeApp(); };
                 trayIcon.BalloonTipClicked += (s, e) => LaunchEdgeApp();
             }
             catch { }
@@ -6353,41 +6667,53 @@ namespace FastDownloader
                 UpdateTrayAutoCaptureText();
                 if (trayIcon != null)
                 {
-                    trayIcon.ShowBalloonTip(2000, "⚡ FastDownloader",
+                    ShowNotification(2000, "⚡ FastDownloader",
                         engine.AutoCaptureEnabled ? "🎯 Auto-Grab is now ON" : "⏸️ Auto-Grab is now OFF",
                         ToolTipIcon.Info);
                 }
             };
 
             ContextMenu trayMenu = new ContextMenu();
+            trayMenu.Popup += (s, e) => UpdateTrayNotificationText();
+            trayMenu.MenuItems.Add("📊 Active Downloads", (s, e) => ToggleTrayDownloads());
             trayMenu.MenuItems.Add("⚡ Open Dashboard", (s, e) => LaunchEdgeApp());
             trayMenu.MenuItems.Add("➕ Add Download...", (s, e) => LaunchEdgeApp());
             trayMenu.MenuItems.Add("-");
             trayMenu.MenuItems.Add("▶ Resume All Downloads", (s, e) =>
             {
                 engine.ResumeAll();
-                if (trayIcon != null) trayIcon.ShowBalloonTip(1500, "⚡ FastDownloader", "All downloads resumed", ToolTipIcon.Info);
+                if (trayIcon != null) ShowNotification(1500, "⚡ FastDownloader", "All downloads resumed", ToolTipIcon.Info);
             });
             trayMenu.MenuItems.Add("⏸ Pause All Downloads", (s, e) =>
             {
                 engine.PauseAll();
-                if (trayIcon != null) trayIcon.ShowBalloonTip(1500, "⚡ FastDownloader", "All downloads paused", ToolTipIcon.Info);
+                if (trayIcon != null) ShowNotification(1500, "⚡ FastDownloader", "All downloads paused", ToolTipIcon.Info);
             });
             trayMenu.MenuItems.Add("-");
 
             MenuItem speedMenu = new MenuItem("🚀 Speed Limit");
-            speedMenu.MenuItems.Add("Unlimited", (s, e) => { engine.SetSpeedLimit("0"); if (trayIcon != null) trayIcon.ShowBalloonTip(1500, "Speed Limit", "Unlimited speed set", ToolTipIcon.Info); });
-            speedMenu.MenuItems.Add("1 MB/s", (s, e) => { engine.SetSpeedLimit("1M"); if (trayIcon != null) trayIcon.ShowBalloonTip(1500, "Speed Limit", "Speed limited to 1 MB/s", ToolTipIcon.Info); });
-            speedMenu.MenuItems.Add("5 MB/s", (s, e) => { engine.SetSpeedLimit("5M"); if (trayIcon != null) trayIcon.ShowBalloonTip(1500, "Speed Limit", "Speed limited to 5 MB/s", ToolTipIcon.Info); });
-            speedMenu.MenuItems.Add("10 MB/s", (s, e) => { engine.SetSpeedLimit("10M"); if (trayIcon != null) trayIcon.ShowBalloonTip(1500, "Speed Limit", "Speed limited to 10 MB/s", ToolTipIcon.Info); });
+            speedMenu.MenuItems.Add("Unlimited", (s, e) => { engine.SetSpeedLimit("0"); if (trayIcon != null) ShowNotification(1500, "Speed Limit", "Unlimited speed set", ToolTipIcon.Info); });
+            speedMenu.MenuItems.Add("1 MB/s", (s, e) => { engine.SetSpeedLimit("1M"); if (trayIcon != null) ShowNotification(1500, "Speed Limit", "Speed limited to 1 MB/s", ToolTipIcon.Info); });
+            speedMenu.MenuItems.Add("5 MB/s", (s, e) => { engine.SetSpeedLimit("5M"); if (trayIcon != null) ShowNotification(1500, "Speed Limit", "Speed limited to 5 MB/s", ToolTipIcon.Info); });
+            speedMenu.MenuItems.Add("10 MB/s", (s, e) => { engine.SetSpeedLimit("10M"); if (trayIcon != null) ShowNotification(1500, "Speed Limit", "Speed limited to 10 MB/s", ToolTipIcon.Info); });
             trayMenu.MenuItems.Add(speedMenu);
 
             trayMenu.MenuItems.Add(autoCaptureMenuItem);
+            notificationsMenuItem = new MenuItem("");
+            UpdateTrayNotificationText();
+            notificationsMenuItem.Click += (s, e) =>
+            {
+                engine.NotificationsEnabled = !engine.NotificationsEnabled;
+                engine.SaveSettings();
+                UpdateTrayNotificationText();
+            };
+            trayMenu.MenuItems.Add(notificationsMenuItem);
             trayMenu.MenuItems.Add("📁 Open Downloads Folder", (s, e) => Process.Start("explorer.exe", engine.DownloadsFolder));
             trayMenu.MenuItems.Add("-");
             trayMenu.MenuItems.Add("Exit FastDownloader", (s, e) =>
             {
                 if (trayIcon != null) trayIcon.Visible = false;
+                if (trayDownloadsForm != null) trayDownloadsForm.Close();
                 engine.StopAria2();
                 if (updateManager != null) updateManager.Stop();
                 if (bridge != null) bridge.Stop();
@@ -6408,7 +6734,7 @@ namespace FastDownloader
                             UpdateTrayAutoCaptureText();
                             if (trayIcon != null)
                             {
-                                trayIcon.ShowBalloonTip(3000, "⚡ FastDownloader", msg, ToolTipIcon.Info);
+                                ShowNotification(3000, "⚡ FastDownloader", msg, ToolTipIcon.Info);
                             }
                         }
                         catch { }
@@ -6421,7 +6747,7 @@ namespace FastDownloader
                         UpdateTrayAutoCaptureText();
                         if (trayIcon != null)
                         {
-                            trayIcon.ShowBalloonTip(3000, "⚡ FastDownloader", msg, ToolTipIcon.Info);
+                            ShowNotification(3000, "⚡ FastDownloader", msg, ToolTipIcon.Info);
                         }
                     }
                     catch { }
@@ -6452,6 +6778,41 @@ namespace FastDownloader
             } catch (Exception ex) { try { File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "startup.log"), "[DownloaderAppContext CTOR CRASH] " + ex.ToString() + "\r\n"); } catch {} throw; }
         }
 
+        private void ShowNotification(int milliseconds, string title, string message, ToolTipIcon icon)
+        {
+            if (!engine.NotificationsEnabled || trayIcon == null) return;
+            string key = title + "\n" + message;
+            lock (notificationLock)
+            {
+                DateTime last;
+                if (recentNotifications.TryGetValue(key, out last) &&
+                    (DateTime.UtcNow - last).TotalSeconds < 8) return;
+                recentNotifications[key] = DateTime.UtcNow;
+                if (recentNotifications.Count > 100)
+                {
+                    foreach (var old in recentNotifications.Where(x =>
+                        (DateTime.UtcNow - x.Value).TotalMinutes > 2).Select(x => x.Key).ToList())
+                        recentNotifications.Remove(old);
+                }
+            }
+            try { trayIcon.ShowBalloonTip(milliseconds, title, message, icon); } catch { }
+        }
+
+        private void UpdateTrayNotificationText()
+        {
+            if (notificationsMenuItem != null)
+                notificationsMenuItem.Text = engine.NotificationsEnabled ?
+                    "✔ Desktop Notifications" : "   Desktop Notifications (Muted)";
+        }
+
+        private void ToggleTrayDownloads()
+        {
+            if (trayDownloadsForm == null || trayDownloadsForm.IsDisposed)
+                trayDownloadsForm = new TrayDownloadsForm(engine, LaunchEdgeApp);
+            if (trayDownloadsForm.Visible) trayDownloadsForm.Hide();
+            else trayDownloadsForm.ShowNearTray();
+        }
+
         private void UpdateTrayAutoCaptureText()
         {
             try
@@ -6475,7 +6836,7 @@ namespace FastDownloader
                     if (!string.IsNullOrEmpty(text) && text != lastClipboardUrl && IsDownloadableUrl(text))
                     {
                         lastClipboardUrl = text;
-                        trayIcon.ShowBalloonTip(4000, "⚡ Link Intercepted!",
+                        ShowNotification(4000, "⚡ Link Intercepted!",
                             "Found downloadable link on clipboard:\n" + (text.Length > 60 ? text.Substring(0, 60) + "..." : text) + "\nClick to download!",
                             ToolTipIcon.Info);
                     }
@@ -6548,7 +6909,7 @@ namespace FastDownloader
                         }
                         else if (trayIcon != null)
                         {
-                            trayIcon.ShowBalloonTip(2000, "⚡ FastDownloader", "Queued: " + dlg.FileName, ToolTipIcon.Info);
+                            ShowNotification(2000, "⚡ FastDownloader", "Queued: " + dlg.FileName, ToolTipIcon.Info);
                         }
                     }
                     else
@@ -6557,7 +6918,7 @@ namespace FastDownloader
                         engine.RemovePending(pending.pendingId, out ignored);
                         if (trayIcon != null)
                         {
-                            trayIcon.ShowBalloonTip(1500, "⚡ FastDownloader", "Download cancelled.", ToolTipIcon.Info);
+                            ShowNotification(1500, "⚡ FastDownloader", "Download cancelled.", ToolTipIcon.Info);
                         }
                     }
                 }
@@ -6608,6 +6969,7 @@ namespace FastDownloader
                 if (completedGids.Contains(gid)) return;
                 completedGids.Add(gid);
             }
+            if (!engine.NotificationsEnabled) return;
 
             Thread t = new Thread(delegate()
             {
@@ -6814,14 +7176,14 @@ namespace FastDownloader
                 if (nowTimeStr == cfg.StartTime && !cfg.Active)
                 {
                     cfg.Active = true;
-                    trayIcon.ShowBalloonTip(3000, "⏱️ Scheduler Triggered", queueName + " started automatically!", ToolTipIcon.Info);
+                    ShowNotification(3000, "⏱️ Scheduler Triggered", queueName + " started automatically!", ToolTipIcon.Info);
                     engine.ResumeAll();
                 }
 
                 if (nowTimeStr == cfg.StopTime && cfg.Active)
                 {
                     cfg.Active = false;
-                    trayIcon.ShowBalloonTip(3000, "⏱️ Scheduler Triggered", queueName + " paused by schedule.", ToolTipIcon.Info);
+                    ShowNotification(3000, "⏱️ Scheduler Triggered", queueName + " paused by schedule.", ToolTipIcon.Info);
                     engine.PauseAll();
                 }
 
@@ -6849,7 +7211,7 @@ namespace FastDownloader
                     {
                         cfg.Shutdown = false;
                         cfg.Active = false;
-                        trayIcon.ShowBalloonTip(5000, "Auto-Shutdown", "All scheduled downloads finished! PC will shut down in 60 seconds.", ToolTipIcon.Warning);
+                        ShowNotification(5000, "Auto-Shutdown", "All scheduled downloads finished! PC will shut down in 60 seconds.", ToolTipIcon.Warning);
                         Process.Start("shutdown.exe", "/s /t 60");
                     }
                 }
