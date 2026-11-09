@@ -1273,15 +1273,52 @@ namespace FastDownloader
             return false;
         }
 
+        // FOLDERID_Downloads respects customized / redirected Windows Downloads paths.
+        private static readonly Guid DownloadsId = new Guid("374DE290-123F-4565-9164-39C4925E467B");
+
+        [DllImport("shell32.dll")]
+        private static extern int SHGetKnownFolderPath(ref Guid folderId, uint flags, IntPtr token, out IntPtr path);
+
+        private static string ResolveDownloadsFolder(string appDir)
+        {
+            string path = null;
+            IntPtr ptr = IntPtr.Zero;
+            try
+            {
+                Guid id = DownloadsId;
+                if (SHGetKnownFolderPath(ref id, 0, IntPtr.Zero, out ptr) == 0)
+                    path = Marshal.PtrToStringUni(ptr);
+            }
+            catch { }
+            finally { if (ptr != IntPtr.Zero) Marshal.FreeCoTaskMem(ptr); }
+
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                if (!string.IsNullOrWhiteSpace(profile))
+                    path = Path.Combine(profile, "Downloads");
+            }
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                try
+                {
+                    Directory.CreateDirectory(path);
+                    return Path.GetFullPath(path);
+                }
+                catch { }
+            }
+
+            // Do not break startup if the user's Downloads folder is unavailable.
+            string fallback = Path.Combine(appDir, "downloads");
+            Directory.CreateDirectory(fallback);
+            return fallback;
+        }
+
         public EngineManager()
         {
             PendingDownloads = new Dictionary<string, PendingDownloadInfo>();
             AppDir = AppDomain.CurrentDomain.BaseDirectory;
-            DownloadsFolder = Path.Combine(AppDir, "downloads");
-            if (!Directory.Exists(DownloadsFolder))
-            {
-                Directory.CreateDirectory(DownloadsFolder);
-            }
+            DownloadsFolder = ResolveDownloadsFolder(AppDir);
             AutoCaptureEnabled = true;
             AutoUpdateEngines = true;
             AutoUpdateApp = true;
@@ -6185,9 +6222,9 @@ namespace FastDownloader
 
     public class DownloadCompleteDialog : Form
     {
-        private string filename;
-        private string filePath;
-        private long totalLength;
+        private readonly string filePath;
+        private Point dragStart;
+        private bool dragArmed;
 
         protected override CreateParams CreateParams
         {
@@ -6201,205 +6238,161 @@ namespace FastDownloader
 
         public DownloadCompleteDialog(string filename, string filePath, long totalLength)
         {
-            this.filename = filename;
             this.filePath = filePath;
-            this.totalLength = totalLength;
-
-            this.Text = "Download Complete - FastDownloader";
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
-            this.MinimizeBox = false;
-            this.ShowInTaskbar = true;
-            this.StartPosition = FormStartPosition.CenterScreen;
-            this.TopMost = true;
-            this.ClientSize = new Size(500, 235);
-            this.BackColor = Color.FromArgb(24, 25, 29);
-            this.ForeColor = Color.FromArgb(235, 238, 245);
-            this.Font = new Font("Segoe UI", 9F);
+            Text = "Download complete - FastDownloader";
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowInTaskbar = true;
+            StartPosition = FormStartPosition.CenterScreen;
+            TopMost = true;
+            ClientSize = new Size(386, 142);
+            BackColor = Color.FromArgb(22, 25, 32);
+            ForeColor = Color.White;
+            Font = new Font("Segoe UI", 9F);
 
             try
             {
-                string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
-                if (File.Exists(icoPath)) this.Icon = new Icon(icoPath);
+                string icon = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
+                if (File.Exists(icon)) Icon = new Icon(icon);
             }
             catch { }
 
-            // 1. Header Panel
-            Panel topPanel = new Panel
+            Label check = new Label
             {
-                Dock = DockStyle.Top,
-                Height = 56,
-                BackColor = Color.FromArgb(18, 19, 22)
+                Text = "✓", Location = new Point(12, 7), Size = new Size(24, 25),
+                Font = new Font("Segoe UI", 13F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(49, 205, 150)
             };
-
-            Label lblBadge = new Label
+            Label title = new Label
             {
-                Text = "✔",
+                Text = "Download complete", Location = new Point(39, 10),
+                Size = new Size(320, 23), Font = new Font("Segoe UI", 10F, FontStyle.Bold)
+            };
+            Controls.Add(check);
+            Controls.Add(title);
+
+            Panel fileCard = new Panel
+            {
+                Location = new Point(12, 36), Size = new Size(362, 58),
+                BackColor = Color.FromArgb(33, 38, 47), Cursor = Cursors.SizeAll
+            };
+            Label fileIcon = new Label
+            {
+                Text = "↓", Location = new Point(10, 13), Size = new Size(25, 30),
                 Font = new Font("Segoe UI", 16F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(16, 185, 129),
-                Location = new Point(14, 10),
-                Size = new Size(32, 34)
+                ForeColor = Color.FromArgb(49, 205, 150), Cursor = Cursors.SizeAll
+            };
+            Label name = new Label
+            {
+                Text = !string.IsNullOrWhiteSpace(filename) ? filename : Path.GetFileName(filePath),
+                Location = new Point(43, 7), Size = new Size(307, 22),
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                AutoEllipsis = true, Cursor = Cursors.SizeAll
+            };
+            string size = totalLength > 0 ? UrlProbeHelper.FormatBytes(totalLength) : "Saved";
+            Label hint = new Label
+            {
+                Text = size + "  ·  Drag to copy or move",
+                Location = new Point(43, 32), Size = new Size(307, 17),
+                Font = new Font("Segoe UI", 8F),
+                ForeColor = Color.FromArgb(167, 182, 199),
+                AutoEllipsis = true, Cursor = Cursors.SizeAll
             };
 
-            Label lblTitle = new Label
+            MouseEventHandler dragDown = (sender, e) =>
             {
-                Text = "Download Complete!",
-                Font = new Font("Segoe UI", 12F, FontStyle.Bold),
-                ForeColor = Color.White,
-                Location = new Point(48, 8),
-                AutoSize = true
+                dragArmed = e.Button == MouseButtons.Left && !string.IsNullOrEmpty(this.filePath)
+                    && File.Exists(this.filePath);
+                if (dragArmed) dragStart = e.Location;
             };
-
-            Label lblSub = new Label
+            MouseEventHandler dragMove = (sender, e) =>
             {
-                Text = "File has been verified and saved to disk.",
-                Font = new Font("Segoe UI", 8.5F),
-                ForeColor = Color.FromArgb(156, 163, 175),
-                Location = new Point(50, 31),
-                AutoSize = true
-            };
+                if (!dragArmed || e.Button != MouseButtons.Left) return;
+                Size tolerance = SystemInformation.DragSize;
+                Rectangle threshold = new Rectangle(dragStart.X - tolerance.Width / 2,
+                    dragStart.Y - tolerance.Height / 2, tolerance.Width, tolerance.Height);
+                if (threshold.Contains(e.Location)) return;
+                dragArmed = false;
+                if (string.IsNullOrEmpty(this.filePath) || !File.Exists(this.filePath)) return;
 
-            Panel headerBorder = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 1,
-                BackColor = Color.FromArgb(40, 42, 50)
-            };
-
-            topPanel.Controls.Add(lblBadge);
-            topPanel.Controls.Add(lblTitle);
-            topPanel.Controls.Add(lblSub);
-            topPanel.Controls.Add(headerBorder);
-            this.Controls.Add(topPanel);
-
-            // 2. Info Box
-            Panel infoCard = new Panel
-            {
-                Location = new Point(16, 68),
-                Size = new Size(468, 95),
-                BackColor = Color.FromArgb(18, 19, 22),
-                BorderStyle = BorderStyle.FixedSingle
-            };
-
-            Label lblFile = new Label
-            {
-                Text = filename,
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
-                ForeColor = Color.White,
-                Location = new Point(12, 10),
-                Size = new Size(440, 20),
-                AutoEllipsis = true
-            };
-
-            string szFormatted = totalLength > 0 ? UrlProbeHelper.FormatBytes(totalLength) : "Complete";
-            Label lblSize = new Label
-            {
-                Text = "📦 Size:  " + szFormatted,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(16, 185, 129),
-                Location = new Point(12, 36),
-                AutoSize = true
-            };
-
-            string dirPath = !string.IsNullOrEmpty(filePath) ? Path.GetDirectoryName(filePath) : "";
-            Label lblFolder = new Label
-            {
-                Text = "📁 Saved to:  " + dirPath,
-                Font = new Font("Segoe UI", 8.5F),
-                ForeColor = Color.FromArgb(156, 163, 175),
-                Location = new Point(12, 60),
-                Size = new Size(440, 20),
-                AutoEllipsis = true
-            };
-
-            infoCard.Controls.Add(lblFile);
-            infoCard.Controls.Add(lblSize);
-            infoCard.Controls.Add(lblFolder);
-            this.Controls.Add(infoCard);
-
-            // 3. Bottom Button Bar
-            Panel bottomPanel = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 54,
-                BackColor = Color.FromArgb(18, 19, 22)
-            };
-
-            Panel bottomBorder = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 1,
-                BackColor = Color.FromArgb(40, 42, 50)
-            };
-            bottomPanel.Controls.Add(bottomBorder);
-
-            Button btnOpen = new Button
-            {
-                Text = "🚀 Open",
-                Location = new Point(115, 10),
-                Size = new Size(115, 34),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(16, 185, 129),
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
-                Cursor = Cursors.Hand
-            };
-            btnOpen.FlatAppearance.BorderSize = 0;
-            btnOpen.Click += (s, e) =>
-            {
-                if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
+                // FileDrop is understood by Explorer and the Windows Desktop.
+                try
                 {
-                    try { Process.Start(filePath); } catch { }
+                    DataObject files = new DataObject(DataFormats.FileDrop, new string[] { this.filePath });
+                    DragDropEffects effect = ((Control)sender).DoDragDrop(
+                        files, DragDropEffects.Copy | DragDropEffects.Move);
+                    if (effect == DragDropEffects.Move && !File.Exists(this.filePath)) Close();
                 }
-                this.Close();
+                catch { }
             };
+            MouseEventHandler dragUp = (sender, e) => dragArmed = false;
+            foreach (Control c in new Control[] { fileCard, fileIcon, name, hint })
+            {
+                c.MouseDown += dragDown;
+                c.MouseMove += dragMove;
+                c.MouseUp += dragUp;
+            }
 
-            Button btnOpenFolder = new Button
+            ToolTip tooltip = new ToolTip();
+            string fullPath = string.IsNullOrEmpty(filePath) ? "Path not available" : filePath;
+            foreach (Control c in new Control[] { fileCard, fileIcon, name, hint })
+                tooltip.SetToolTip(c, fullPath);
+            fileCard.Controls.Add(fileIcon);
+            fileCard.Controls.Add(name);
+            fileCard.Controls.Add(hint);
+            Controls.Add(fileCard);
+
+            Button open = CreateAction("Open", 12, 99, true);
+            open.Click += (s, e) =>
             {
-                Text = "📁 Open Folder",
-                Location = new Point(240, 10),
-                Size = new Size(140, 34),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(42, 45, 55),
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9F),
-                Cursor = Cursors.Hand
-            };
-            btnOpenFolder.FlatAppearance.BorderColor = Color.FromArgb(60, 64, 76);
-            btnOpenFolder.Click += (s, e) =>
-            {
-                if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
+                if (!string.IsNullOrEmpty(this.filePath) && File.Exists(this.filePath))
                 {
-                    try { Process.Start("explorer.exe", "/select,\"" + filePath.Replace('/', '\\') + "\""); } catch { }
+                    try { Process.Start(this.filePath); } catch { }
                 }
-                else if (!string.IsNullOrEmpty(dirPath) && Directory.Exists(dirPath))
-                {
-                    try { Process.Start("explorer.exe", dirPath.Replace('/', '\\')); } catch { }
-                }
-                this.Close();
+                Close();
             };
-
-            Button btnClose = new Button
+            Button folder = CreateAction("Show in folder", 119, 143, false);
+            folder.Click += (s, e) =>
             {
-                Text = "✕ Close",
-                Location = new Point(390, 10),
-                Size = new Size(95, 34),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(32, 34, 40),
-                ForeColor = Color.FromArgb(156, 163, 175),
-                Font = new Font("Segoe UI", 9F),
-                Cursor = Cursors.Hand
+                if (!string.IsNullOrEmpty(this.filePath) && File.Exists(this.filePath))
+                {
+                    try { Process.Start("explorer.exe", "/select,\"" + this.filePath.Replace('/', '\\') + "\""); }
+                    catch { }
+                }
+                else if (!string.IsNullOrEmpty(this.filePath))
+                {
+                    string directory = Path.GetDirectoryName(this.filePath);
+                    if (!string.IsNullOrEmpty(directory) && Directory.Exists(directory))
+                    {
+                        try { Process.Start("explorer.exe", directory); } catch { }
+                    }
+                }
+                Close();
             };
-            btnClose.FlatAppearance.BorderColor = Color.FromArgb(50, 52, 60);
-            btnClose.Click += (s, e) => this.Close();
+            Button close = CreateAction("Close", 270, 104, false);
+            close.Click += (s, e) => Close();
 
-            bottomPanel.Controls.Add(btnOpen);
-            bottomPanel.Controls.Add(btnOpenFolder);
-            bottomPanel.Controls.Add(btnClose);
-            this.Controls.Add(bottomPanel);
+            Controls.Add(open);
+            Controls.Add(folder);
+            Controls.Add(close);
+            AcceptButton = open;
+            CancelButton = close;
+        }
 
-            this.AcceptButton = btnOpen;
-            this.CancelButton = btnClose;
+        private static Button CreateAction(string label, int x, int width, bool primary)
+        {
+            Button button = new Button
+            {
+                Text = label, Location = new Point(x, 104), Size = new Size(width, 28),
+                Font = new Font("Segoe UI", 8.5F, primary ? FontStyle.Bold : FontStyle.Regular),
+                FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand,
+                BackColor = primary ? Color.FromArgb(32, 172, 125) : Color.FromArgb(39, 45, 56),
+                ForeColor = Color.White
+            };
+            button.FlatAppearance.BorderSize = primary ? 0 : 1;
+            button.FlatAppearance.BorderColor = Color.FromArgb(58, 67, 81);
+            return button;
         }
     }
 
