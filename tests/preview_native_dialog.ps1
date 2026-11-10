@@ -25,10 +25,27 @@ foreach ($mode in @('dark','light','zaxcore')) {
     $bitmap = $null
     try {
         $form = [System.Windows.Forms.Form]$ctor.Invoke([object[]]@($p, [string]$env:TEMP))
-        $form.CreateControl()
+        # DrawToBitmap on an unshown Form captures only its solid background.
+        # Create real child-control handles and pump Windows messages first.
+        $form.Location = New-Object System.Drawing.Point(-1600, -1600)
+        $form.Show()
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 250
+        $form.Refresh()
+        [System.Windows.Forms.Application]::DoEvents()
         $bitmap = New-Object System.Drawing.Bitmap($form.Width, $form.Height)
         $area = New-Object System.Drawing.Rectangle(0,0,$form.Width,$form.Height)
         $form.DrawToBitmap($bitmap, $area)
+        # Check that header, text fields and buttons were actually painted.
+        $colorCount = New-Object 'System.Collections.Generic.HashSet[int]'
+        for ($y = 20; $y -lt $bitmap.Height; $y += 12) {
+            for ($x = 20; $x -lt $bitmap.Width; $x += 12) {
+                [void]$colorCount.Add($bitmap.GetPixel($x,$y).ToArgb())
+            }
+        }
+        if ($colorCount.Count -lt 8) {
+            throw "Preview $mode is blank ($($colorCount.Count) sampled colors): visual QA rejected."
+        }
         $path = Join-Path $out ('dialog-' + $mode + '.png')
         $bitmap.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
         if ((Get-Item $path).Length -lt 1500) { throw "Dialog preview was unexpectedly small: $mode" }
