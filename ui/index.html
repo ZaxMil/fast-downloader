@@ -5306,6 +5306,7 @@
 
     // Never overlap polls: out-of-order responses can roll live progress backwards.
     let taskPollInFlight = false;
+    let dashboardHasActiveTransfers = false;
     async function pollBackend() {
       if (taskPollInFlight) return;
       taskPollInFlight = true;
@@ -5330,7 +5331,11 @@
             }, 180);
           }
           const data = await resp.json();
-          processIncomingTasks(data.tasks || []);
+          const incomingTasks = data.tasks || [];
+          dashboardHasActiveTransfers = incomingTasks.some(t =>
+            t.status === 'active' || t.status === 'downloading' ||
+            t.status === 'waiting' || t.status === 'processing');
+          processIncomingTasks(incomingTasks);
           if (!notificationPreferenceLoaded) loadNotificationPreference();
           // Native IDM dialog handles interceptions; suppress duplicate web modal
           // if (data.pending && data.pending.length > 0) { handlePendingInterceptions(data.pending); }
@@ -8065,12 +8070,23 @@
 
     // Start Polling Loop
     loadNotificationPreference();
-    pollBackend();
-    setInterval(pollBackend, 1000);
+    // Responsive while transferring; low-power when idle/hidden. Polls
+    // never overlap, and the dashboard still refreshes immediately on focus.
+    function scheduleTaskPolling() {
+      const delay = document.hidden ? 15000 : (dashboardHasActiveTransfers ? 1200 : 5000);
+      setTimeout(async () => {
+        await pollBackend();
+        scheduleTaskPolling();
+      }, delay);
+    }
+    pollBackend().then(scheduleTaskPolling);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) pollBackend();
+    });
     refreshDiskSpace();
     setInterval(refreshDiskSpace, 30000);
     checkExtensionStatus();
-    setInterval(checkExtensionStatus, 3000);
+    setInterval(checkExtensionStatus, 10000);
 
     // Deep link modal trigger
     try {
