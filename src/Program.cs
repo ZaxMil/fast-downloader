@@ -4847,8 +4847,13 @@ namespace FastDownloader
 
                         // Only automatic browser interceptions are deduplicated.
                         // Explicit user-initiated requests may always download again.
-                        bool automatic = data != null && data.ContainsKey("autoIntercept") &&
-                            Convert.ToString(data["autoIntercept"]).Equals("true", StringComparison.OrdinalIgnoreCase);
+                        // Older extension versions did not send autoIntercept.
+                        // Only explicit/manual invocations are exempt from deduplication.
+                        bool userInitiated = data != null && (
+                            (data.ContainsKey("userInitiated") &&
+                             Convert.ToString(data["userInitiated"]).Equals("true", StringComparison.OrdinalIgnoreCase)) ||
+                            (data.ContainsKey("type") && !data.ContainsKey("autoIntercept")));
+                        bool automatic = !userInitiated;
                         if (automatic && !engine.ReserveAutomaticIntercept(url, referer))
                         {
                             var ignored = new { ok = true, suppressed = true, reason = "already_active_or_recent" };
