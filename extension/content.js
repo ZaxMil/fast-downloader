@@ -10,7 +10,7 @@
 
   const processedElements = new WeakSet();
 
-  const fdLightningSvg = `<svg class="fd-pill-icon" width="15" height="15" viewBox="0 0 24 24" fill="#10B981" stroke="#10B981" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(16,185,129,0.5));"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
+  const fdLightningSvg = '<svg class="fd-pill-icon" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5"/><path d="M5 17v3h14v-3"/></svg>';
 
 
 
@@ -473,186 +473,95 @@
 
   // Send Download Task to FastDownloader Desktop Backend (Via Extension Service Worker for Cookie Auth)
 
+  // One request with truthful UI feedback; no fake success before acknowledgement.
   async function sendToFastDownloader(url, title, type = 'video', quality = 'best', triggerPill = null) {
+    const label = triggerPill ? triggerPill.querySelector('.fd-pill-text') : null;
+    const originalLabel = label ? label.textContent : '';
+    let accepted = false;
 
-    if (triggerPill) {
+    if (triggerPill && triggerPill.classList.contains('fd-busy')) return false;
+    if (triggerPill) triggerPill.classList.add('fd-busy');
+    if (label) label.textContent = 'Sending…';
 
-      const textSpan = triggerPill.querySelector('.fd-pill-text');
-
-      if (textSpan) {
-
-        const origText = textSpan.textContent;
-
-        textSpan.textContent = 'Connecting...';
-
-        triggerPill.classList.add('fd-success');
-
-        setTimeout(() => {
-
-          textSpan.textContent = origText;
-
-          triggerPill.classList.remove('fd-success');
-
-        }, 3000);
-
-      }
-
-    }
-
-
-
-    if (window.location.hostname.includes('facebook.com') || window.location.hostname.includes('fb.watch')) {
-
-      type = 'video';
-
-      if (!title || title === 'Facebook' || title === 'Log into Facebook' || title.includes('unknown_video')) {
-
-        const h1 = document.querySelector('h1, [data-pagelet*="Reel"] h1, [role="main"] h1');
-
-        if (h1 && h1.textContent.trim()) {
-
-          title = h1.textContent.trim().substring(0, 60);
-
-        } else {
-
-          title = '';
-
+    try {
+      if (window.location.hostname.includes('facebook.com') ||
+          window.location.hostname.includes('fb.watch')) {
+        if (!title || title === 'Facebook' || title === 'Log into Facebook' ||
+            title.includes('unknown_video')) {
+          const h1 = document.querySelector('h1, [data-pagelet*="Reel"] h1, [role="main"] h1');
+          title = h1 && h1.textContent.trim() ? h1.textContent.trim().substring(0, 60) : '';
         }
-
-      }
-
-      if (!url || url.includes('fbcdn.net') || url === 'https://www.facebook.com/' || url === 'https://facebook.com/' || url === 'https://www.facebook.com') {
-
-        const permalink = findSocialPostPermalink(triggerPill ? triggerPill.closest('article, [role="article"], [data-pagelet], div[data-virtualized="false"], div[data-ad-preview], main') : null);
-
-        if (permalink) {
-
-          url = permalink;
-
-        } else if (window.location.pathname.includes('/videos/') || window.location.pathname.includes('/reel/') || window.location.pathname.includes('/watch') || window.location.search.includes('v=')) {
-
-          url = cleanSocialUrl(window.location.href);
-
-        } else {
-
-          url = cleanSocialUrl(window.location.href);
-
+        if (!url || url.includes('fbcdn.net') || url === 'https://www.facebook.com/' ||
+            url === 'https://facebook.com/' || url === 'https://www.facebook.com') {
+          const related = triggerPill ? triggerPill.closest(
+            'article, [role="article"], [data-pagelet], main') : null;
+          url = findSocialPostPermalink(related) || cleanSocialUrl(window.location.href);
         }
-
       }
 
-    }
+      if (typeof chrome === 'undefined' || !chrome.runtime ||
+          typeof chrome.runtime.sendMessage !== 'function') {
+        showToast('FastDownloader extension is unavailable. Reload this tab.', true);
+        return false;
+      }
 
+      const payload = {
+        type: 'FD_DOWNLOAD_REQUEST',
+        url: url || window.location.href,
+        title: title || document.title,
+        mediaType: quality === 'audio' ? 'audio' : type,
+        quality: quality,
+        referer: window.location.href
+      };
 
-
-    const payload = {
-
-      type: 'FD_DOWNLOAD_REQUEST',
-
-      url: url || window.location.href,
-
-      title: title || document.title,
-
-      mediaType: type,
-
-      quality: quality,
-
-      referer: window.location.href
-
-    };
-
-
-
-    let contextInvalidated = false;
-
-    // Try communicating via background worker first (with full cookie & session extraction)
-
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-
-      try {
-
-        const res = await new Promise((resolve) => {
-
-          chrome.runtime.sendMessage(payload, (resp) => {
-
-            if (chrome.runtime.lastError) {
-
-              const msg = chrome.runtime.lastError.message || '';
-
-              if (msg.includes('invalidated') || msg.includes('disconnected')) {
-
-                contextInvalidated = true;
-
-              }
-
-              resolve(null);
-
-            } else if (!resp) {
-
-              resolve(null);
-
-            } else {
-
-              resolve(resp);
-
-            }
-
+      const result = await new Promise(resolve => {
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          resolve({ ok: false, error: 'timeout' });
+        }, 14000);
+        try {
+          chrome.runtime.sendMessage(payload, response => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            let runtimeError = null;
+            try { runtimeError = chrome.runtime.lastError; } catch (_) {}
+            resolve(runtimeError ? { ok: false, error: 'extension' } : (response || null));
           });
-
-        });
-
-
-
-        if (res && res.ok) {
-
-          const qualityName = quality === 'audio' ? 'MP3 Audio' : quality === '720p' ? '720p HD' : 'Best Quality (MP4)';
-
-          showToast(`⚡ Sent to FastDownloader: <strong>${qualityName}</strong> (with Cookies & Auth)`);
-
-          if (triggerPill) {
-
-            const textSpan = triggerPill.querySelector('.fd-pill-text');
-
-            if (textSpan) textSpan.textContent = '✓ Sent!';
-
-          }
-
-          return;
-
+        } catch (err) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve({ ok: false, error: 'extension' });
         }
+      });
 
-      } catch (e) {
-
-        if (e && e.message && e.message.includes('invalidated')) {
-
-          contextInvalidated = true;
-
-        }
-
+      accepted = !!(result && result.ok === true);
+      if (accepted) {
+        if (label) label.textContent = 'Added ✓';
+        showToast(quality === 'audio'
+          ? 'Audio request accepted by FastDownloader.'
+          : 'Video request accepted by FastDownloader.');
+      } else {
+        if (label) label.textContent = 'Retry';
+        showToast(result && result.error === 'timeout'
+          ? 'FastDownloader did not respond. Try again.'
+          : 'Download was not accepted. Check the app or reload the extension.', true);
       }
-
-    }
-
-
-
-    if (contextInvalidated) {
-
-      showToast('⚠️ Extension updated! Please refresh this tab (F5) to re-sync.', true);
-
-      return;
-
-    }
-
-
-
-    if (contextInvalidated) {
-      showToast('⚠️ Extension context was reloaded. Please refresh this tab (F5).', true);
-    } else {
-      showToast('⚠️ Could not communicate with FastDownloader. Ensure app is open.', true);
+      return accepted;
+    } catch (error) {
+      if (label) label.textContent = 'Retry';
+      showToast('Unable to send download request.', true);
+      return false;
+    } finally {
+      if (triggerPill) setTimeout(() => {
+        if (label && label.isConnected) label.textContent = originalLabel;
+        triggerPill.classList.remove('fd-busy');
+      }, accepted ? 1200 : 750);
     }
   }
-
-
 
   // Handle Canvas Video Recording (canvas.captureStream)
 
@@ -1043,19 +952,13 @@
 
     btn.className = 'fd-yt-action-btn';
 
-    btn.title = 'Download video with FastDownloader (32x Turbo)';
+    btn.title = 'Download video with FastDownloader';
 
     btn.innerHTML = `
 
       ${fdLightningSvg}
 
-      <span>FastDownload</span>
-
-      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-
-        <polyline points="6 9 12 15 18 9"></polyline>
-
-      </svg>
+      <span>Download</span>
 
     `;
 
