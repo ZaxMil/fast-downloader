@@ -3936,6 +3936,35 @@ namespace FastDownloader
                         requestBody = new string(buf, 0, read);
                     }
 
+                    // Dashboard theme is stored in browser localStorage but native
+                    // WinForms dialogs are separate processes. Mirror it to a small
+                    // per-user preference so native surfaces always match the UI.
+                    if (urlPath == "/api/preferences/theme" && method == "POST")
+                    {
+                        bool ok = false;
+                        string theme = "dark";
+                        try
+                        {
+                            var request = JsonHelper.ParseDict(requestBody);
+                            string value = request != null && request.ContainsKey("theme") ?
+                                Convert.ToString(request["theme"]) : "";
+                            if (value == "dark" || value == "light" || value == "zaxcore")
+                            {
+                                theme = NativeDialogTheme.Normalize(value);
+                                NativeDialogTheme.Save(theme);
+                                ok = true;
+                            }
+                        }
+                        catch { }
+                        string json = JsonHelper.Serialize(new { ok = ok, theme = theme });
+                        byte[] bytes = Encoding.UTF8.GetBytes(json);
+                        SendHeaders(writer, ok ? 200 : 400, ok ? "OK" : "Bad Request",
+                            "application/json; charset=utf-8", bytes.Length);
+                        writer.Write(json);
+                        writer.Flush();
+                        return;
+                    }
+
                     if (urlPath == "/favicon.ico")
                     {
                         string favPath = Path.Combine(engine.AppDir, "ui", "favicon.ico");
