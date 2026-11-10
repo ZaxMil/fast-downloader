@@ -1077,6 +1077,7 @@ namespace FastDownloader
         public string StatusMessage { get; set; }
         public DateTime LastOutputUtc { get; set; }
         public DateTime StartedAtUtc { get; set; }
+        public DateTime FinishedAtUtc { get; set; }
         public long DownloadSpeed { get; set; }
         public long TotalLength { get; set; }
         public long CompletedLength { get; set; }
@@ -1643,8 +1644,12 @@ namespace FastDownloader
                     if (InterceptKey(task.Url) != key || task.Status == "removed" ||
                         task.Status == "error") continue;
                     // Old completed downloads do not block a fresh user request forever.
-                    if (task.Status == "completed" &&
-                        (DateTime.UtcNow - task.StartedAtUtc).TotalMinutes > 10) continue;
+                    if (task.Status == "completed")
+                    {
+                        DateTime finished = task.FinishedAtUtc != DateTime.MinValue ?
+                            task.FinishedAtUtc : task.StartedAtUtc;
+                        if ((DateTime.UtcNow - finished).TotalMinutes > 10) continue;
+                    }
                     return true;
                 }
             }
@@ -2847,6 +2852,7 @@ namespace FastDownloader
                     if (p.ExitCode == 0)
                     {
                         taskInfo.StatusMessage = "Completed";
+                        taskInfo.FinishedAtUtc = DateTime.UtcNow;
                         taskInfo.Progress = 100;
                         taskInfo.ProgressExact = 100;
                         taskInfo.Status = "completed";
