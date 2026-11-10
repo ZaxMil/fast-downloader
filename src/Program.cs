@@ -2904,7 +2904,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.16";
+        public const string CurrentAppVersion = "0.1.17";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -3073,8 +3073,12 @@ namespace FastDownloader
             this.engine = engine;
             this.onNotification = onNotification;
             this.LatestAppVersion = CurrentAppVersion;
-            this.CachedYtDlpVersion = GetYtDlpVersion();
-            this.CachedAria2Version = GetAria2Version();
+            // Do not spawn yt-dlp's self-extracting Python binary (or aria2c)
+            // on the UI thread just to display the Updates panel. Engine
+            // versions are queried only when the user checks updates, or in
+            // the deferred, daily engine update check when explicitly enabled.
+            this.CachedYtDlpVersion = "Not checked";
+            this.CachedAria2Version = "Not checked";
 
             try
             {
@@ -3125,7 +3129,9 @@ namespace FastDownloader
                     // 1. Check and auto-update engines (yt-dlp) if enabled
                     if (engine.AutoUpdateEngines)
                     {
-                        var res = UpdateYtDlpInternal(true);
+                        // Compare published version first; never run yt-dlp -U
+                        // on every daily update check when already up to date.
+                        var res = UpdateYtDlp(false);
                         if (res != null && res.updated)
                         {
                             CachedYtDlpVersion = res.latestVersion;
@@ -3197,6 +3203,12 @@ namespace FastDownloader
             }
             catch { }
             return "Unknown";
+        }
+
+        public void RefreshInstalledEngineVersions()
+        {
+            CachedYtDlpVersion = GetYtDlpVersion();
+            CachedAria2Version = GetAria2Version();
         }
 
         public string GetAria2Version()
@@ -3361,6 +3373,7 @@ namespace FastDownloader
         {
             CheckYtDlpUpstream(force);
             string current = GetYtDlpVersion();
+            CachedYtDlpVersion = current;
             if (string.IsNullOrEmpty(latestYtDlpUpstream) ||
                 (current != "Not Installed" && ParseVersionSafe(latestYtDlpUpstream) <= ParseVersionSafe(current)))
                 return new EngineUpdateResult {
@@ -3379,7 +3392,9 @@ namespace FastDownloader
             var res = new EngineUpdateResult
             {
                 engine = "yt-dlp",
-                currentVersion = GetYtDlpVersion()
+                currentVersion = CachedYtDlpVersion != "Not checked" &&
+                    !string.IsNullOrEmpty(CachedYtDlpVersion)
+                    ? CachedYtDlpVersion : GetYtDlpVersion()
             };
 
             try
@@ -3411,11 +3426,14 @@ namespace FastDownloader
                         string[] lines = combined.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
                         foreach (var l in lines) res.logs.Add("  > " + l.Trim());
 
+                        // Version extraction itself starts the large Python bundle.
+                        // Reuse one result across all status branches.
+                        string verifiedVersion = GetYtDlpVersion();
                         if (combined.IndexOf("is up to date", StringComparison.OrdinalIgnoreCase) >= 0)
                         {
                             res.ok = true;
                             res.updated = false;
-                            res.latestVersion = GetYtDlpVersion();
+                            res.latestVersion = verifiedVersion;
                             res.message = "yt-dlp is already up to date (" + res.latestVersion + ").";
                         }
                         else if (combined.IndexOf("Updated yt-dlp to version", StringComparison.OrdinalIgnoreCase) >= 0 ||
@@ -3423,13 +3441,13 @@ namespace FastDownloader
                         {
                             res.ok = true;
                             res.updated = true;
-                            res.latestVersion = GetYtDlpVersion();
+                            res.latestVersion = verifiedVersion;
                             res.message = "Successfully updated yt-dlp to " + res.latestVersion + "!";
                         }
                         else if (p.ExitCode == 0)
                         {
                             res.ok = true;
-                            res.latestVersion = GetYtDlpVersion();
+                            res.latestVersion = verifiedVersion;
                             res.message = "yt-dlp update process completed.";
                         }
                     }
@@ -3479,7 +3497,9 @@ namespace FastDownloader
             finally
             {
                 IsYtDlpUpdating = false;
-                CachedYtDlpVersion = GetYtDlpVersion();
+                // Keep last verified version; avoid another heavyweight --version.
+                if (!string.IsNullOrWhiteSpace(res.latestVersion))
+                    CachedYtDlpVersion = res.latestVersion;
             }
 
             return res;
@@ -3660,7 +3680,8 @@ namespace FastDownloader
             ytdlpInfo["latestVersion"] = latestYtDlpUpstream;
             ytdlpInfo["updateAvailable"] = !string.IsNullOrEmpty(latestYtDlpUpstream) &&
                 (ytdlpInfo["currentVersion"].ToString() == "Not Installed" ||
-                ParseVersionSafe(latestYtDlpUpstream) > ParseVersionSafe(ytdlpInfo["currentVersion"].ToString()));
+                 (ParseVersionSafe(ytdlpInfo["currentVersion"].ToString()) > new Version(0, 0, 0) &&
+                  ParseVersionSafe(latestYtDlpUpstream) > ParseVersionSafe(ytdlpInfo["currentVersion"].ToString())));
             ytdlpInfo["status"] = IsYtDlpUpdating ? "updating" : "ready";
             ytdlpInfo["isUpdating"] = IsYtDlpUpdating;
             dict["ytdlp"] = ytdlpInfo;
@@ -5030,6 +5051,9 @@ namespace FastDownloader
                     {
                         if (updateManager != null)
                         {
+                            // Explicit manual check may probe installed engine versions.
+                            // Background status requests must never spawn the binaries.
+                            updateManager.RefreshInstalledEngineVersions();
                             updateManager.CheckAppUpdate();
                             updateManager.CheckYtDlpUpstream(true);
                         }
