@@ -70,5 +70,15 @@ assert.match(backend, /pending\.automaticIntercept/);
 assert.match(backend, /userInitiated/);
 assert.match(backend, /!automatic && !MediaUrlHelper\.IsMediaPlatformUrl\(url\)/);
 assert.doesNotMatch(backend, /16x Multi-Thread Acceleration/);
+assert.match(backend, /schedulerTimer\.Interval = 5000/);
+assert.match(backend, /Interlocked\.Exchange\(ref completionScanInFlight, 1\)/);
+assert.match(backend, /DateTime\.UtcNow - lastCheckUtc < TimeSpan\.FromHours\(24\)/);
+assert.match(backend, /Thread\.Sleep\(120000\)/);
+assert.doesNotMatch(backend, /--disable-http-cache/);
+assert.match(html, /dashboardHasActiveTransfers \? 1200 : 5000/);
+assert.match(html, /document\.hidden \? 15000/);
+assert.match(html, /pollBackend\(\)\.then\(scheduleTaskPolling\)/);
+assert.doesNotMatch(html, /setInterval\(pollBackend, 1000\)/);
+
 
 console.log("PASS: real byte progress, sequential polling, tray transfers, global notification mute/deduplication and watchdog");
