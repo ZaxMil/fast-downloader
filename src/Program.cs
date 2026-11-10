@@ -1933,7 +1933,8 @@ namespace FastDownloader
                                 FilePath = resolvedPath,
                                 Url = yt.Url,
                                 Engine = "yt-dlp",
-                                NumConnections = 16
+                                StatusMessage = yt.StatusMessage,
+                                NumConnections = 0
                             };
                         }
                     }
@@ -1952,7 +1953,7 @@ namespace FastDownloader
                     jsonrpc = "2.0",
                     id = "status",
                     method = "aria2.tellStatus",
-                    @params = new object[] { "token:" + ariaRpcSecret, gid, new string[] { "gid", "status", "totalLength", "completedLength", "downloadSpeed", "files", "connections" } }
+                    @params = new object[] { "token:" + ariaRpcSecret, gid, new string[] { "gid", "status", "totalLength", "completedLength", "downloadSpeed", "files", "connections", "errorCode" } }
                 };
                 byte[] data = Encoding.UTF8.GetBytes(JsonHelper.Serialize(payload));
                 req.ContentLength = data.Length;
@@ -2003,7 +2004,7 @@ namespace FastDownloader
                                 }
                             }
 
-                            int conns = 16;
+                            int conns = 0;
                             if (res.ContainsKey("connections") && res["connections"] != null)
                             {
                                 int.TryParse(res["connections"].ToString(), out conns);
@@ -2022,7 +2023,10 @@ namespace FastDownloader
                                 FilePath = filePath,
                                 Url = "",
                                 Engine = "aria2",
-                                NumConnections = conns > 0 ? conns : 16
+                                StatusMessage = status == "error" ?
+                                    "Transfer failed (aria2 error " +
+                                    (res.ContainsKey("errorCode") ? Convert.ToString(res["errorCode"]) : "?") + ")." : "",
+                                NumConnections = Math.Max(0, conns)
                             };
                         }
                     }
@@ -5721,12 +5725,13 @@ namespace FastDownloader
         public string FilePath { get; set; }
         public string Url { get; set; }
         public string Engine { get; set; }
+        public string StatusMessage { get; set; }
         public int NumConnections { get; set; }
 
         public UnifiedTaskInfo()
         {
-            NumConnections = 16;
-            Status = "downloading";
+            NumConnections = 0;
+            Status = "connecting";
         }
     }
 
@@ -5916,11 +5921,12 @@ namespace FastDownloader
 
             lblStatus = new Label
             {
-                Text = "⚡ Status: Downloading (16x Turbo Chunks)...",
+                Text = "Connecting to source...",
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
                 ForeColor = Color.FromArgb(16, 185, 129),
                 Location = new Point(15, 29),
-                AutoSize = true
+                Size = new Size(505, 20),
+                AutoEllipsis = true
             };
 
             Panel headerBorder = new Panel
@@ -5956,7 +5962,7 @@ namespace FastDownloader
             // 3. Chunk Visualizer
             Label lblChunkTitle = new Label
             {
-                Text = "Connection Streams (16 parallel chunk segments):",
+                Text = "Transfer activity (live):",
                 Location = new Point(16, 90),
                 AutoSize = true,
                 Font = new Font("Segoe UI", 7.5F, FontStyle.Regular),
@@ -6018,7 +6024,7 @@ namespace FastDownloader
 
             lblConnections = new Label
             {
-                Text = "⚡ Active Streams: 16 Chunks",
+                Text = "Connections: checking...",
                 Location = new Point(280, 34),
                 AutoSize = true,
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
@@ -6120,6 +6126,7 @@ namespace FastDownloader
                 {
                     engine.ResumeTask(gid);
                     isPaused = false;
+                    btnPauseResume.Enabled = true;
                     btnPauseResume.Text = "⏸ Pause";
                     lblStatus.Text = "⚡ Status: Downloading...";
                     lblStatus.ForeColor = Color.FromArgb(16, 185, 129);
@@ -6195,13 +6202,20 @@ namespace FastDownloader
             if (hasCompleted) return;
 
             var task = engine.GetTaskInfo(gid);
-            if (task == null) return;
+            if (task == null)
+            {
+                lblStatus.Text = "Waiting for download engine response...";
+                lblStatus.ForeColor = Color.FromArgb(245, 158, 11);
+                return;
+            }
 
             progBar.Value = task.Progress;
             lblPct.Text = task.TotalLength > 0 ?
                 Math.Min(100.0, task.CompletedLength * 100.0 / task.TotalLength).ToString("0.0", CultureInfo.InvariantCulture) + "%" :
-                (task.CompletedLength > 0 ? "Transferring..." : "Connecting...");
-            chunkVisualizer.UpdateProgress(task.Progress, task.Status == "downloading" || task.Status == "active");
+                (task.CompletedLength > 0 ? "Transferring" : "--");
+            chunkVisualizer.UpdateProgress(task.Progress, task.DownloadSpeed > 0);
+            lblConnections.Text = task.Engine == "aria2" ?
+                "Connections: " + task.NumConnections : "Video extractor";
 
             string totalFormatted = task.TotalLength > 0 ? UrlProbeHelper.FormatBytes(task.TotalLength) : "Unknown";
             lblSizeInfo.Text = "📦 Downloaded: " + UrlProbeHelper.FormatBytes(task.CompletedLength) + " of " + totalFormatted;
@@ -6211,16 +6225,31 @@ namespace FastDownloader
             if (task.Status == "paused" || task.Status == "waiting")
             {
                 isPaused = true;
+                btnPauseResume.Enabled = task.Status == "paused";
                 btnPauseResume.Text = "▶ Resume";
-                lblStatus.Text = "⏸ Status: Paused";
+                lblStatus.Text = task.Status == "waiting" ? "Queued, waiting for slot..." : "⏸ Status: Paused";
                 lblStatus.ForeColor = Color.FromArgb(245, 158, 11);
             }
             else if (task.Status == "downloading" || task.Status == "active")
             {
                 isPaused = false;
+                btnPauseResume.Enabled = true;
                 btnPauseResume.Text = "⏸ Pause";
-                lblStatus.Text = "⚡ Status: Downloading...";
+                lblStatus.Text = task.DownloadSpeed > 0 || task.CompletedLength > 0 ?
+                    "Receiving data..." : (!string.IsNullOrEmpty(task.StatusMessage) ?
+                    task.StatusMessage : "Connecting to source...");
                 lblStatus.ForeColor = Color.FromArgb(16, 185, 129);
+            }
+            else if (task.Status == "error" || task.Status == "removed")
+            {
+                isPaused = true;
+                bool retryAvailable = task.Engine == "yt-dlp" && task.Status == "error";
+                btnPauseResume.Enabled = retryAvailable;
+                btnPauseResume.Text = retryAvailable ? "▶ Retry" : "Failed";
+                lblStatus.Text = !string.IsNullOrEmpty(task.StatusMessage) ?
+                    task.StatusMessage : "Transfer failed. Check source link.";
+                lblStatus.ForeColor = Color.FromArgb(248, 113, 113);
+                lblTimeLeft.Text = "Time left: unavailable";
             }
 
             if (task.Status == "complete" || task.Status == "completed")
@@ -6441,6 +6470,7 @@ namespace FastDownloader
             public long Total;
             public long Speed;
             public double ExactProgress;
+            public bool Failed;
         }
 
         private readonly EngineManager engine;
@@ -6547,10 +6577,12 @@ namespace FastDownloader
                     }
                     foreach (var task in engine.GetYtTasksSnapshot())
                     {
-                        if (task.Status != "downloading" && task.Status != "processing") continue;
+                        if (task.Status != "downloading" && task.Status != "processing" &&
+                            task.Status != "error") continue;
                         snapshot.Add(new TrayTransfer {
                             Name = task.Name, Completed = task.CompletedLength,
                             Total = task.TotalLength, Speed = task.DownloadSpeed,
+                            Failed = task.Status == "error",
                             ExactProgress = task.TotalLength > 0 ?
                                 task.CompletedLength * 100.0 / task.TotalLength : task.ProgressExact
                         });
@@ -6579,8 +6611,10 @@ namespace FastDownloader
 
         private void RenderTransfers(List<TrayTransfer> transfers)
         {
-            headerLabel.Text = transfers.Count == 1 ? "1 Active Download" :
-                transfers.Count + " Active Downloads";
+            int activeCount = transfers.Count(t => !t.Failed);
+            int failedCount = transfers.Count(t => t.Failed);
+            headerLabel.Text = activeCount + " Active Downloads" +
+                (failedCount > 0 ? " · " + failedCount + " Failed" : "");
             list.SuspendLayout();
             try
             {
@@ -6617,7 +6651,8 @@ namespace FastDownloader
                     var label = new Label { Location = new Point(10, 50),
                         Width = 331, Height = 20, ForeColor = Color.FromArgb(177, 193, 212),
                         Font = new Font("Segoe UI", 8F),
-                        Text = (transfer.Total > 0 ? pct.ToString("0.0", CultureInfo.InvariantCulture) + "% · " : "") +
+                        Text = (transfer.Failed ? "Failed · " : "") +
+                            (transfer.Total > 0 ? pct.ToString("0.0", CultureInfo.InvariantCulture) + "% · " : "") +
                             UrlProbeHelper.FormatBytes(transfer.Completed) +
                             (transfer.Total > 0 ? " / " + UrlProbeHelper.FormatBytes(transfer.Total) : " transferred") +
                             " · " + UrlProbeHelper.FormatBytes(transfer.Speed) + "/s" };
