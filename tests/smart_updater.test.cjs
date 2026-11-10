@@ -42,7 +42,7 @@ assert(cs.includes('DownloadAssetWithResume('),'Updater must resume downloads');
 assert(cs.includes('VerifyReleaseHashes(tag, packages)'),'Updater must verify SHA256');
 assert(cs.includes('QueueAppUpdate(out string message)'),'HTTP updater should not block for file transfers');
 
-assert.match(cs, /CurrentAppVersion = "0\.1\.18"/, 'Version bump is required for installed app updates');
+assert.match(cs, /CurrentAppVersion = "0\.1\.19"/, 'Version bump is required for installed app updates');
 assert.match(cs, /this\.CachedYtDlpVersion = "Not checked";/, 'No yt-dlp binary executed on startup');
 assert.match(cs, /this\.CachedAria2Version = "Not checked";/, 'No aria2 version process during startup');
 assert.match(cs, /var res = UpdateYtDlp\(false\);/, 'Automatic engine updates must check upstream version first');
@@ -67,4 +67,16 @@ assert.match(cs, /Active file downloads detected/, 'Active downloads must block 
 assert.match(cs, /Active video download detected/, 'Video processing must block shutdown');
 assert.match(html, /stage\.status === 'success' && installed === expected/, 'UI must not signal success before the helper verifies restart');
 assert(!ps.includes('Get-Process FastDownloader | Stop-Process'),'Never terminate all processes by name');
+
+assert.match(cs, /class WindowsSafeFileName/, 'Native dialog must normalize browser titles before saving');
+assert.match(cs, /class NativeDialogTheme/, 'Native dialogs must honor dashboard theme');
+assert.match(cs, /NativeDialogTheme.Read\(\)/, 'Download form reads shared theme');
+assert.match(cs, /WindowsSafeFileName.Normalize\(initialName\)/, 'Pre-fill must contain Windows-safe filename');
+assert.match(cs, /WindowsSafeFileName.Normalize\(original\)/, 'Edits must be normalized before transfer');
+assert.match(cs, /Unsupported Windows characters/, 'Show inline filename advice');
+assert.match(cs, /"light" \|\| value == "zaxcore"/, 'Allowed theme settings');
+assert.match(cs, /urlPath == "\/api\/preferences\/theme" && method == "POST"/, 'Theme sync endpoint');
+assert.doesNotMatch(cs.slice(cs.indexOf('public class DownloadConfirmDialog : Form'), cs.indexOf('public class UnifiedTaskInfo')), /MessageBox.Show\(this, "Enter a valid file name"/, 'No blocking system warning for video titles');
+assert.match(html, /fetch\(API_BASE \+ '\/api\/preferences\/theme'/, 'Browser theme synced to native dialog');
+
 console.log('PASS: smart updater state, progress, failure/fallback, yt-dlp button, resume/hash, scoped restart');

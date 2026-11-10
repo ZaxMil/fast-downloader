@@ -2904,7 +2904,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.18";
+        public const string CurrentAppVersion = "0.1.19";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -3934,6 +3934,35 @@ namespace FastDownloader
                             read += r;
                         }
                         requestBody = new string(buf, 0, read);
+                    }
+
+                    // Dashboard theme is stored in browser localStorage but native
+                    // WinForms dialogs are separate processes. Mirror it to a small
+                    // per-user preference so native surfaces always match the UI.
+                    if (urlPath == "/api/preferences/theme" && method == "POST")
+                    {
+                        bool ok = false;
+                        string theme = "dark";
+                        try
+                        {
+                            var request = JsonHelper.ParseDict(requestBody);
+                            string value = request != null && request.ContainsKey("theme") ?
+                                Convert.ToString(request["theme"]) : "";
+                            if (value == "dark" || value == "light" || value == "zaxcore")
+                            {
+                                theme = NativeDialogTheme.Normalize(value);
+                                NativeDialogTheme.Save(theme);
+                                ok = true;
+                            }
+                        }
+                        catch { }
+                        string json = JsonHelper.Serialize(new { ok = ok, theme = theme });
+                        byte[] bytes = Encoding.UTF8.GetBytes(json);
+                        SendHeaders(writer, ok ? 200 : 400, ok ? "OK" : "Bad Request",
+                            "application/json; charset=utf-8", bytes.Length);
+                        writer.Write(json);
+                        writer.Flush();
+                        return;
                     }
 
                     if (urlPath == "/favicon.ico")
@@ -5453,254 +5482,466 @@ namespace FastDownloader
 
     // Minimal pre-download sheet: only the decisions the user actually needs.
     // Unlike the legacy 560x395 window there is no fake turbo/resume marketing.
+    // Native download dialogs must use the same theme as the dashboard, which
+    // runs in a separate browser process and cannot share localStorage.
+    public static class NativeDialogTheme
+    {
+        private static readonly object Sync = new object();
+        public static string ThemeFile {
+            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "FastDownloader", "ui-theme.txt"); }
+        }
+        public static string Normalize(string value)
+        {
+            string theme = (value ?? "").Trim().ToLowerInvariant();
+            return theme == "light" || theme == "zaxcore" ? theme : "dark";
+        }
+        public static void Save(string theme)
+        {
+            theme = Normalize(theme);
+            lock (Sync)
+            {
+                string dir = Path.GetDirectoryName(ThemeFile);
+                Directory.CreateDirectory(dir);
+                File.WriteAllText(ThemeFile, theme, new UTF8Encoding(false));
+            }
+        }
+        public static string Read()
+        {
+            try { if (File.Exists(ThemeFile)) return Normalize(File.ReadAllText(ThemeFile)); }
+            catch { }
+            return "dark";
+        }
+    }
+
+    public static class WindowsSafeFileName
+    {
+        // Win32 reserved names and forbidden punctuation are not always rejected
+        // by Path.GetInvalidFileNameChars when tests run on non-Windows hosts.
+        public static string Normalize(string incoming)
+        {
+            string name = (incoming ?? "").Trim().Trim('"');
+            StringBuilder safe = new StringBuilder();
+            foreach (char c in name)
+            {
+                if (c < 32 || "\\/:*?\"<>|".IndexOf(c) >= 0 ||
+                    Array.IndexOf(Path.GetInvalidFileNameChars(), c) >= 0)
+                    safe.Append(c == ':' ? " -" : "-");
+                else
+                    safe.Append(c);
+            }
+            name = Regex.Replace(safe.ToString(), @"[ ]{2,}", " ").Trim().TrimEnd(' ', '.');
+            // Win32 reserves these basenames even when an extension is present.
+            string stem = name.Split('.')[0].TrimEnd(' ');
+            if (Regex.IsMatch(stem, @"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                name = "_" + name;
+            if (string.IsNullOrWhiteSpace(name))
+                name = "Download_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            return name;
+        }
+    }
+
+    // A genuinely native, theme-aware download confirmation, with no system
+    // MessageBox for predictable filename issues and no nested browser window.
     public class DownloadConfirmDialog : Form
     {
+        private sealed class Colors
+        {
+            public Color Base, Panel, Input, Border, Text, Muted, Accent, AccentText, Secondary, SecondaryText;
+            public static Colors For(string theme)
+            {
+                if (theme == "light") return new Colors {
+                    Base = Color.FromArgb(247, 250, 252), Panel = Color.White,
+                    Input = Color.FromArgb(250, 252, 254), Border = Color.FromArgb(211, 223, 232),
+                    Text = Color.FromArgb(20, 36, 51), Muted = Color.FromArgb(100, 116, 130),
+                    Accent = Color.FromArgb(5, 150, 105), AccentText = Color.White,
+                    Secondary = Color.FromArgb(234, 241, 246), SecondaryText = Color.FromArgb(34, 52, 68)
+                };
+                if (theme == "zaxcore") return new Colors {
+                    Base = Color.FromArgb(30, 31, 34), Panel = Color.FromArgb(38, 40, 44),
+                    Input = Color.FromArgb(44, 47, 52), Border = Color.FromArgb(67, 72, 78),
+                    Text = Color.FromArgb(237, 240, 243), Muted = Color.FromArgb(156, 163, 173),
+                    Accent = Color.FromArgb(63, 207, 122), AccentText = Color.FromArgb(20, 43, 28),
+                    Secondary = Color.FromArgb(51, 57, 64), SecondaryText = Color.FromArgb(226, 235, 238)
+                };
+                return new Colors {
+                    Base = Color.FromArgb(11, 15, 23), Panel = Color.FromArgb(19, 27, 39),
+                    Input = Color.FromArgb(22, 32, 46), Border = Color.FromArgb(43, 59, 77),
+                    Text = Color.FromArgb(241, 246, 248), Muted = Color.FromArgb(143, 162, 178),
+                    Accent = Color.FromArgb(35, 211, 158), AccentText = Color.FromArgb(6, 38, 30),
+                    Secondary = Color.FromArgb(32, 45, 61), SecondaryText = Color.FromArgb(227, 237, 241)
+                };
+            }
+        }
+
+        private sealed class Surface : Panel
+        {
+            public Color Fill = Color.FromArgb(22, 32, 46);
+            public Color Stroke = Color.FromArgb(43, 59, 77);
+            public int Corner = 11;
+            public Surface()
+            {
+                SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint |
+                         ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            }
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                using (var path = MakePath(new Rectangle(0, 0, Width - 1, Height - 1), Corner))
+                using (var fill = new SolidBrush(Fill))
+                using (var border = new Pen(Stroke, 1F)) {
+                    e.Graphics.FillPath(fill, path);
+                    e.Graphics.DrawPath(border, path);
+                }
+            }
+        }
+
+        private sealed class Action : Button
+        {
+            public Color Fill, TextInk, BorderInk;
+            public int Corner = 11;
+            private bool hovered;
+            public Action()
+            {
+                FlatStyle = FlatStyle.Flat;
+                FlatAppearance.BorderSize = 0;
+                Cursor = Cursors.Hand;
+                SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint |
+                         ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+            }
+            protected override void OnMouseEnter(EventArgs e) { hovered = true; Invalidate(); base.OnMouseEnter(e); }
+            protected override void OnMouseLeave(EventArgs e) { hovered = false; Invalidate(); base.OnMouseLeave(e); }
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                var bg = hovered && Enabled ? ControlPaint.Light(Fill, .13F) : Fill;
+                if (!Enabled) bg = ControlPaint.Dark(Fill, .10F);
+                using (var path = MakePath(new Rectangle(0, 0, Width - 1, Height - 1), Corner))
+                using (var brush = new SolidBrush(bg))
+                using (var border = new Pen(BorderInk.IsEmpty ? bg : BorderInk, 1)) {
+                    e.Graphics.FillPath(brush, path);
+                    e.Graphics.DrawPath(border, path);
+                }
+                TextRenderer.DrawText(e.Graphics, Text, Font,
+                    new Rectangle(5, 1, Width - 10, Height - 2), Enabled ? TextInk : ControlPaint.Dark(TextInk),
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
+                    TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
+                if (Focused && ShowFocusCues)
+                    ControlPaint.DrawFocusRectangle(e.Graphics, new Rectangle(4, 4, Width - 8, Height - 8));
+            }
+        }
+
+        private static System.Drawing.Drawing2D.GraphicsPath MakePath(Rectangle r, int radius)
+        {
+            var path = new System.Drawing.Drawing2D.GraphicsPath();
+            int d = Math.Min(radius * 2, Math.Min(r.Width, r.Height));
+            if (d < 1) { path.AddRectangle(r); return path; }
+            path.AddArc(r.Left, r.Top, d, d, 180, 90);
+            path.AddArc(r.Right - d, r.Top, d, d, 270, 90);
+            path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+            path.AddArc(r.Left, r.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
         public bool Confirmed { get; private set; }
         public bool StartNow { get; private set; }
         public string FileName { get { return txtFileName.Text.Trim(); } }
         public string SaveDirectory { get { return txtSaveDir.Text.Trim(); } }
         public string Category {
-            get { return cmbCategory.SelectedItem != null ?
-                cmbCategory.SelectedItem.ToString() : "General"; }
+            get { return cmbCategory.SelectedItem == null ? "General" :
+                cmbCategory.SelectedItem.ToString(); }
         }
 
         private readonly TextBox txtFileName;
         private readonly TextBox txtSaveDir;
         private readonly ComboBox cmbCategory;
+        private readonly Label fileHint;
         private readonly Button btnStart;
         private readonly Button btnLater;
         private readonly Button btnCancel;
         private readonly ToolTip tooltip;
         private readonly string baseDownloadsFolder;
-        private Point dragScreenStart;
-        private Point dragWindowStart;
+        private readonly Colors palette;
+        private Point dragStart, locationStart;
         private bool dragging;
-
-        private static readonly Color BackgroundInk = Color.FromArgb(16, 21, 30);
-        private static readonly Color InputInk = Color.FromArgb(30, 38, 51);
-        private static readonly Color SecondaryInk = Color.FromArgb(160, 178, 198);
-        private static readonly Color AccentMint = Color.FromArgb(53, 216, 169);
 
         protected override CreateParams CreateParams
         {
-            get
-            {
-                CreateParams p = base.CreateParams;
-                p.ExStyle |= 0x00000008;
-                p.ClassStyle |= 0x00020000;
-                return p;
+            get {
+                var cp = base.CreateParams;
+                cp.ClassStyle |= 0x00020000; // Native Windows drop shadow
+                return cp;
             }
+        }
+
+        private Label Caption(string text, int x, int y, int width)
+        {
+            return new Label {
+                Text = text, Location = new Point(x, y), Size = new Size(width, 18),
+                ForeColor = palette.Muted, BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", 8F, FontStyle.Bold)
+            };
+        }
+
+        private TextBox Input(string value, int width)
+        {
+            return new TextBox {
+                Text = value ?? "", Width = width, Height = 28,
+                BorderStyle = BorderStyle.None, BackColor = palette.Input,
+                ForeColor = palette.Text,
+                Font = new Font("Segoe UI", 10F)
+            };
+        }
+
+        private Surface InputBox(int x, int y, int width, int height)
+        {
+            return new Surface {
+                Location = new Point(x, y), Size = new Size(width, height),
+                Fill = palette.Input, Stroke = palette.Border, Corner = 9
+            };
+        }
+
+        private Action Button(string text, int x, int y, int w, int h, bool primary, bool quiet = false)
+        {
+            return new Action {
+                Text = text, Location = new Point(x, y), Size = new Size(w, h),
+                Corner = 10,
+                Fill = primary ? palette.Accent : quiet ? palette.Base : palette.Secondary,
+                TextInk = primary ? palette.AccentText : quiet ? palette.Muted : palette.SecondaryText,
+                BorderInk = quiet ? palette.Border : Color.Empty
+            };
+        }
+
+        private Label DisplayText(string text, int x, int y, int width, int height, float size, bool bold, Color color)
+        {
+            return new Label {
+                Text = text, Location = new Point(x, y), Size = new Size(width, height),
+                BackColor = Color.Transparent, ForeColor = color,
+                Font = new Font("Segoe UI", size, bold ? FontStyle.Bold : FontStyle.Regular),
+                AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft
+            };
         }
 
         public DownloadConfirmDialog(PendingDownloadInfo pending, string baseDownloadsFolder)
         {
             this.baseDownloadsFolder = baseDownloadsFolder;
+            this.palette = Colors.For(NativeDialogTheme.Read());
             Confirmed = false;
             StartNow = true;
-            Text = "FastDownloader - New download";
+            Text = "FastDownloader — New download";
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = true;
             StartPosition = FormStartPosition.CenterScreen;
             TopMost = true;
-            AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(520, 326);
-            BackColor = BackgroundInk;
-            ForeColor = Color.White;
+            AutoScaleMode = AutoScaleMode.Dpi;
+            ClientSize = new Size(640, 450);
+            BackColor = palette.Base;
+            ForeColor = palette.Text;
             Font = new Font("Segoe UI", 9F);
+            DoubleBuffered = true;
             tooltip = new ToolTip { AutoPopDelay = 15000, InitialDelay = 250, ReshowDelay = 150 };
             UpdateCornerRegion();
 
-            string sourceUrl = pending != null ? pending.url ?? "" : "";
-            string pendingCat = pending != null && !string.IsNullOrWhiteSpace(pending.category) ?
-                pending.category : "General";
-            if (pendingCat == "General" && MediaUrlHelper.IsMediaPlatformUrl(sourceUrl))
-                pendingCat = "Video";
+            // Clear hierarchy and intentional use of space, no separate dark
+            // header/footer slabs or browser-like HTML control pretending to be native.
+            var iconTile = new Surface {
+                Location = new Point(24, 23), Size = new Size(46, 46),
+                Fill = palette.Secondary, Stroke = palette.Border, Corner = 12
+            };
+            var arrow = DisplayText("↓", 0, 3, 46, 38, 20, true, palette.Accent);
+            arrow.TextAlign = ContentAlignment.MiddleCenter;
+            iconTile.Controls.Add(arrow);
+            Controls.Add(iconTile);
 
-            Panel header = new Panel {
-                Location = new Point(0, 0), Size = new Size(520, 66),
-                BackColor = Color.FromArgb(21, 28, 39)
-            };
-            Label heading = new Label {
-                Text = "New download", Location = new Point(20, 10),
-                Size = new Size(410, 27),
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI", 12.5F, FontStyle.Bold)
-            };
-            Label subtitle = new Label {
-                Text = "Save this file to your computer",
-                Location = new Point(21, 37), Size = new Size(425, 20),
-                ForeColor = SecondaryInk, Font = new Font("Segoe UI", 8.5F)
-            };
-            Button exit = new Button {
-                Text = "×", Location = new Point(477, 14), Size = new Size(28, 28),
-                FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(34, 43, 57),
-                ForeColor = SecondaryInk, Cursor = Cursors.Hand,
-                Font = new Font("Segoe UI", 12F)
-            };
-            exit.FlatAppearance.BorderSize = 0;
+            var headline = DisplayText("New download", 88, 20, 445, 32, 15F, true, palette.Text);
+            var tagline = DisplayText("Choose how and where to save this file", 89, 51, 445, 22, 9F, false, palette.Muted);
+            Controls.Add(headline);
+            Controls.Add(tagline);
+
+            var exit = Button("×", 582, 24, 34, 34, false, true);
+            exit.Font = new Font("Segoe UI", 13F);
+            exit.TabStop = false;
             exit.Click += (s, e) => CancelDownload();
-            header.Controls.Add(heading);
-            header.Controls.Add(subtitle);
-            header.Controls.Add(exit);
-            Controls.Add(header);
-            foreach (Control c in new Control[] { header, heading, subtitle })
-            {
-                c.MouseDown += (s, e) => {
+            Controls.Add(exit);
+
+            // A thin separator is a lighter, more precise visual structure.
+            var divider = new Panel { Location = new Point(24, 90), Size = new Size(592, 1), BackColor = palette.Border };
+            Controls.Add(divider);
+            foreach (Control headerPart in new Control[] { iconTile, headline, tagline }) {
+                headerPart.MouseDown += (s, e) => {
                     dragging = e.Button == MouseButtons.Left;
-                    if (dragging) {
-                        dragScreenStart = Cursor.Position;
-                        dragWindowStart = Location;
-                    }
+                    if (dragging) { dragStart = Cursor.Position; locationStart = Location; }
                 };
-                c.MouseMove += (s, e) => {
+                headerPart.MouseMove += (s, e) => {
                     if (!dragging || e.Button != MouseButtons.Left) return;
-                    Point p = Cursor.Position;
-                    Location = new Point(dragWindowStart.X + p.X - dragScreenStart.X,
-                        dragWindowStart.Y + p.Y - dragScreenStart.Y);
+                    var p = Cursor.Position;
+                    Location = new Point(locationStart.X + p.X - dragStart.X,
+                        locationStart.Y + p.Y - dragStart.Y);
                 };
-                c.MouseUp += (s, e) => dragging = false;
+                headerPart.MouseUp += (s, e) => dragging = false;
             }
 
-            Controls.Add(Caption("FILE NAME", 20, 77, 465));
-            string initialName = pending != null ? pending.filename : "";
-            string previousName = (initialName ?? "").ToLowerInvariant();
-            if (string.IsNullOrWhiteSpace(initialName) || previousName == "browser download" ||
-                previousName == "download" || previousName == "main" ||
-                previousName.Contains("unknown_video") || previousName == "facebook")
-            {
-                string candidate = pending != null ? pending.title ?? "" : "";
-                string lower = candidate.ToLowerInvariant();
-                initialName = !string.IsNullOrWhiteSpace(candidate) && lower != "browser download" &&
-                    lower != "download" && lower != "main" && !lower.Contains("unknown_video") ?
+            string sourceUrl = pending == null ? "" : pending.url ?? "";
+            string category = pending == null || string.IsNullOrWhiteSpace(pending.category)
+                ? "General" : pending.category;
+            if (category == "General" && MediaUrlHelper.IsMediaPlatformUrl(sourceUrl))
+                category = "Video";
+
+            string initialName = pending == null ? "" : pending.filename ?? "";
+            string low = initialName.ToLowerInvariant().Trim();
+            if (string.IsNullOrWhiteSpace(initialName) || low == "browser download" ||
+                low == "download" || low == "main" || low == "facebook" ||
+                low.Contains("unknown_video")) {
+                string candidate = pending == null ? "" : pending.title ?? "";
+                string clow = candidate.ToLowerInvariant();
+                initialName = !string.IsNullOrWhiteSpace(candidate) && clow != "download" &&
+                    clow != "main" && !clow.Contains("unknown_video") ?
                     candidate : "Download_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
             }
-            if (string.IsNullOrEmpty(Path.GetExtension(initialName)))
-            {
-                if (pendingCat == "Video") initialName += ".mp4";
-                else if (pendingCat == "Music") initialName += ".mp3";
+            if (string.IsNullOrEmpty(Path.GetExtension(initialName))) {
+                if (category == "Video") initialName += ".mp4";
+                else if (category == "Music") initialName += ".mp3";
             }
-            txtFileName = Editor(new Point(20, 99), new Size(480, 28), initialName);
-            if (Regex.IsMatch(initialName, @"[\u0600-\u06FF]"))
-                txtFileName.RightToLeft = RightToLeft.Yes;
+            string safeName = WindowsSafeFileName.Normalize(initialName);
+            Controls.Add(Caption("FILE NAME", 26, 108, 540));
+            var nameBox = InputBox(24, 130, 592, 46);
+            txtFileName = Input(safeName, 550);
+            txtFileName.Location = new Point(14, 13);
             txtFileName.TabIndex = 0;
-            Controls.Add(txtFileName);
+            if (Regex.IsMatch(safeName, @"[\u0600-\u06FF]")) txtFileName.RightToLeft = RightToLeft.Yes;
+            nameBox.Controls.Add(txtFileName);
+            Controls.Add(nameBox);
 
-            Controls.Add(Caption("SAVE TO", 20, 141, 470));
-            // Category never silently changes the user's chosen download directory.
-            txtSaveDir = Editor(new Point(20, 162), new Size(370, 28),
-                baseDownloadsFolder ?? "");
+            fileHint = DisplayText(safeName != initialName ?
+                "Filename cleaned for Windows: unsupported characters replaced." :
+                "Filename is editable. Unsupported Windows characters are corrected automatically.",
+                27, 178, 574, 20, 8F, false, palette.Muted);
+            Controls.Add(fileHint);
+            txtFileName.TextChanged += (s, e) => {
+                string current = txtFileName.Text;
+                fileHint.Text = WindowsSafeFileName.Normalize(current) != current.Trim() ?
+                    "Unsupported filename characters will be replaced automatically." :
+                    "Ready to save";
+            };
+            txtFileName.Leave += (s, e) => NormalizeFilename();
+
+            Controls.Add(Caption("SAVE LOCATION", 26, 213, 480));
+            var pathBox = InputBox(24, 233, 592, 44);
+            txtSaveDir = Input(baseDownloadsFolder ?? "", 448);
+            txtSaveDir.Location = new Point(14, 12);
             txtSaveDir.TabIndex = 1;
-            Controls.Add(txtSaveDir);
-            Button browse = ActionButton("Browse", new Point(402, 161), new Size(98, 30), false);
+            pathBox.Controls.Add(txtSaveDir);
+            var browse = Button("Browse", 493, 6, 90, 32, false);
+            browse.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
             browse.TabIndex = 2;
             browse.Click += (s, e) => {
-                using (var dialog = new FolderBrowserDialog())
-                {
-                    dialog.Description = "Choose a folder for this download";
-                    dialog.SelectedPath = Directory.Exists(txtSaveDir.Text) ?
+                using (var folder = new FolderBrowserDialog()) {
+                    folder.Description = "Select a folder for this download";
+                    folder.SelectedPath = Directory.Exists(txtSaveDir.Text) ?
                         txtSaveDir.Text : this.baseDownloadsFolder;
-                    dialog.ShowNewFolderButton = true;
-                    if (dialog.ShowDialog(this) == DialogResult.OK)
-                        txtSaveDir.Text = dialog.SelectedPath;
+                    folder.ShowNewFolderButton = true;
+                    if (folder.ShowDialog(this) == DialogResult.OK)
+                        txtSaveDir.Text = folder.SelectedPath;
                 }
             };
-            Controls.Add(browse);
+            pathBox.Controls.Add(browse);
+            Controls.Add(pathBox);
 
-            Controls.Add(Caption("CATEGORY", 20, 204, 157));
+            Controls.Add(Caption("CATEGORY", 26, 295, 192));
+            Controls.Add(Caption("SOURCE", 261, 295, 320));
+            var categoryBox = InputBox(24, 314, 216, 42);
             cmbCategory = new ComboBox {
-                Location = new Point(20, 225), Size = new Size(168, 28),
+                Location = new Point(10, 10), Size = new Size(195, 24),
                 DropDownStyle = ComboBoxStyle.DropDownList,
-                BackColor = InputInk, ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 9F),
-                TabIndex = 3
+                FlatStyle = FlatStyle.Flat, BackColor = palette.Input,
+                ForeColor = palette.Text,
+                Font = new Font("Segoe UI", 9F), TabIndex = 3
+            };
+            cmbCategory.DrawMode = DrawMode.OwnerDrawFixed;
+            cmbCategory.ItemHeight = 20;
+            cmbCategory.DrawItem += (s, e) => {
+                if (e.Index < 0) return;
+                bool selected = (e.State & DrawItemState.Selected) != 0;
+                using (var brush = new SolidBrush(selected ? palette.Secondary : palette.Input))
+                    e.Graphics.FillRectangle(brush, e.Bounds);
+                TextRenderer.DrawText(e.Graphics, cmbCategory.Items[e.Index].ToString(), cmbCategory.Font,
+                    e.Bounds, palette.Text,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
             };
             cmbCategory.Items.AddRange(new object[] {
                 "General", "Compressed", "Programs", "Video", "Music", "Documents"
             });
-            int ci = cmbCategory.Items.IndexOf(pendingCat);
-            cmbCategory.SelectedIndex = ci < 0 ? 0 : ci;
-            Controls.Add(cmbCategory);
+            int index = cmbCategory.Items.IndexOf(category);
+            cmbCategory.SelectedIndex = index < 0 ? 0 : index;
+            categoryBox.Controls.Add(cmbCategory);
+            Controls.Add(categoryBox);
 
-            Controls.Add(Caption("SOURCE", 207, 204, 286));
-            string sourceLabel = "Direct link";
-            try
-            {
-                Uri uri = new Uri(sourceUrl);
-                sourceLabel = uri.Host.StartsWith("www.") ? uri.Host.Substring(4) : uri.Host;
-            }
-            catch { }
-            Label source = new Label {
-                Text = sourceLabel, Location = new Point(207, 226),
-                Size = new Size(285, 26), AutoEllipsis = true,
-                ForeColor = Color.FromArgb(211, 225, 240),
-                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-                TextAlign = ContentAlignment.MiddleLeft,
-                Cursor = Cursors.Hand
+            string host = "Direct link";
+            try {
+                var uri = new Uri(sourceUrl);
+                host = uri.Host.StartsWith("www.") ? uri.Host.Substring(4) : uri.Host;
+            } catch { }
+            var sourceBox = InputBox(258, 314, 358, 42);
+            var sourceName = DisplayText(host, 12, 5, 245, 31, 9F, true, palette.Text);
+            var copy = DisplayText("Copy link", 269, 5, 78, 31, 8.5F, true, palette.Accent);
+            copy.Cursor = Cursors.Hand;
+            sourceBox.Controls.Add(sourceName);
+            sourceBox.Controls.Add(copy);
+            tooltip.SetToolTip(copy, sourceUrl);
+            copy.Click += (s, e) => {
+                if (string.IsNullOrEmpty(sourceUrl)) return;
+                try { Clipboard.SetText(sourceUrl); copy.Text = "Copied ✓"; }
+                catch { copy.Text = "Unavailable"; }
             };
-            tooltip.SetToolTip(source, sourceUrl);
-            source.Click += (s, e) => {
-                if (!string.IsNullOrEmpty(sourceUrl))
-                {
-                    try { Clipboard.SetText(sourceUrl); tooltip.SetToolTip(source, "Link copied"); }
-                    catch { }
-                }
-            };
-            Controls.Add(source);
+            Controls.Add(sourceBox);
 
-            Panel footer = new Panel {
-                Dock = DockStyle.Bottom, Height = 60,
-                BackColor = Color.FromArgb(21, 28, 39)
-            };
-            btnStart = ActionButton("Start download", new Point(20, 12),
-                new Size(190, 36), true);
-            btnStart.TabIndex = 4;
-            btnStart.Click += (s, e) => ConfirmDownload(true);
-            btnLater = ActionButton("Download later", new Point(220, 12),
-                new Size(145, 36), false);
-            btnLater.TabIndex = 5;
-            btnLater.Click += (s, e) => ConfirmDownload(false);
-            btnCancel = ActionButton("Cancel", new Point(375, 12),
-                new Size(125, 36), false);
+            var rule = new Panel { Location = new Point(24, 375), Size = new Size(592, 1), BackColor = palette.Border };
+            Controls.Add(rule);
+            btnCancel = Button("Cancel", 26, 392, 105, 40, false, true);
             btnCancel.TabIndex = 6;
             btnCancel.Click += (s, e) => CancelDownload();
-            footer.Controls.Add(btnStart);
-            footer.Controls.Add(btnLater);
-            footer.Controls.Add(btnCancel);
-            Controls.Add(footer);
+            btnLater = Button("Save for later", 287, 392, 151, 40, false);
+            btnLater.TabIndex = 5;
+            btnLater.Click += (s, e) => ConfirmDownload(false);
+            btnStart = Button("↓  Start download", 448, 392, 168, 40, true);
+            btnStart.TabIndex = 4;
+            btnStart.Click += (s, e) => ConfirmDownload(true);
+            Controls.Add(btnCancel);
+            Controls.Add(btnLater);
+            Controls.Add(btnStart);
 
             AcceptButton = btnStart;
             CancelButton = btnCancel;
-            Shown += (s, e) => {
-                txtFileName.Focus();
-                txtFileName.SelectAll();
-            };
+            Shown += (s, e) => { txtFileName.Focus(); txtFileName.SelectAll(); };
             Resize += (s, e) => UpdateCornerRegion();
             FormClosed += (s, e) => tooltip.Dispose();
         }
 
+        private void NormalizeFilename()
+        {
+            string original = txtFileName.Text;
+            string normalized = WindowsSafeFileName.Normalize(original);
+            if (original != normalized) {
+                txtFileName.Text = normalized;
+                fileHint.Text = "Filename corrected for Windows compatibility.";
+            }
+        }
+
         private void ConfirmDownload(bool startNow)
         {
-            string name = FileName;
-            if (string.IsNullOrWhiteSpace(name) || name == "." || name == ".." ||
-                name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
-                name.IndexOf('\\') >= 0 || name.IndexOf('/') >= 0)
-            {
-                MessageBox.Show(this, "Enter a valid file name.", "Check file name",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                txtFileName.Focus();
+            NormalizeFilename();
+            if (string.IsNullOrWhiteSpace(SaveDirectory)) {
+                fileHint.Text = "Choose a destination folder before downloading.";
+                txtSaveDir.Focus();
                 return;
             }
-            try
-            {
-                if (string.IsNullOrWhiteSpace(SaveDirectory))
-                    throw new IOException("Please choose a destination folder.");
+            try {
                 Directory.CreateDirectory(SaveDirectory);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, "Cannot use that folder: " + ex.Message, "Save location",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            } catch (Exception ex) {
+                fileHint.Text = "Cannot save to that folder: " + ex.Message;
                 txtSaveDir.Focus();
                 return;
             }
@@ -5718,49 +5959,10 @@ namespace FastDownloader
             Close();
         }
 
-        private static TextBox Editor(Point p, Size s, string value)
-        {
-            return new TextBox {
-                Location = p, Size = s, Text = value ?? "",
-                BackColor = InputInk, ForeColor = Color.White,
-                BorderStyle = BorderStyle.FixedSingle,
-                Font = new Font("Segoe UI", 10F)
-            };
-        }
-
-        private static Label Caption(string text, int x, int y, int w)
-        {
-            return new Label {
-                Text = text, Location = new Point(x, y),
-                Size = new Size(w, 19), ForeColor = SecondaryInk,
-                Font = new Font("Segoe UI", 7.5F, FontStyle.Bold)
-            };
-        }
-
-        private static Button ActionButton(string title, Point p, Size s, bool primary)
-        {
-            Button button = new Button {
-                Text = title, Location = p, Size = s,
-                BackColor = primary ? AccentMint : Color.FromArgb(38, 49, 64),
-                ForeColor = primary ? BackgroundInk : Color.White,
-                Font = new Font("Segoe UI", 9F, primary ? FontStyle.Bold : FontStyle.Regular),
-                FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand
-            };
-            button.FlatAppearance.BorderSize = 0;
-            return button;
-        }
-
         private void UpdateCornerRegion()
         {
-            if (Width < 12 || Height < 12) return;
-            using (var path = new System.Drawing.Drawing2D.GraphicsPath())
-            {
-                const int diameter = 24;
-                path.AddArc(0, 0, diameter, diameter, 180, 90);
-                path.AddArc(Width - diameter, 0, diameter, diameter, 270, 90);
-                path.AddArc(Width - diameter, Height - diameter, diameter, diameter, 0, 90);
-                path.AddArc(0, Height - diameter, diameter, diameter, 90, 90);
-                path.CloseFigure();
+            if (Width < 24 || Height < 24) return;
+            using (var path = MakePath(new Rectangle(0, 0, Width, Height), 15)) {
                 Region old = Region;
                 Region = new Region(path);
                 if (old != null) old.Dispose();
