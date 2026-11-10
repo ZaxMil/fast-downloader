@@ -162,6 +162,33 @@ jobs:
           & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File './tests/updater_restart_rehearsal.ps1'
           if ($LASTEXITCODE -ne 0) { throw 'Live updater restart integration test failed' }
 
+      - name: Verify native download confirmation theme and filename handling
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'FastDownloader.exe').Path
+          $asm = [Reflection.Assembly]::LoadFile($exe)
+          $sanitize = $asm.GetType('FastDownloader.WindowsSafeFileName')
+          $theme = $asm.GetType('FastDownloader.NativeDialogTheme')
+          $dialog = $asm.GetType('FastDownloader.DownloadConfirmDialog')
+          if (-not $sanitize -or -not $theme -or -not $dialog) { throw 'Missing themed download confirmation components' }
+          $safe = $sanitize.GetMethod('Normalize')
+          $actual = $safe.Invoke($null, @('Never Leak API Keys: Try This 80ms Tool - YouTube.mp4'))
+          if ($actual -notmatch 'Never Leak API Keys - Try This 80ms Tool - YouTube\.mp4') { throw "Invalid video filename correction: $actual" }
+          foreach ($name in @('CON.txt','nul.mp4','AUX','LPT1.zip')) {
+            $fixed = [string]$safe.Invoke($null, @($name))
+            if (-not $fixed.StartsWith('_')) { throw "Reserved Windows basename not corrected: $name" }
+          }
+          $bad = [string]$safe.Invoke($null, @('Why? Here* is <a> | sample.mp4'))
+          if ($bad.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) { throw 'Unsafe filename was returned' }
+          foreach ($candidate in @('dark','light','zaxcore')) {
+            $normalized = [string]$theme.GetMethod('Normalize').Invoke($null, @($candidate))
+            if ($normalized -ne $candidate) { throw "Theme not supported: $candidate" }
+          }
+          $unknown = [string]$theme.GetMethod('Normalize').Invoke($null, @('invalid-theme'))
+          if ($unknown -ne 'dark') { throw 'Invalid theme did not fall back to dark' }
+          Write-Host "PASS: Filename/title sanitization, reserved names, theme palettes, native dialog compiled."
+
       - name: Verify live downloads disk metrics against Windows volume
         shell: pwsh
         run: |
