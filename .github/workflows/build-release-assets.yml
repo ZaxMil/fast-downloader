@@ -120,13 +120,13 @@ jobs:
             '-ExtensionZip',$ext,'-UiZip',$ui,
             '-StatusFile',$statusFile,'-SkipRestart'
           )
-          & powershell.exe @argsCommon '-ExpectedVersion' '0.1.14'
+          & powershell.exe @argsCommon '-ExpectedVersion' $appVersion
           if ($LASTEXITCODE -ne 0) { throw 'Updater staging test failed' }
           $status = Get-Content $statusFile -Raw | ConvertFrom-Json
           if ($status.status -ne 'success') { throw "Updater did not report success: $($status.message)" }
           if ((Get-FileHash $targetExe).Hash -ne (Get-FileHash $newExe).Hash) { throw 'Executable was not updated' }
           $manifest = Get-Content (Join-Path $appDir 'extension/manifest.json') -Raw | ConvertFrom-Json
-          if ($manifest.version -ne '0.1.14') { throw 'Extension package was not applied' }
+          if ($manifest.version -ne $appVersion) { throw 'Extension package was not applied' }
           if (-not (Test-Path (Join-Path $appDir 'ui/index.html'))) { throw 'UI package was not applied' }
 
           # Mismatched extension package must fail without overwriting an installed executable.
@@ -176,3 +176,83 @@ jobs:
             fast-downloader-ui.zip
           if-no-files-found: error
           retention-days: 14
+
+  # PRs keep their read-only permissions. A tested main branch build may publish.
+  publish:
+    name: Publish verified in-app update
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: fastdownloader-release-candidate
+          path: release
+
+      - name: Publish only a newer version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/.*CurrentAppVersion = "\([^"]*\)".*/\1/p' src/Program.cs | head -n 1)
+          EXT_VERSION=$(node -p "require('./extension/manifest.json').version")
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid application version"; exit 1
+          fi
+          if [ "$VERSION" != "$EXT_VERSION" ]; then
+            echo "App and extension version mismatch"; exit 1
+          fi
+          TAG="v$VERSION"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists: $TAG. Skipping."
+            exit 0
+          fi
+          LATEST=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName' 2>/dev/null || true)
+          if [ -n "$LATEST" ] && [ "$(printf '%s\n%s\n' "$TAG" "$LATEST" | sort -V | tail -n 1)" != "$TAG" ]; then
+            echo "Refusing downgrade from $LATEST to $TAG"
+            exit 1
+          fi
+          for asset in FastDownloader.exe FastDownloader-Setup.exe fast-downloader-extension.zip fast-downloader-ui.zip; do
+            test -s "release/$asset"
+          done
+          gh release create "$TAG" \
+            "release/FastDownloader.exe" \
+            "release/FastDownloader-Setup.exe" \
+            "release/fast-downloader-extension.zip" \
+            "release/fast-downloader-ui.zip" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "FastDownloader Pro $TAG" \
+            --notes "In-app update for existing installations: reliable video capture, simplified browser controls, redesigned transfer dialogs, Windows Downloads defaults, and lower idle CPU overhead."
+
+      - name: Check public update assets have SHA-256 digests
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/.*CurrentAppVersion = "\([^"]*\)".*/\1/p' src/Program.cs | head -n 1)
+          for attempt in 1 2 3 4 5; do
+            if gh api "repos/$GITHUB_REPOSITORY/releases/tags/v$VERSION" \
+              | jq -e '[
+                  .assets[] |
+                  select(
+                    .name == "FastDownloader.exe" or
+                    .name == "FastDownloader-Setup.exe" or
+                    .name == "fast-downloader-extension.zip" or
+                    .name == "fast-downloader-ui.zip"
+                  ) |
+                  select(.digest != null and (.digest | startswith("sha256:")))
+                ] | length == 4' >/dev/null; then
+              echo "All four assets have SHA-256 digests."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Release SHA-256 verification failed"
+          exit 1
