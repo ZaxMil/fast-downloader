@@ -62,5 +62,13 @@ assert.match(backend, /public int RunGeneration;/);
 assert.match(backend, /MonitorNewYtDownload\(taskInfo\)/);
 assert.match(backend, /generation != Interlocked\.CompareExchange\(ref taskInfo\.RunGeneration/);
 assert.match(backend, /--continue --newline/);
+assert.match(backend, /class DownloadConfirmDialog : Form/);
+assert.match(backend, /FormBorderStyle = FormBorderStyle.None;/);
+assert.match(backend, /ReserveAutomaticIntercept\(string url, string referer\)/);
+assert.match(backend, /AlreadyHasVideoTransfer\(pending\.url\)/);
+assert.match(backend, /pending\.automaticIntercept/);
+assert.match(backend, /userInitiated/);
+assert.match(backend, /!automatic && !MediaUrlHelper\.IsMediaPlatformUrl\(url\)/);
+assert.doesNotMatch(backend, /16x Multi-Thread Acceleration/);
 
 console.log("PASS: real byte progress, sequential polling, tray transfers, global notification mute/deduplication and watchdog");
