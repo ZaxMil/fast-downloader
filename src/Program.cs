@@ -6365,11 +6365,14 @@ namespace FastDownloader
 
     // Lightweight IDM-style live transfer flyout opened with a single tray click.
     // It uses only engine-reported bytes and speed, never a simulated timer percentage.
+    // Tray flyout follows the same compact visual language as the transfer dialog.
+    // Rows are reused during live updates, preventing 1-second full-list flicker.
     public class TrayDownloadsForm : Form
     {
         private sealed class TrayTransfer
         {
             public string Name;
+            public string StatusMessage;
             public long Completed;
             public long Total;
             public long Speed;
@@ -6377,57 +6380,95 @@ namespace FastDownloader
             public bool Failed;
         }
 
+        private sealed class TransferRow
+        {
+            public Panel Card;
+            public Label Name;
+            public Label Percent;
+            public Label Detail;
+            public ModernProgressBar Progress;
+        }
+
         private readonly EngineManager engine;
         private readonly Action openDashboard;
         private readonly FlowLayoutPanel list;
         private readonly Label headerLabel;
+        private readonly Label emptyLabel;
+        private readonly ToolTip tooltip;
         private readonly System.Windows.Forms.Timer refreshTimer;
+        private readonly List<TransferRow> rows = new List<TransferRow>();
         private int refreshInFlight;
+        private static readonly Color BackgroundColor = Color.FromArgb(20, 24, 32);
+        private static readonly Color CardColor = Color.FromArgb(30, 37, 48);
+        private static readonly Color TextMuted = Color.FromArgb(164, 181, 199);
 
         public TrayDownloadsForm(EngineManager engine, Action openDashboard)
         {
             this.engine = engine;
             this.openDashboard = openDashboard;
-            Width = 400;
-            Height = 386;
             FormBorderStyle = FormBorderStyle.FixedSingle;
             ShowInTaskbar = false;
             ControlBox = false;
             StartPosition = FormStartPosition.Manual;
+            AutoScaleMode = AutoScaleMode.Font;
             TopMost = true;
-            BackColor = Color.FromArgb(20, 24, 34);
+            ClientSize = new Size(358, 164);
+            BackColor = BackgroundColor;
             ForeColor = Color.White;
+            Font = new Font("Segoe UI", 9F);
 
-            var header = new Panel { Dock = DockStyle.Top, Height = 52,
-                BackColor = Color.FromArgb(28, 34, 47) };
-            headerLabel = new Label { Text = "Active Downloads", ForeColor = Color.White,
-                Location = new Point(14, 16), AutoSize = true,
-                Font = new Font("Segoe UI", 11F, FontStyle.Bold) };
-            var closeButton = new Button { Text = "×", Width = 32, Height = 28,
-                Location = new Point(349, 11), FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(38, 45, 58), ForeColor = Color.White };
-            closeButton.FlatAppearance.BorderSize = 0;
-            closeButton.Click += (s, e) => Hide();
+            Panel header = new Panel {
+                Dock = DockStyle.Top, Height = 45, BackColor = BackgroundColor
+            };
+            headerLabel = new Label {
+                Text = "Downloads", Location = new Point(13, 11),
+                Size = new Size(299, 22), AutoEllipsis = true,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Color.White
+            };
+            Button close = new Button {
+                Text = "×", Location = new Point(322, 9), Size = new Size(26, 26),
+                FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand,
+                BackColor = CardColor, ForeColor = TextMuted,
+                Font = new Font("Segoe UI", 11F)
+            };
+            close.FlatAppearance.BorderSize = 0;
+            close.Click += (s, e) => Hide();
             header.Controls.Add(headerLabel);
-            header.Controls.Add(closeButton);
+            header.Controls.Add(close);
 
-            var footer = new Panel { Dock = DockStyle.Bottom, Height = 49,
-                BackColor = Color.FromArgb(28, 34, 47) };
-            var openButton = new Button { Text = "Open Full Dashboard", Width = 355,
-                Height = 32, Location = new Point(17, 8), FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(16, 185, 129), ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9F, FontStyle.Bold) };
-            openButton.FlatAppearance.BorderSize = 0;
-            openButton.Click += (s, e) => { Hide(); openDashboard(); };
-            footer.Controls.Add(openButton);
+            Panel footer = new Panel {
+                Dock = DockStyle.Bottom, Height = 46,
+                BackColor = Color.FromArgb(25, 31, 41)
+            };
+            Button open = new Button {
+                Text = "Open dashboard", Location = new Point(12, 7),
+                Size = new Size(334, 31), FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(36, 199, 151),
+                ForeColor = Color.FromArgb(12, 36, 31),
+                Cursor = Cursors.Hand, Font = new Font("Segoe UI", 9F, FontStyle.Bold)
+            };
+            open.FlatAppearance.BorderSize = 0;
+            open.Click += (s, e) => { Hide(); this.openDashboard(); };
+            footer.Controls.Add(open);
 
-            list = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true,
+            list = new FlowLayoutPanel {
+                Dock = DockStyle.Fill, AutoScroll = true,
                 FlowDirection = FlowDirection.TopDown, WrapContents = false,
-                Padding = new Padding(10, 10, 10, 8), BackColor = BackColor };
+                Padding = new Padding(11, 7, 7, 5), BackColor = BackgroundColor
+            };
+            emptyLabel = new Label {
+                Text = "No active transfers\nCompleted and failed downloads remain in the dashboard.",
+                Width = 328, Height = 63, TextAlign = ContentAlignment.MiddleCenter,
+                ForeColor = TextMuted, Font = new Font("Segoe UI", 8.5F),
+                Margin = new Padding(0, 0, 0, 0)
+            };
+            list.Controls.Add(emptyLabel);
             Controls.Add(list);
             Controls.Add(footer);
             Controls.Add(header);
 
+            tooltip = new ToolTip { AutoPopDelay = 10000, InitialDelay = 300, ReshowDelay = 250 };
             refreshTimer = new System.Windows.Forms.Timer { Interval = 1200 };
             refreshTimer.Tick += (s, e) => RefreshTransfers();
             Deactivate += (s, e) => Hide();
@@ -6435,23 +6476,31 @@ namespace FastDownloader
                 if (Visible) { refreshTimer.Start(); RefreshTransfers(); }
                 else refreshTimer.Stop();
             };
-            FormClosed += (s, e) => refreshTimer.Dispose();
+            FormClosed += (s, e) => {
+                refreshTimer.Stop();
+                refreshTimer.Dispose();
+                tooltip.Dispose();
+            };
         }
 
         public void ShowNearTray()
         {
-            Rectangle area = Screen.FromPoint(Cursor.Position).WorkingArea;
-            Location = new Point(Math.Max(area.Left, area.Right - Width - 8),
-                Math.Max(area.Top, area.Bottom - Height - 8));
+            RepositionNearTray();
             Show();
             BringToFront();
+        }
+
+        private void RepositionNearTray()
+        {
+            Rectangle area = Screen.FromPoint(Cursor.Position).WorkingArea;
+            Location = new Point(Math.Max(area.Left + 4, area.Right - Width - 8),
+                Math.Max(area.Top + 4, area.Bottom - Height - 8));
         }
 
         private void RefreshTransfers()
         {
             if (Interlocked.Exchange(ref refreshInFlight, 1) != 0) return;
-            ThreadPool.QueueUserWorkItem(_ =>
-            {
+            ThreadPool.QueueUserWorkItem(_ => {
                 try
                 {
                     var snapshot = new List<TrayTransfer>();
@@ -6467,16 +6516,17 @@ namespace FastDownloader
                         if (task.ContainsKey("files") && (files = task["files"] as ArrayList) != null &&
                             files.Count > 0)
                         {
-                            var file = files[0] as Dictionary<string, object>;
-                            if (file != null && file.ContainsKey("path"))
+                            Dictionary<string, object> firstFile = files[0] as Dictionary<string, object>;
+                            if (firstFile != null && firstFile.ContainsKey("path"))
                             {
-                                var path = Convert.ToString(file["path"]);
+                                string path = Convert.ToString(firstFile["path"]);
                                 if (!string.IsNullOrEmpty(path)) filename = Path.GetFileName(path);
                             }
                         }
                         snapshot.Add(new TrayTransfer {
-                            Name = filename, Completed = downloaded, Total = total,
-                            Speed = speed, ExactProgress = total > 0 ? downloaded * 100.0 / total : -1
+                            Name = filename, Completed = downloaded, Total = total, Speed = speed,
+                            StatusMessage = speed <= 0 && downloaded <= 0 ? "Connecting to source" : "Receiving data",
+                            ExactProgress = total > 0 ? downloaded * 100.0 / total : -1
                         });
                     }
                     foreach (var task in engine.GetYtTasksSnapshot())
@@ -6487,6 +6537,10 @@ namespace FastDownloader
                             Name = task.Name, Completed = task.CompletedLength,
                             Total = task.TotalLength, Speed = task.DownloadSpeed,
                             Failed = task.Status == "error",
+                            StatusMessage = task.Status == "error" ? task.StatusMessage :
+                                (task.Status == "processing" ? "Finalizing video" :
+                                 (task.DownloadSpeed > 0 ? "Receiving data" :
+                                  (task.StatusMessage ?? "Connecting to source"))),
                             ExactProgress = task.TotalLength > 0 ?
                                 task.CompletedLength * 100.0 / task.TotalLength : task.ProgressExact
                         });
@@ -6506,67 +6560,91 @@ namespace FastDownloader
 
         private static long ParseLong(Dictionary<string, object> dict, string key)
         {
-            long result;
-            if (dict.ContainsKey(key) && dict[key] != null &&
-                long.TryParse(Convert.ToString(dict[key]), out result))
-                return result;
-            return 0;
+            long number;
+            return dict.ContainsKey(key) && dict[key] != null &&
+                long.TryParse(Convert.ToString(dict[key]), out number) ? number : 0;
+        }
+
+        private TransferRow CreateRow()
+        {
+            var row = new TransferRow();
+            row.Card = new Panel {
+                Width = 330, Height = 70, Margin = new Padding(0, 0, 0, 8),
+                BackColor = CardColor
+            };
+            row.Name = new Label {
+                Text = "Download", Location = new Point(11, 7),
+                Size = new Size(252, 22), AutoEllipsis = true,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                ForeColor = Color.White
+            };
+            row.Percent = new Label {
+                Text = "--", Location = new Point(262, 7),
+                Size = new Size(57, 22), TextAlign = ContentAlignment.MiddleRight,
+                ForeColor = Color.FromArgb(36, 199, 151),
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold)
+            };
+            row.Progress = new ModernProgressBar {
+                Location = new Point(11, 33), Size = new Size(308, 7)
+            };
+            row.Detail = new Label {
+                Location = new Point(11, 47), Size = new Size(308, 18),
+                AutoEllipsis = true, ForeColor = TextMuted,
+                Font = new Font("Segoe UI", 8F)
+            };
+            row.Card.Controls.Add(row.Name);
+            row.Card.Controls.Add(row.Percent);
+            row.Card.Controls.Add(row.Progress);
+            row.Card.Controls.Add(row.Detail);
+            rows.Add(row);
+            list.Controls.Add(row.Card);
+            return row;
         }
 
         private void RenderTransfers(List<TrayTransfer> transfers)
         {
-            int activeCount = transfers.Count(t => !t.Failed);
-            int failedCount = transfers.Count(t => t.Failed);
-            headerLabel.Text = activeCount + " Active Downloads" +
-                (failedCount > 0 ? " · " + failedCount + " Failed" : "");
+            int active = transfers.Count(t => !t.Failed);
+            int failed = transfers.Count(t => t.Failed);
+            headerLabel.Text = "Downloads  ·  " + active + " active" +
+                (failed > 0 ? "  /  " + failed + " failed" : "");
+            emptyLabel.Visible = transfers.Count == 0;
+            int visibleCount = Math.Min(20, transfers.Count);
             list.SuspendLayout();
             try
             {
-                while (list.Controls.Count > 0)
+                while (rows.Count < visibleCount) CreateRow();
+                for (int i = 0; i < rows.Count; i++)
                 {
-                    Control oldCard = list.Controls[0];
-                    list.Controls.RemoveAt(0);
-                    oldCard.Dispose();
-                }
-                if (transfers.Count == 0)
-                {
-                    list.Controls.Add(new Label {
-                        Text = "No active transfers\nNew downloads will appear here automatically.",
-                        Width = 345, Height = 70, TextAlign = ContentAlignment.MiddleCenter,
-                        ForeColor = Color.FromArgb(168, 180, 199),
-                        Font = new Font("Segoe UI", 9F)
-                    });
-                    return;
-                }
-                foreach (var transfer in transfers.Take(20))
-                {
-                    var card = new Panel { Width = 353, Height = 82,
-                        Margin = new Padding(0, 0, 0, 8),
-                        BackColor = Color.FromArgb(31, 38, 52) };
-                    var name = new Label { Text = transfer.Name ?? "Download",
-                        Width = 331, Height = 21, Location = new Point(10, 7),
-                        AutoEllipsis = true, ForeColor = Color.White,
-                        Font = new Font("Segoe UI", 9F, FontStyle.Bold) };
-                    double pct = Math.Max(0, Math.Min(100, transfer.ExactProgress));
-                    var bar = new ProgressBar { Location = new Point(10, 32),
-                        Width = 331, Height = 11, Minimum = 0, Maximum = 1000,
-                        Value = transfer.ExactProgress >= 0 ? (int)Math.Round(pct * 10) : 0,
-                        Style = ProgressBarStyle.Continuous };
-                    var label = new Label { Location = new Point(10, 50),
-                        Width = 331, Height = 20, ForeColor = Color.FromArgb(177, 193, 212),
-                        Font = new Font("Segoe UI", 8F),
-                        Text = (transfer.Failed ? "Failed · " : "") +
-                            (transfer.Total > 0 ? pct.ToString("0.0", CultureInfo.InvariantCulture) + "% · " : "") +
-                            UrlProbeHelper.FormatBytes(transfer.Completed) +
-                            (transfer.Total > 0 ? " / " + UrlProbeHelper.FormatBytes(transfer.Total) : " transferred") +
-                            " · " + UrlProbeHelper.FormatBytes(transfer.Speed) + "/s" };
-                    card.Controls.Add(name);
-                    card.Controls.Add(bar);
-                    card.Controls.Add(label);
-                    list.Controls.Add(card);
+                    TransferRow row = rows[i];
+                    row.Card.Visible = i < visibleCount;
+                    if (i >= visibleCount) continue;
+                    TrayTransfer task = transfers[i];
+                    double pct = Math.Max(0.0, Math.Min(100.0, task.ExactProgress));
+                    row.Name.Text = string.IsNullOrWhiteSpace(task.Name) ? "Download" : task.Name;
+                    row.Percent.Text = task.Failed ? "FAILED" :
+                        (task.Total > 0 ? pct.ToString("0.0", CultureInfo.InvariantCulture) + "%" : "--");
+                    row.Percent.ForeColor = task.Failed ?
+                        Color.FromArgb(248, 113, 113) : Color.FromArgb(36, 199, 151);
+                    row.Progress.Value = task.Total > 0 ? (int)Math.Round(pct) : 0;
+                    string amount = UrlProbeHelper.FormatBytes(task.Completed) +
+                        (task.Total > 0 ? " / " + UrlProbeHelper.FormatBytes(task.Total) : "");
+                    string speed = task.Failed ? "" : "  ·  " + UrlProbeHelper.FormatBytes(task.Speed) + "/s";
+                    row.Detail.Text = (task.Failed ?
+                        (!string.IsNullOrEmpty(task.StatusMessage) ? task.StatusMessage : "Download failed") :
+                        (amount + speed));
+                    tooltip.SetToolTip(row.Name, task.Name ?? "Download");
+                    tooltip.SetToolTip(row.Detail, task.Failed ? task.StatusMessage : task.StatusMessage + " · " + amount);
                 }
             }
             finally { list.ResumeLayout(); }
+
+            int bodyHeight = transfers.Count == 0 ? 73 : Math.Min(4, visibleCount) * 78 + 15;
+            int newHeight = 45 + 46 + bodyHeight;
+            if (ClientSize.Height != newHeight)
+            {
+                ClientSize = new Size(358, newHeight);
+                RepositionNearTray();
+            }
         }
     }
 
