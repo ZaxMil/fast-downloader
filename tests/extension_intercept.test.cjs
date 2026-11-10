@@ -7,7 +7,7 @@ const path = require("node:path");
 
 const SOURCE = fs.readFileSync(path.join(__dirname, "..", "extension", "background.js"), "utf8");
 
-async function scenario({ native = { ok: true, pending: { pendingId: "pen_123" } }, http = null, autoIntercept = true, id = 42, shouldIntercept = true } = {}) {
+async function scenario({ native = { ok: true, pending: { pendingId: "pen_123" } }, http = null, autoIntercept = true, id = 42, shouldIntercept = true, downloadState = "in_progress" } = {}) {
   const events = { suggested: 0, canceled: 0, erased: 0, searches: 0, posted: 0, native: 0 };
   const handlers = {};
   const event = name => ({ addListener: fn => { handlers[name] = fn; } });
@@ -38,7 +38,7 @@ async function scenario({ native = { ok: true, pending: { pendingId: "pen_123" }
     downloads: {
       onCreated: event("onCreated"),
       onDeterminingFilename: event("onDeterminingFilename"),
-      search: async () => { events.searches++; return [{ state: "in_progress", id }]; },
+      search: async () => { events.searches++; return [{ state: downloadState, id }]; },
       cancel: (_id, cb) => { events.canceled++; cb(); },
       erase: (_query, cb) => { events.erased++; cb(); }
     }
@@ -107,5 +107,23 @@ async function scenario({ native = { ok: true, pending: { pendingId: "pen_123" }
   events = await scenario({ id: 0 });
   assert.equal(events.canceled, 1, "Chrome download ID zero is valid");
 
-  console.log("PASS: 8 browser handoff and filename regression cases");
+  events = await scenario({ downloadState: "complete" });
+  assert.equal(events.native, 0, "Completed browser download must not create late confirmation");
+  assert.equal(events.posted, 0, "Completed browser download cannot reach HTTP intercept");
+  assert.equal(events.canceled, 0);
+
+  events = await scenario({ native: { ok: true, suppressed: true } });
+  assert.equal(events.native, 1);
+  assert.equal(events.posted, 0, "Suppressed native request must not retry through HTTP");
+  assert.equal(events.canceled, 0, "Suppressed duplicate must leave browser alone");
+
+  events = await scenario({
+    native: null, http: { ok: true, json: async () => ({ ok: true, suppressed: true }) }
+  });
+  assert.equal(events.posted, 1);
+  assert.equal(events.canceled, 0, "Suppressed HTTP request must leave browser alone");
+  assert.match(SOURCE, /autoIntercept: true/, "Automatic capture must declare itself");
+  assert.match(SOURCE, /userInitiated: true/, "Manual capture must permit deliberate re-download");
+
+  console.log("PASS: 11 browser handoff, dedupe and completed-download regression cases");
 })().catch(err => { console.error(err); process.exitCode = 1; });
