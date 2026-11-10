@@ -837,13 +837,9 @@
       anchor.style.position = 'relative';
     }
 
-    // Hover helpers
+    // No dropdown to obscure the player.
     anchor.addEventListener('mouseenter', () => anchor.classList.add('fd-parent-hover'));
-    anchor.addEventListener('mouseleave', () => {
-      anchor.classList.remove('fd-parent-hover');
-      container.classList.remove('fd-menu-open');
-      menu.classList.remove('fd-show');
-    });
+    anchor.addEventListener('mouseleave', () => anchor.classList.remove('fd-parent-hover'));
 
     const container = document.createElement('div');
     container.className = 'fd-download-btn-container';
@@ -871,126 +867,43 @@
       }, false);
     });
 
-    // Main Pill Wrap
+    // Minimal, functional player overlay; no misleading quality menu.
     const pill = document.createElement('div');
     pill.className = 'fd-download-pill';
+    pill.setAttribute('role', 'group');
+    pill.setAttribute('aria-label', isCanvas ? 'Canvas recorder' : 'Video download');
 
-    // Drag Handle Grip (vertical dots)
-    const dragHandle = document.createElement('div');
+    const dragHandle = document.createElement('span');
     dragHandle.className = 'fd-pill-drag';
-    dragHandle.title = 'Drag to move button';
-    dragHandle.innerHTML = `
-      <svg width="6" height="12" viewBox="0 0 6 12" fill="currentColor">
-        <circle cx="1.5" cy="2" r="1"/>
-        <circle cx="4.5" cy="2" r="1"/>
-        <circle cx="1.5" cy="6" r="1"/>
-        <circle cx="4.5" cy="6" r="1"/>
-        <circle cx="1.5" cy="10" r="1"/>
-        <circle cx="4.5" cy="10" r="1"/>
-      </svg>
-    `;
+    dragHandle.title = 'Drag to reposition';
+    dragHandle.innerHTML = '<svg viewBox="0 0 12 20" width="12" height="20" aria-hidden="true" fill="currentColor"><circle cx="3" cy="5" r="1.3"/><circle cx="9" cy="5" r="1.3"/><circle cx="3" cy="10" r="1.3"/><circle cx="9" cy="10" r="1.3"/><circle cx="3" cy="15" r="1.3"/><circle cx="9" cy="15" r="1.3"/></svg>';
 
-    // Left Action Button
     const mainAction = document.createElement('button');
+    mainAction.type = 'button';
     mainAction.className = 'fd-pill-action';
-    mainAction.title = isCanvas ? 'Record Canvas Animation' : 'Download with FastDownloader (32x Turbo)';
-    mainAction.innerHTML = `
-      ${fdLightningSvg}
-      <span class="fd-pill-text">${isCanvas ? 'Record' : 'Download'}</span>
-    `;
+    mainAction.title = isCanvas ? 'Record 15 seconds' : 'Download video with FastDownloader';
+    mainAction.setAttribute('aria-label', mainAction.title);
+    mainAction.innerHTML = fdLightningSvg + '<span class="fd-pill-text">' +
+      (isCanvas ? 'Record 15s' : 'Download') + '</span>';
 
-    // Dropdown Arrow Button
-    const arrowBtn = document.createElement('button');
-    arrowBtn.className = 'fd-pill-arrow';
-    arrowBtn.title = 'Select Quality / Options';
-    arrowBtn.innerHTML = `
-      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-        <polyline points="6 9 12 15 18 9"></polyline>
-      </svg>
-    `;
+    const audioBtn = document.createElement('button');
+    audioBtn.type = 'button';
+    audioBtn.className = 'fd-pill-audio';
+    audioBtn.textContent = isCanvas ? '30s' : 'Audio';
+    audioBtn.title = isCanvas ? 'Record for 30 seconds' : 'Download audio if the source supports it';
+    audioBtn.setAttribute('aria-label', audioBtn.title);
 
-    // Dismiss / Close Button
     const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
     closeBtn.className = 'fd-pill-close';
-    closeBtn.title = 'Hide on this video';
-    closeBtn.innerHTML = `
-      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-        <line x1="18" y1="6" x2="6" y2="18"></line>
-        <line x1="6" y1="6" x2="18" y2="18"></line>
-      </svg>
-    `;
+    closeBtn.title = 'Hide on this player';
+    closeBtn.setAttribute('aria-label', closeBtn.title);
+    closeBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6 18 18M18 6 6 18"/></svg>';
 
     pill.appendChild(dragHandle);
     pill.appendChild(mainAction);
-    pill.appendChild(arrowBtn);
+    pill.appendChild(audioBtn);
     pill.appendChild(closeBtn);
-
-    // Dropdown Quality Menu
-    const menu = document.createElement('div');
-    menu.className = 'fd-download-menu';
-
-    if (isCanvas) {
-      menu.innerHTML = `
-        <div class="fd-menu-header">
-          <span>Record Canvas</span>
-          <span class="fd-menu-status"><span class="fd-menu-status-dot"></span> WebGL</span>
-        </div>
-        <div class="fd-menu-item" data-action="rec-15">
-          <div class="fd-menu-item-left">🔴 <span>Record 15s</span></div>
-          <span class="fd-menu-badge fd-badge-best">WebM</span>
-        </div>
-        <div class="fd-menu-item" data-action="rec-30">
-          <div class="fd-menu-item-left">🔴 <span>Record 30s</span></div>
-          <span class="fd-menu-badge">WebM</span>
-        </div>
-        <div class="fd-menu-item" data-action="rec-60">
-          <div class="fd-menu-item-left">🔴 <span>Record 60s</span></div>
-          <span class="fd-menu-badge">WebM</span>
-        </div>
-        <div class="fd-menu-divider"></div>
-        <div class="fd-menu-item fd-menu-item-dim" data-action="dismiss-once">
-          <div class="fd-menu-item-left">✕ <span>Hide on this video</span></div>
-        </div>
-      `;
-    } else {
-      menu.innerHTML = `
-        <div class="fd-menu-header">
-          <span>⚡ FastDownloader Pro</span>
-          <span class="fd-menu-status"><span class="fd-menu-status-dot"></span> 32x Turbo</span>
-        </div>
-        <div class="fd-menu-item" data-quality="best">
-          <div class="fd-menu-item-left">🎬 <span>Best Quality</span></div>
-          <span class="fd-menu-badge fd-badge-best">4K / 1080p MP4</span>
-        </div>
-        <div class="fd-menu-item" data-quality="1080p">
-          <div class="fd-menu-item-left">🎬 <span>1080p Full HD</span></div>
-          <span class="fd-menu-badge">1080p MP4</span>
-        </div>
-        <div class="fd-menu-item" data-quality="720p">
-          <div class="fd-menu-item-left">🎬 <span>720p HD</span></div>
-          <span class="fd-menu-badge">720p MP4</span>
-        </div>
-        <div class="fd-menu-item" data-quality="480p">
-          <div class="fd-menu-item-left">🎬 <span>480p Standard</span></div>
-          <span class="fd-menu-badge">480p MP4</span>
-        </div>
-        <div class="fd-menu-item" data-quality="audio">
-          <div class="fd-menu-item-left">🎵 <span>Audio Only</span></div>
-          <span class="fd-menu-badge">320k MP3</span>
-        </div>
-        <div class="fd-menu-divider"></div>
-        <div class="fd-menu-item" data-action="copy">
-          <div class="fd-menu-item-left">📋 <span>Copy Video Link</span></div>
-        </div>
-        <div class="fd-menu-divider"></div>
-        <div class="fd-menu-item fd-menu-item-dim" data-action="dismiss-once">
-          <div class="fd-menu-item-left">✕ <span>Hide on this video</span></div>
-        </div>
-        <div class="fd-menu-item fd-menu-item-dim" data-action="disable-all">
-          <div class="fd-menu-item-left">🚫 <span>Turn off download buttons</span></div>
-        </div>
-      `;
-    }
 
     // DRAGGABLE IMPLEMENTATION (Pointer events with window capture)
     let isDragging = false;
