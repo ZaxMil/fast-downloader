@@ -2107,6 +2107,8 @@ namespace FastDownloader
                     {
                         Interlocked.Increment(ref yt.RunGeneration);
                         yt.Status = "downloading";
+                        yt.StatusMessage = "Retrying video download...";
+                        yt.LastOutputUtc = DateTime.UtcNow;
                         var taskRef = yt;
                         Thread t = new Thread(() =>
                         {
@@ -2167,6 +2169,8 @@ namespace FastDownloader
                     {
                         Interlocked.Increment(ref yt.RunGeneration);
                         yt.Status = "downloading";
+                        yt.StatusMessage = "Retrying video download...";
+                        yt.LastOutputUtc = DateTime.UtcNow;
                         var taskRef = yt;
                         Thread t = new Thread(() =>
                         {
@@ -2761,7 +2765,12 @@ namespace FastDownloader
 
                     taskInfo.DownloadSpeed = 0;
                     taskInfo.Eta = 0;
-                    try { string cFile = Path.Combine(AppDir, "cookie_" + taskInfo.Gid + ".txt"); if (File.Exists(cFile)) File.Delete(cFile); } catch { }
+                    // Keep the temporary cookie file available for a user-initiated
+                    // retry after failure. Clean up after successful completion.
+                    if (p.ExitCode == 0)
+                    {
+                        try { string cFile = Path.Combine(AppDir, "cookie_" + taskInfo.Gid + ".txt"); if (File.Exists(cFile)) File.Delete(cFile); } catch { }
+                    }
                     if (p.ExitCode == 0)
                     {
                         taskInfo.StatusMessage = "Completed";
@@ -6015,7 +6024,7 @@ namespace FastDownloader
 
             lblResume = new Label
             {
-                Text = "🔄 Resume: Supported",
+                Text = "Resume: source-dependent",
                 Location = new Point(280, 10),
                 AutoSize = true,
                 Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
@@ -6220,7 +6229,8 @@ namespace FastDownloader
             string totalFormatted = task.TotalLength > 0 ? UrlProbeHelper.FormatBytes(task.TotalLength) : "Unknown";
             lblSizeInfo.Text = "📦 Downloaded: " + UrlProbeHelper.FormatBytes(task.CompletedLength) + " of " + totalFormatted;
             lblSpeed.Text = "🚀 Transfer rate: " + UrlProbeHelper.FormatBytes(task.DownloadSpeed) + "/s";
-            lblTimeLeft.Text = "⏱ Time left: " + (task.Eta > 0 ? UrlProbeHelper.FormatEta(task.Eta) : (task.Progress >= 100 ? "00:00" : "Calculating..."));
+            lblTimeLeft.Text = "⏱ Time left: " + (task.Eta > 0 ? UrlProbeHelper.FormatEta(task.Eta) :
+                (task.Progress >= 100 ? "00:00" : (task.CompletedLength == 0 ? "Waiting for data..." : "Calculating...")));
 
             if (task.Status == "paused" || task.Status == "waiting")
             {
