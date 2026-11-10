@@ -1074,6 +1074,8 @@ namespace FastDownloader
         public int Progress { get; set; }
         public double ProgressExact { get; set; }
         public string Status { get; set; } // "downloading", "paused", "completed", "error"
+        public string StatusMessage { get; set; }
+        public DateTime LastOutputUtc { get; set; }
         public long DownloadSpeed { get; set; }
         public long TotalLength { get; set; }
         public long CompletedLength { get; set; }
@@ -2308,10 +2310,8 @@ namespace FastDownloader
 
             string extraHeaders = "";
             bool isYouTube = url.Contains("youtube.com") || url.Contains("youtu.be");
-            if (isYouTube)
-            {
-                extraHeaders += " --extractor-args \"youtube:player_client=ios,android,mweb,web\"";
-            }
+            // Allow yt-dlp to use its supported default clients first. Forcing
+            // four clients creates extra requests and delays stream selection.
 
             if (!string.IsNullOrEmpty(cookies))
             {
@@ -2374,6 +2374,8 @@ namespace FastDownloader
                 Queue = queue,
                 Progress = 0,
                 Status = startNow ? "downloading" : "paused",
+                StatusMessage = startNow ? "Connecting to video source..." : "Queued",
+                LastOutputUtc = DateTime.UtcNow,
                 YtExe = ytExe,
                 FfmpegDir = ffmpegDir,
                 FormatArg = formatArg,
@@ -2402,31 +2404,32 @@ namespace FastDownloader
             return gid;
         }
 
-        // Restart one truly idle initial extractor process (for signed Facebook links
-        // and other streams) while preserving yt-dlp .part files.
+        // Retry a truly silent initial extractor only once. Do not interrupt
+        // active video metadata extraction, even when total bytes are unknown.
         private void MonitorNewYtDownload(YtTaskInfo task)
         {
             ThreadPool.QueueUserWorkItem(_ =>
             {
-                Thread.Sleep(25000);
-                for (int i = 0; i < 2; i++)
-                {
-                    if (task.Status != "downloading" || task.CompletedLength > 0 ||
-                        task.ProgressExact > 0 || task.DownloadSpeed > 0) return;
-                    Thread.Sleep(5000);
-                }
+                Thread.Sleep(22000);
+                if (task.Status != "downloading" || task.CompletedLength > 0 ||
+                    task.ProgressExact > 0 || task.DownloadSpeed > 0 ||
+                    (DateTime.UtcNow - task.LastOutputUtc).TotalSeconds < 16) return;
                 lock (ytLock)
                 {
                     if (!YtTasks.Contains(task) || task.Status != "downloading" ||
                         task.CompletedLength > 0 || task.ProgressExact > 0 ||
-                        task.DownloadSpeed > 0) return;
-                    // Invalidate stale output/exit notifications from the old process.
+                        task.DownloadSpeed > 0 ||
+                        (DateTime.UtcNow - task.LastOutputUtc).TotalSeconds < 16) return;
+                    task.StatusMessage = "Connection stalled; retrying once...";
                     Interlocked.Increment(ref task.RunGeneration);
                     KillProcessTree(task.Process);
+                    string retryArgs = task.ExtraHeaders ?? "";
+                    if (task.IsYouTube)
+                        retryArgs += " --extractor-args \"youtube:player_client=android,web\"";
                     var retry = new Thread(() =>
                         RunYtDlpProcess(task, task.YtExe, task.FfmpegDir,
-                            task.FormatArg, task.ExtraHeaders, task.SaveDir,
-                            task.Url, task.IsYouTube, true));
+                            task.FormatArg, retryArgs, task.SaveDir,
+                            task.Url, task.IsYouTube, false));
                     retry.IsBackground = true;
                     retry.Start();
                 }
@@ -2493,6 +2496,12 @@ namespace FastDownloader
         {
             if (taskInfo == null || taskInfo.Status == "paused" || taskInfo.Status == "removed") return;
             if (string.IsNullOrEmpty(line)) return;
+            taskInfo.LastOutputUtc = DateTime.UtcNow;
+            if (line.StartsWith("[youtube") || line.StartsWith("[facebook") ||
+                line.StartsWith("[info]") || line.StartsWith("[generic]"))
+                taskInfo.StatusMessage = "Preparing video stream...";
+            else if (line.StartsWith("[download]"))
+                taskInfo.StatusMessage = "Receiving video data...";
 
             if (line.Contains("Destination: "))
             {
@@ -2603,6 +2612,23 @@ namespace FastDownloader
             }
         }
 
+        private static string GetDownloadFailureMessage(string errorLog, int exitCode)
+        {
+            string message = errorLog ?? "";
+            if (message.IndexOf("Sign in", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                message.IndexOf("login required", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "Source requires sign-in. Check access in browser.";
+            if (message.IndexOf("HTTP Error 403", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "Source denied access (HTTP 403). Refresh link.";
+            if (message.IndexOf("HTTP Error 404", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "Video not found (HTTP 404).";
+            if (message.IndexOf("Requested format is not available", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "Selected quality unavailable.";
+            if (message.IndexOf("timed out", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "Source connection timed out. Retry.";
+            return "Video extractor failed (code " + exitCode + "). Check log.";
+        }
+
         private void RunYtDlpProcess(YtTaskInfo taskInfo, string ytExe, string ffmpegDir, string formatArg, string extraHeaders, string saveDir, string url, bool isYouTube, bool allowRetry)
         {
             int generation = Interlocked.Increment(ref taskInfo.RunGeneration);
@@ -2631,7 +2657,7 @@ namespace FastDownloader
                     FileName = ytExe,
                     // yt-dlp's native HTTP downloader is more reliable for Facebook's signed media links.
                     // Nested aria2 handoff could stall at zero until manually restarted.
-                    Arguments = string.Format("--encoding utf-8 --continue --newline --retries 5 --fragment-retries 5 --socket-timeout 20 --ffmpeg-location \"{0}\" {1}{2} -o \"{3}\" --windows-filenames --downloader dash:native --downloader m3u8:native --downloader http:native --downloader https:native -P \"{4}\" -- \"{5}\"",
+                    Arguments = string.Format("--encoding utf-8 --continue --newline --retries 3 --fragment-retries 3 --socket-timeout 12 --concurrent-fragments 4 --ffmpeg-location \"{0}\" {1}{2} -o \"{3}\" --windows-filenames --downloader dash:native --downloader m3u8:native --downloader http:native --downloader https:native -P \"{4}\" -- \"{5}\"",
                         ffmpegDir, formatArg, extraHeaders, safeOutputTemplate, safeSaveDir, safeUrl),
                     CreateNoWindow = true,
                     UseShellExecute = false,
@@ -2654,7 +2680,8 @@ namespace FastDownloader
                     {
                         if (!string.IsNullOrEmpty(e.Data))
                         {
-                            errLog.AppendLine(e.Data);
+                            lock (errLog) errLog.AppendLine(e.Data);
+                            taskInfo.LastOutputUtc = DateTime.UtcNow;
                         }
                     };
                     p.BeginErrorReadLine();
@@ -2698,7 +2725,8 @@ namespace FastDownloader
                     if (generation != Interlocked.CompareExchange(ref taskInfo.RunGeneration, 0, 0))
                         return;
 
-                    string allErrors = errLog.ToString();
+                    string allErrors;
+                    lock (errLog) allErrors = errLog.ToString();
                     if (!string.IsNullOrEmpty(allErrors))
                     {
                         try { File.WriteAllText(Path.Combine(AppDir, "ytdlp_last_error.log"), allErrors); } catch { }
@@ -2720,7 +2748,8 @@ namespace FastDownloader
                             allErrors.Contains("Skipping client") ||
                             allErrors.Contains("Only images are available"))
                         {
-                            string retryHeaders = " --extractor-args \"youtube:player_client=ios,android,mweb,web\"";
+                            string retryHeaders = extraHeaders +
+                                " --extractor-args \"youtube:player_client=android,web\"";
                             RunYtDlpProcess(taskInfo, ytExe, ffmpegDir, formatArg, retryHeaders, saveDir, url, isYouTube, false);
                             return;
                         }
@@ -2731,6 +2760,7 @@ namespace FastDownloader
                     try { string cFile = Path.Combine(AppDir, "cookie_" + taskInfo.Gid + ".txt"); if (File.Exists(cFile)) File.Delete(cFile); } catch { }
                     if (p.ExitCode == 0)
                     {
+                        taskInfo.StatusMessage = "Completed";
                         taskInfo.Progress = 100;
                         taskInfo.ProgressExact = 100;
                         taskInfo.Status = "completed";
@@ -2739,6 +2769,7 @@ namespace FastDownloader
                     else
                     {
                         taskInfo.Status = "error";
+                        taskInfo.StatusMessage = GetDownloadFailureMessage(allErrors, p.ExitCode);
                     }
                     if (p.ExitCode == 0)
                     {
@@ -2767,7 +2798,10 @@ namespace FastDownloader
             {
                 try { File.WriteAllText(Path.Combine(AppDir, "ytdlp_last_error.log"), ex.ToString() + "\n" + errLog.ToString()); } catch { }
                 if (generation == Interlocked.CompareExchange(ref taskInfo.RunGeneration, 0, 0))
+                {
                     taskInfo.Status = "error";
+                    taskInfo.StatusMessage = "Video downloader could not start. Check log.";
+                }
             }
         }
     }
