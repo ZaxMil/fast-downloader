@@ -5415,397 +5415,320 @@ namespace FastDownloader
         }
     }
 
+    // Minimal pre-download sheet: only the decisions the user actually needs.
+    // Unlike the legacy 560x395 window there is no fake turbo/resume marketing.
     public class DownloadConfirmDialog : Form
     {
         public bool Confirmed { get; private set; }
         public bool StartNow { get; private set; }
-        public string FileName { get { return txtFileName != null ? txtFileName.Text.Trim() : ""; } }
-        public string SaveDirectory { get { return txtSaveDir != null ? txtSaveDir.Text.Trim() : ""; } }
-        public string Category { get { return cmbCategory != null && cmbCategory.SelectedItem != null ? cmbCategory.SelectedItem.ToString() : "General"; } }
+        public string FileName { get { return txtFileName.Text.Trim(); } }
+        public string SaveDirectory { get { return txtSaveDir.Text.Trim(); } }
+        public string Category {
+            get { return cmbCategory.SelectedItem != null ?
+                cmbCategory.SelectedItem.ToString() : "General"; }
+        }
 
-        private TextBox txtUrl;
-        private ComboBox cmbCategory;
-        private TextBox txtFileName;
-        private TextBox txtSaveDir;
-        private Button btnBrowse;
-        private Button btnStart;
-        private Button btnLater;
-        private Button btnCancel;
+        private readonly TextBox txtFileName;
+        private readonly TextBox txtSaveDir;
+        private readonly ComboBox cmbCategory;
+        private readonly Button btnStart;
+        private readonly Button btnLater;
+        private readonly Button btnCancel;
+        private readonly ToolTip tooltip;
+        private readonly string baseDownloadsFolder;
+        private Point dragScreenStart;
+        private Point dragWindowStart;
+        private bool dragging;
+
+        private static readonly Color BackgroundInk = Color.FromArgb(16, 21, 30);
+        private static readonly Color InputInk = Color.FromArgb(30, 38, 51);
+        private static readonly Color SecondaryInk = Color.FromArgb(160, 178, 198);
+        private static readonly Color AccentMint = Color.FromArgb(53, 216, 169);
 
         protected override CreateParams CreateParams
         {
             get
             {
-                CreateParams cp = base.CreateParams;
-                cp.ExStyle |= 0x00000008; // WS_EX_TOPMOST
-                return cp;
+                CreateParams p = base.CreateParams;
+                p.ExStyle |= 0x00000008;
+                p.ClassStyle |= 0x00020000;
+                return p;
             }
         }
 
         public DownloadConfirmDialog(PendingDownloadInfo pending, string baseDownloadsFolder)
         {
+            this.baseDownloadsFolder = baseDownloadsFolder;
             Confirmed = false;
             StartNow = true;
+            Text = "FastDownloader - New download";
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = true;
+            StartPosition = FormStartPosition.CenterScreen;
+            TopMost = true;
+            AutoScaleMode = AutoScaleMode.Font;
+            ClientSize = new Size(520, 326);
+            BackColor = BackgroundInk;
+            ForeColor = Color.White;
+            Font = new Font("Segoe UI", 9F);
+            tooltip = new ToolTip { AutoPopDelay = 15000, InitialDelay = 250, ReshowDelay = 150 };
+            UpdateCornerRegion();
 
-            this.Text = "Download File Info - FastDownloader";
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
-            this.MinimizeBox = false;
-            this.ShowInTaskbar = true;
-            this.StartPosition = FormStartPosition.CenterScreen;
-            this.TopMost = true;
-            this.ClientSize = new Size(560, 395);
-            this.BackColor = Color.FromArgb(24, 25, 29);
-            this.ForeColor = Color.FromArgb(235, 238, 245);
-            this.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
+            string sourceUrl = pending != null ? pending.url ?? "" : "";
+            string pendingCat = pending != null && !string.IsNullOrWhiteSpace(pending.category) ?
+                pending.category : "General";
+            if (pendingCat == "General" && MediaUrlHelper.IsMediaPlatformUrl(sourceUrl))
+                pendingCat = "Video";
 
+            Panel header = new Panel {
+                Location = new Point(0, 0), Size = new Size(520, 66),
+                BackColor = Color.FromArgb(21, 28, 39)
+            };
+            Label heading = new Label {
+                Text = "New download", Location = new Point(20, 10),
+                Size = new Size(410, 27),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 12.5F, FontStyle.Bold)
+            };
+            Label subtitle = new Label {
+                Text = "Save this file to your computer",
+                Location = new Point(21, 37), Size = new Size(425, 20),
+                ForeColor = SecondaryInk, Font = new Font("Segoe UI", 8.5F)
+            };
+            Button exit = new Button {
+                Text = "×", Location = new Point(477, 14), Size = new Size(28, 28),
+                FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(34, 43, 57),
+                ForeColor = SecondaryInk, Cursor = Cursors.Hand,
+                Font = new Font("Segoe UI", 12F)
+            };
+            exit.FlatAppearance.BorderSize = 0;
+            exit.Click += (s, e) => CancelDownload();
+            header.Controls.Add(heading);
+            header.Controls.Add(subtitle);
+            header.Controls.Add(exit);
+            Controls.Add(header);
+            foreach (Control c in new Control[] { header, heading, subtitle })
+            {
+                c.MouseDown += (s, e) => {
+                    dragging = e.Button == MouseButtons.Left;
+                    if (dragging) {
+                        dragScreenStart = Cursor.Position;
+                        dragWindowStart = Location;
+                    }
+                };
+                c.MouseMove += (s, e) => {
+                    if (!dragging || e.Button != MouseButtons.Left) return;
+                    Point p = Cursor.Position;
+                    Location = new Point(dragWindowStart.X + p.X - dragScreenStart.X,
+                        dragWindowStart.Y + p.Y - dragScreenStart.Y);
+                };
+                c.MouseUp += (s, e) => dragging = false;
+            }
+
+            Controls.Add(Caption("FILE NAME", 20, 77, 465));
+            string initialName = pending != null ? pending.filename : "";
+            string previousName = (initialName ?? "").ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(initialName) || previousName == "browser download" ||
+                previousName == "download" || previousName == "main" ||
+                previousName.Contains("unknown_video") || previousName == "facebook")
+            {
+                string candidate = pending != null ? pending.title ?? "" : "";
+                string lower = candidate.ToLowerInvariant();
+                initialName = !string.IsNullOrWhiteSpace(candidate) && lower != "browser download" &&
+                    lower != "download" && lower != "main" && !lower.Contains("unknown_video") ?
+                    candidate : "Download_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            }
+            if (string.IsNullOrEmpty(Path.GetExtension(initialName)))
+            {
+                if (pendingCat == "Video") initialName += ".mp4";
+                else if (pendingCat == "Music") initialName += ".mp3";
+            }
+            txtFileName = Editor(new Point(20, 99), new Size(480, 28), initialName);
+            if (Regex.IsMatch(initialName, @"[\u0600-\u06FF]"))
+                txtFileName.RightToLeft = RightToLeft.Yes;
+            txtFileName.TabIndex = 0;
+            Controls.Add(txtFileName);
+
+            Controls.Add(Caption("SAVE TO", 20, 141, 470));
+            // Category never silently changes the user's chosen download directory.
+            txtSaveDir = Editor(new Point(20, 162), new Size(370, 28),
+                baseDownloadsFolder ?? "");
+            txtSaveDir.TabIndex = 1;
+            Controls.Add(txtSaveDir);
+            Button browse = ActionButton("Browse", new Point(402, 161), new Size(98, 30), false);
+            browse.TabIndex = 2;
+            browse.Click += (s, e) => {
+                using (var dialog = new FolderBrowserDialog())
+                {
+                    dialog.Description = "Choose a folder for this download";
+                    dialog.SelectedPath = Directory.Exists(txtSaveDir.Text) ?
+                        txtSaveDir.Text : this.baseDownloadsFolder;
+                    dialog.ShowNewFolderButton = true;
+                    if (dialog.ShowDialog(this) == DialogResult.OK)
+                        txtSaveDir.Text = dialog.SelectedPath;
+                }
+            };
+            Controls.Add(browse);
+
+            Controls.Add(Caption("CATEGORY", 20, 204, 157));
+            cmbCategory = new ComboBox {
+                Location = new Point(20, 225), Size = new Size(168, 28),
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor = InputInk, ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9F),
+                TabIndex = 3
+            };
+            cmbCategory.Items.AddRange(new object[] {
+                "General", "Compressed", "Programs", "Video", "Music", "Documents"
+            });
+            int ci = cmbCategory.Items.IndexOf(pendingCat);
+            cmbCategory.SelectedIndex = ci < 0 ? 0 : ci;
+            Controls.Add(cmbCategory);
+
+            Controls.Add(Caption("SOURCE", 207, 204, 286));
+            string sourceLabel = "Direct link";
             try
             {
-                string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
-                if (File.Exists(icoPath)) this.Icon = new Icon(icoPath);
+                Uri uri = new Uri(sourceUrl);
+                sourceLabel = uri.Host.StartsWith("www.") ? uri.Host.Substring(4) : uri.Host;
             }
             catch { }
-
-            // 1. Header Panel
-            Panel headerPanel = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 54,
-                BackColor = Color.FromArgb(18, 19, 22)
-            };
-
-            Label lblHeaderTitle = new Label
-            {
-                Text = "⚡ Download File Info",
-                Font = new Font("Segoe UI", 11F, FontStyle.Bold),
-                ForeColor = Color.White,
-                Location = new Point(16, 8),
-                AutoSize = true
-            };
-
-            Label lblHeaderSub = new Label
-            {
-                Text = "Confirm destination folder and filename before transfer starts",
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(150, 155, 168),
-                Location = new Point(17, 30),
-                AutoSize = true
-            };
-
-            Panel headerBorder = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 1,
-                BackColor = Color.FromArgb(40, 42, 50)
-            };
-
-            headerPanel.Controls.Add(lblHeaderTitle);
-            headerPanel.Controls.Add(lblHeaderSub);
-            headerPanel.Controls.Add(headerBorder);
-            this.Controls.Add(headerPanel);
-
-            // 2. Main Body Content
-            Panel bodyPanel = new Panel
-            {
-                Location = new Point(16, 64),
-                Size = new Size(528, 260)
-            };
-
-            // URL Row
-            Label lblUrl = new Label
-            {
-                Text = "URL:",
-                Location = new Point(0, 4),
-                Size = new Size(80, 20),
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(160, 165, 175)
-            };
-            txtUrl = new TextBox
-            {
-                Location = new Point(85, 2),
-                Size = new Size(440, 23),
-                ReadOnly = true,
-                BackColor = Color.FromArgb(32, 34, 40),
-                ForeColor = Color.FromArgb(200, 205, 215),
-                BorderStyle = BorderStyle.FixedSingle,
-                Text = pending != null && !string.IsNullOrEmpty(pending.url) ? pending.url : ""
-            };
-            bodyPanel.Controls.Add(lblUrl);
-            bodyPanel.Controls.Add(txtUrl);
-
-            // Category Row
-            Label lblCat = new Label
-            {
-                Text = "Category:",
-                Location = new Point(0, 36),
-                Size = new Size(80, 20),
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(160, 165, 175)
-            };
-            cmbCategory = new ComboBox
-            {
-                Location = new Point(85, 33),
-                Size = new Size(200, 23),
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                BackColor = Color.FromArgb(32, 34, 40),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat
-            };
-            cmbCategory.Items.AddRange(new object[] { "General", "Compressed", "Programs", "Video", "Music", "Documents" });
-            string pendingCat = pending != null && !string.IsNullOrEmpty(pending.category) ? pending.category : "General";
-            int catIdx = cmbCategory.Items.IndexOf(pendingCat);
-            cmbCategory.SelectedIndex = catIdx >= 0 ? catIdx : 0;
-            bodyPanel.Controls.Add(lblCat);
-            bodyPanel.Controls.Add(cmbCategory);
-
-            // File Name Row
-            Label lblFileName = new Label
-            {
-                Text = "File Name:",
-                Location = new Point(0, 68),
-                Size = new Size(80, 20),
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(160, 165, 175)
-            };
-
-            string initName = pending != null ? pending.filename : "download";
-            string lowerName = (initName ?? "").ToLowerInvariant();
-            if (string.IsNullOrEmpty(initName) || lowerName == "browser download" || lowerName == "main" || lowerName.Contains("unknown_video") || lowerName == "facebook")
-            {
-                string pTitle = pending != null && !string.IsNullOrEmpty(pending.title) ? pending.title : "";
-                string pTitleLower = pTitle.ToLowerInvariant();
-                if (!string.IsNullOrEmpty(pTitle) && pTitleLower != "browser download" && pTitleLower != "main" && !pTitleLower.Contains("unknown_video") && pTitleLower != "facebook")
-                {
-                    initName = pTitle;
-                }
-                else
-                {
-                    initName = "Video_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                }
-            }
-            if (string.IsNullOrEmpty(Path.GetExtension(initName)))
-            {
-                if (pendingCat == "Video" || (pending != null && pending.type == "video")) initName += ".mp4";
-                else if (pendingCat == "Music" || (pending != null && pending.type == "audio")) initName += ".mp3";
-                else if (pendingCat == "Programs") initName += ".exe";
-                else if (pendingCat == "Compressed") initName += ".zip";
-                else if (pendingCat == "Documents") initName += ".pdf";
-            }
-
-            txtFileName = new TextBox
-            {
-                Location = new Point(85, 65),
-                Size = new Size(440, 23),
-                BackColor = Color.FromArgb(32, 34, 40),
-                ForeColor = Color.White,
-                BorderStyle = BorderStyle.FixedSingle,
-                Text = initName
-            };
-            bodyPanel.Controls.Add(lblFileName);
-            bodyPanel.Controls.Add(txtFileName);
-
-            // Save To Row
-            Label lblSaveTo = new Label
-            {
-                Text = "Save To:",
-                Location = new Point(0, 100),
-                Size = new Size(80, 20),
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(160, 165, 175)
-            };
-
-            string initDir = baseDownloadsFolder;
-            if (pendingCat != "General" && pendingCat != "Default" && !string.IsNullOrEmpty(pendingCat))
-            {
-                initDir = Path.Combine(baseDownloadsFolder, pendingCat);
-            }
-
-            txtSaveDir = new TextBox
-            {
-                Location = new Point(85, 97),
-                Size = new Size(345, 23),
-                BackColor = Color.FromArgb(32, 34, 40),
-                ForeColor = Color.White,
-                BorderStyle = BorderStyle.FixedSingle,
-                Text = initDir
-            };
-
-            btnBrowse = new Button
-            {
-                Location = new Point(438, 96),
-                Size = new Size(87, 25),
-                Text = "Browse...",
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(42, 45, 55),
-                ForeColor = Color.White,
-                Cursor = Cursors.Hand
-            };
-            btnBrowse.FlatAppearance.BorderColor = Color.FromArgb(60, 64, 76);
-            btnBrowse.Click += (s, e) =>
-            {
-                using (var fbd = new FolderBrowserDialog())
-                {
-                    fbd.Description = "Select Destination Folder for Download";
-                    fbd.SelectedPath = Directory.Exists(txtSaveDir.Text) ? txtSaveDir.Text : baseDownloadsFolder;
-                    fbd.ShowNewFolderButton = true;
-                    if (fbd.ShowDialog(this) == DialogResult.OK)
-                    {
-                        txtSaveDir.Text = fbd.SelectedPath;
-                    }
-                }
-            };
-
-            cmbCategory.SelectedIndexChanged += (s, e) =>
-            {
-                string selCat = cmbCategory.SelectedItem != null ? cmbCategory.SelectedItem.ToString() : "General";
-                if (selCat == "General" || selCat == "Default")
-                {
-                    txtSaveDir.Text = baseDownloadsFolder;
-                }
-                else
-                {
-                    txtSaveDir.Text = Path.Combine(baseDownloadsFolder, selCat);
-                }
-            };
-
-            bodyPanel.Controls.Add(lblSaveTo);
-            bodyPanel.Controls.Add(txtSaveDir);
-            bodyPanel.Controls.Add(btnBrowse);
-
-            // Info Card Box
-            Panel infoCard = new Panel
-            {
-                Location = new Point(0, 134),
-                Size = new Size(525, 90),
-                BackColor = Color.FromArgb(18, 19, 22),
-                BorderStyle = BorderStyle.FixedSingle
-            };
-
-            string sz = pending != null && !string.IsNullOrEmpty(pending.sizeFormatted) ? pending.sizeFormatted : "Direct Stream";
-            Label lblSize = new Label
-            {
-                Text = "📦 File Size:  " + sz,
-                Location = new Point(14, 10),
-                AutoSize = true,
+            Label source = new Label {
+                Text = sourceLabel, Location = new Point(207, 226),
+                Size = new Size(285, 26), AutoEllipsis = true,
+                ForeColor = Color.FromArgb(211, 225, 240),
                 Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(220, 225, 235)
-            };
-
-            Label lblTurbo = new Label
-            {
-                Text = "⚡ Turbo Engine:  16x Multi-Thread Acceleration (aria2 / yt-dlp)",
-                Location = new Point(14, 34),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(16, 185, 129)
-            };
-
-            bool resumable = pending != null && pending.resumable;
-            Label lblResume = new Label
-            {
-                Text = "🔄 Resume Support:  " + (resumable ? "Yes (Byte-Range Chunking Supported)" : "Direct Web Transfer"),
-                Location = new Point(14, 58),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(6, 182, 212)
-            };
-
-            infoCard.Controls.Add(lblSize);
-            infoCard.Controls.Add(lblTurbo);
-            infoCard.Controls.Add(lblResume);
-            bodyPanel.Controls.Add(infoCard);
-
-            this.Controls.Add(bodyPanel);
-
-            // 3. Bottom Action Buttons Bar
-            Panel bottomPanel = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 56,
-                BackColor = Color.FromArgb(18, 19, 22)
-            };
-
-            Panel bottomBorder = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 1,
-                BackColor = Color.FromArgb(40, 42, 50)
-            };
-            bottomPanel.Controls.Add(bottomBorder);
-
-            btnStart = new Button
-            {
-                Text = "⚡ Start Download",
-                Location = new Point(125, 12),
-                Size = new Size(145, 34),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(16, 185, 129),
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleLeft,
                 Cursor = Cursors.Hand
             };
-            btnStart.FlatAppearance.BorderSize = 0;
-            btnStart.Click += (s, e) =>
-            {
-                Confirmed = true;
-                StartNow = true;
-                this.DialogResult = DialogResult.OK;
-                this.Close();
+            tooltip.SetToolTip(source, sourceUrl);
+            source.Click += (s, e) => {
+                if (!string.IsNullOrEmpty(sourceUrl))
+                {
+                    try { Clipboard.SetText(sourceUrl); tooltip.SetToolTip(source, "Link copied"); }
+                    catch { }
+                }
             };
+            Controls.Add(source);
 
-            btnLater = new Button
-            {
-                Text = "📋 Download Later",
-                Location = new Point(280, 12),
-                Size = new Size(135, 34),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(42, 45, 55),
-                ForeColor = Color.FromArgb(220, 225, 235),
-                Font = new Font("Segoe UI", 9F, FontStyle.Regular),
-                Cursor = Cursors.Hand
+            Panel footer = new Panel {
+                Dock = DockStyle.Bottom, Height = 60,
+                BackColor = Color.FromArgb(21, 28, 39)
             };
-            btnLater.FlatAppearance.BorderColor = Color.FromArgb(60, 64, 76);
-            btnLater.Click += (s, e) =>
-            {
-                Confirmed = true;
-                StartNow = false;
-                this.DialogResult = DialogResult.OK;
-                this.Close();
-            };
+            btnStart = ActionButton("Start download", new Point(20, 12),
+                new Size(190, 36), true);
+            btnStart.TabIndex = 4;
+            btnStart.Click += (s, e) => ConfirmDownload(true);
+            btnLater = ActionButton("Download later", new Point(220, 12),
+                new Size(145, 36), false);
+            btnLater.TabIndex = 5;
+            btnLater.Click += (s, e) => ConfirmDownload(false);
+            btnCancel = ActionButton("Cancel", new Point(375, 12),
+                new Size(125, 36), false);
+            btnCancel.TabIndex = 6;
+            btnCancel.Click += (s, e) => CancelDownload();
+            footer.Controls.Add(btnStart);
+            footer.Controls.Add(btnLater);
+            footer.Controls.Add(btnCancel);
+            Controls.Add(footer);
 
-            btnCancel = new Button
-            {
-                Text = "✕ Cancel",
-                Location = new Point(425, 12),
-                Size = new Size(100, 34),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(32, 34, 40),
-                ForeColor = Color.FromArgb(200, 205, 215),
-                Font = new Font("Segoe UI", 9F, FontStyle.Regular),
-                Cursor = Cursors.Hand
-            };
-            btnCancel.FlatAppearance.BorderColor = Color.FromArgb(50, 52, 60);
-            btnCancel.Click += (s, e) =>
-            {
-                Confirmed = false;
-                StartNow = false;
-                this.DialogResult = DialogResult.Cancel;
-                this.Close();
-            };
-
-            bottomPanel.Controls.Add(btnStart);
-            bottomPanel.Controls.Add(btnLater);
-            bottomPanel.Controls.Add(btnCancel);
-            this.Controls.Add(bottomPanel);
-
-            this.AcceptButton = btnStart;
-            this.CancelButton = btnCancel;
-
-            this.Load += (s, e) =>
-            {
+            AcceptButton = btnStart;
+            CancelButton = btnCancel;
+            Shown += (s, e) => {
                 txtFileName.Focus();
                 txtFileName.SelectAll();
             };
+            Resize += (s, e) => UpdateCornerRegion();
+            FormClosed += (s, e) => tooltip.Dispose();
+        }
+
+        private void ConfirmDownload(bool startNow)
+        {
+            string name = FileName;
+            if (string.IsNullOrWhiteSpace(name) || name == "." || name == ".." ||
+                name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
+                name.IndexOf('\\') >= 0 || name.IndexOf('/') >= 0)
+            {
+                MessageBox.Show(this, "Enter a valid file name.", "Check file name",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                txtFileName.Focus();
+                return;
+            }
+            try
+            {
+                if (string.IsNullOrWhiteSpace(SaveDirectory))
+                    throw new IOException("Please choose a destination folder.");
+                Directory.CreateDirectory(SaveDirectory);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Cannot use that folder: " + ex.Message, "Save location",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                txtSaveDir.Focus();
+                return;
+            }
+            Confirmed = true;
+            StartNow = startNow;
+            DialogResult = DialogResult.OK;
+            Close();
+        }
+
+        private void CancelDownload()
+        {
+            Confirmed = false;
+            StartNow = false;
+            DialogResult = DialogResult.Cancel;
+            Close();
+        }
+
+        private static TextBox Editor(Point p, Size s, string value)
+        {
+            return new TextBox {
+                Location = p, Size = s, Text = value ?? "",
+                BackColor = InputInk, ForeColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Segoe UI", 10F)
+            };
+        }
+
+        private static Label Caption(string text, int x, int y, int w)
+        {
+            return new Label {
+                Text = text, Location = new Point(x, y),
+                Size = new Size(w, 19), ForeColor = SecondaryInk,
+                Font = new Font("Segoe UI", 7.5F, FontStyle.Bold)
+            };
+        }
+
+        private static Button ActionButton(string title, Point p, Size s, bool primary)
+        {
+            Button button = new Button {
+                Text = title, Location = p, Size = s,
+                BackColor = primary ? AccentMint : Color.FromArgb(38, 49, 64),
+                ForeColor = primary ? BackgroundInk : Color.White,
+                Font = new Font("Segoe UI", 9F, primary ? FontStyle.Bold : FontStyle.Regular),
+                FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand
+            };
+            button.FlatAppearance.BorderSize = 0;
+            return button;
+        }
+
+        private void UpdateCornerRegion()
+        {
+            if (Width < 12 || Height < 12) return;
+            using (var path = new System.Drawing.Drawing2D.GraphicsPath())
+            {
+                const int diameter = 24;
+                path.AddArc(0, 0, diameter, diameter, 180, 90);
+                path.AddArc(Width - diameter, 0, diameter, diameter, 270, 90);
+                path.AddArc(Width - diameter, Height - diameter, diameter, diameter, 0, 90);
+                path.AddArc(0, Height - diameter, diameter, diameter, 90, 90);
+                path.CloseFigure();
+                Region old = Region;
+                Region = new Region(path);
+                if (old != null) old.Dispose();
+            }
         }
     }
 
