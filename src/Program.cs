@@ -6209,184 +6209,332 @@ namespace FastDownloader
         }
     }
 
+    // A small, borderless Windows notification: no redundant title bar or large footer.
+    // The full file card supports native drag-and-drop into Explorer/Desktop.
     public class DownloadCompleteDialog : Form
     {
         private readonly string filePath;
-        private Point dragStart;
-        private bool dragArmed;
+        private readonly ToolTip tooltip;
+        private Point fileDragStart;
+        private Point windowDragStart;
+        private Point windowStartLocation;
+        private bool fileDragArmed;
+        private bool windowDragArmed;
+
+        private static readonly Color BackgroundInk = Color.FromArgb(16, 21, 30);
+        private static readonly Color CardInk = Color.FromArgb(29, 37, 50);
+        private static readonly Color TextDim = Color.FromArgb(155, 172, 192);
+        private static readonly Color Mint = Color.FromArgb(53, 216, 169);
 
         protected override CreateParams CreateParams
         {
             get
             {
-                CreateParams cp = base.CreateParams;
-                cp.ExStyle |= 0x00000008; // WS_EX_TOPMOST
-                return cp;
+                CreateParams p = base.CreateParams;
+                p.ExStyle |= 0x00000008; // Topmost; match previous completion alert.
+                p.ClassStyle |= 0x00020000; // CS_DROPSHADOW for the borderless form.
+                return p;
             }
         }
 
         public DownloadCompleteDialog(string filename, string filePath, long totalLength)
         {
             this.filePath = filePath;
-            Text = "Download complete - FastDownloader";
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false;
-            MinimizeBox = false;
+            Text = "FastDownloader - Download ready";
+            FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = true;
             StartPosition = FormStartPosition.CenterScreen;
             TopMost = true;
-            ClientSize = new Size(386, 142);
-            BackColor = Color.FromArgb(22, 25, 32);
+            AutoScaleMode = AutoScaleMode.Font;
+            ClientSize = new Size(440, 180);
+            BackColor = BackgroundInk;
             ForeColor = Color.White;
             Font = new Font("Segoe UI", 9F);
+            DoubleBuffered = true;
+            UpdateCornerRegion();
 
-            try
-            {
-                string icon = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
-                if (File.Exists(icon)) Icon = new Icon(icon);
-            }
-            catch { }
+            tooltip = new ToolTip { AutoPopDelay = 10000, InitialDelay = 250, ReshowDelay = 150 };
+            string fullName = !string.IsNullOrWhiteSpace(filename) ? filename :
+                (!string.IsNullOrWhiteSpace(filePath) ? Path.GetFileName(filePath) : "Downloaded file");
+            string displaySize = totalLength > 0 ? UrlProbeHelper.FormatBytes(totalLength) : "Saved";
+            bool fileAvailable = !string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath);
 
-            Label check = new Label
-            {
-                Text = "✓", Location = new Point(12, 7), Size = new Size(24, 25),
-                Font = new Font("Segoe UI", 13F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(49, 205, 150)
+            Panel success = new Panel {
+                Location = new Point(16, 15), Size = new Size(30, 30),
+                BackColor = Mint
             };
-            Label title = new Label
-            {
-                Text = "Download complete", Location = new Point(39, 10),
-                Size = new Size(320, 23), Font = new Font("Segoe UI", 10F, FontStyle.Bold)
+            RoundRegion(success, 15);
+            Label check = new Label {
+                Text = "✓", Dock = DockStyle.Fill, ForeColor = BackgroundInk,
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Segoe UI", 13F, FontStyle.Bold)
             };
-            Controls.Add(check);
-            Controls.Add(title);
+            success.Controls.Add(check);
 
-            Panel fileCard = new Panel
-            {
-                Location = new Point(12, 36), Size = new Size(362, 58),
-                BackColor = Color.FromArgb(33, 38, 47), Cursor = Cursors.SizeAll
+            Label heading = new Label {
+                Text = "Download ready", Location = new Point(56, 14),
+                Size = new Size(324, 23), AutoEllipsis = true,
+                Font = new Font("Segoe UI", 11F, FontStyle.Bold),
+                ForeColor = Color.White
             };
-            Label fileIcon = new Label
-            {
-                Text = "↓", Location = new Point(10, 13), Size = new Size(25, 30),
-                Font = new Font("Segoe UI", 16F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(49, 205, 150), Cursor = Cursors.SizeAll
+            Label subheading = new Label {
+                Text = fileAvailable ? "Saved to your computer" : "File unavailable on disk",
+                Location = new Point(56, 37), Size = new Size(325, 19),
+                Font = new Font("Segoe UI", 8.5F),
+                ForeColor = TextDim
             };
-            Label name = new Label
-            {
-                Text = !string.IsNullOrWhiteSpace(filename) ? filename : Path.GetFileName(filePath),
-                Location = new Point(43, 7), Size = new Size(307, 22),
-                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-                AutoEllipsis = true, Cursor = Cursors.SizeAll
+
+            MiniActionButton close = new MiniActionButton {
+                Text = "×", Location = new Point(402, 13), Size = new Size(25, 26),
+                Primary = false, Borderless = true,
+                Font = new Font("Segoe UI", 13F),
+                AccessibleName = "Close notification"
             };
-            string size = totalLength > 0 ? UrlProbeHelper.FormatBytes(totalLength) : "Saved";
-            Label hint = new Label
-            {
-                Text = size + "  ·  Drag to copy or move",
-                Location = new Point(43, 32), Size = new Size(307, 17),
+            close.Click += (sender, e) => Close();
+            Controls.Add(success);
+            Controls.Add(heading);
+            Controls.Add(subheading);
+            Controls.Add(close);
+
+            Panel fileCard = new Panel {
+                Location = new Point(16, 67), Size = new Size(408, 60),
+                BackColor = CardInk, Cursor = fileAvailable ? Cursors.SizeAll : Cursors.Default
+            };
+            RoundRegion(fileCard, 10);
+
+            Panel typeSquare = new Panel {
+                Location = new Point(12, 11), Size = new Size(40, 39),
+                BackColor = Color.FromArgb(43, 59, 75)
+            };
+            RoundRegion(typeSquare, 8);
+            string extension = Path.GetExtension(fullName).TrimStart('.').ToUpperInvariant();
+            if (string.IsNullOrWhiteSpace(extension) || extension.Length > 4) extension = "FILE";
+            Label ext = new Label {
+                Text = extension, Dock = DockStyle.Fill,
+                ForeColor = Mint, BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Segoe UI", extension.Length > 3 ? 7F : 9F, FontStyle.Bold),
+                Cursor = fileCard.Cursor
+            };
+            typeSquare.Controls.Add(ext);
+
+            Label fileName = new Label {
+                Text = fullName, Location = new Point(63, 10),
+                Size = new Size(328, 22), AutoEllipsis = true,
+                TextAlign = ContentAlignment.MiddleLeft,
+                ForeColor = Color.White, Cursor = fileCard.Cursor,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold)
+            };
+            // Arabic names remain readable even when the extension uses Latin letters.
+            if (Regex.IsMatch(fullName, @"[\u0600-\u06FF]"))
+                fileName.RightToLeft = RightToLeft.Yes;
+
+            Label detail = new Label {
+                Text = displaySize + (fileAvailable ? "  ·  Drag to Desktop or folder" : "  ·  Missing file"),
+                Location = new Point(63, 33), Size = new Size(328, 19),
+                ForeColor = TextDim, Cursor = fileCard.Cursor,
                 Font = new Font("Segoe UI", 8F),
-                ForeColor = Color.FromArgb(167, 182, 199),
-                AutoEllipsis = true, Cursor = Cursors.SizeAll
+                AutoEllipsis = true
             };
-
-            MouseEventHandler dragDown = (sender, e) =>
+            typeSquare.Cursor = fileCard.Cursor;
+            foreach (Control c in new Control[] { fileCard, typeSquare, ext, fileName, detail })
             {
-                dragArmed = e.Button == MouseButtons.Left && !string.IsNullOrEmpty(this.filePath)
-                    && File.Exists(this.filePath);
-                if (dragArmed) dragStart = e.Location;
-            };
-            MouseEventHandler dragMove = (sender, e) =>
-            {
-                if (!dragArmed || e.Button != MouseButtons.Left) return;
-                Size tolerance = SystemInformation.DragSize;
-                Rectangle threshold = new Rectangle(dragStart.X - tolerance.Width / 2,
-                    dragStart.Y - tolerance.Height / 2, tolerance.Width, tolerance.Height);
-                if (threshold.Contains(e.Location)) return;
-                dragArmed = false;
-                if (string.IsNullOrEmpty(this.filePath) || !File.Exists(this.filePath)) return;
-
-                // FileDrop is understood by Explorer and the Windows Desktop.
-                try
-                {
-                    DataObject files = new DataObject(DataFormats.FileDrop, new string[] { this.filePath });
-                    DragDropEffects effect = ((Control)sender).DoDragDrop(
-                        files, DragDropEffects.Copy | DragDropEffects.Move);
-                    if (effect == DragDropEffects.Move && !File.Exists(this.filePath)) Close();
-                }
-                catch { }
-            };
-            MouseEventHandler dragUp = (sender, e) => dragArmed = false;
-            foreach (Control c in new Control[] { fileCard, fileIcon, name, hint })
-            {
-                c.MouseDown += dragDown;
-                c.MouseMove += dragMove;
-                c.MouseUp += dragUp;
+                c.MouseDown += StartFileDrag;
+                c.MouseMove += ContinueFileDrag;
+                c.MouseUp += (sender, e) => fileDragArmed = false;
+                tooltip.SetToolTip(c, fileAvailable ? filePath : "File not found");
             }
-
-            ToolTip tooltip = new ToolTip();
-            string fullPath = string.IsNullOrEmpty(filePath) ? "Path not available" : filePath;
-            foreach (Control c in new Control[] { fileCard, fileIcon, name, hint })
-                tooltip.SetToolTip(c, fullPath);
-            fileCard.Controls.Add(fileIcon);
-            fileCard.Controls.Add(name);
-            fileCard.Controls.Add(hint);
+            fileCard.Controls.Add(typeSquare);
+            fileCard.Controls.Add(fileName);
+            fileCard.Controls.Add(detail);
             Controls.Add(fileCard);
 
-            Button open = CreateAction("Open", 12, 99, true);
-            open.Click += (s, e) =>
-            {
+            MiniActionButton open = new MiniActionButton {
+                Text = "Open file", Primary = true,
+                Location = new Point(16, 139), Size = new Size(125, 30),
+                Enabled = fileAvailable, AccessibleName = "Open downloaded file"
+            };
+            open.Click += (sender, e) => {
                 if (!string.IsNullOrEmpty(this.filePath) && File.Exists(this.filePath))
                 {
-                    try { Process.Start(this.filePath); } catch { }
+                    try { Process.Start(this.filePath); }
+                    catch { }
                 }
                 Close();
             };
-            Button folder = CreateAction("Show in folder", 119, 143, false);
-            folder.Click += (s, e) =>
-            {
+
+            MiniActionButton folder = new MiniActionButton {
+                Text = "Show in folder",
+                Location = new Point(150, 139), Size = new Size(154, 30),
+                AccessibleName = "Show file in Windows Explorer"
+            };
+            folder.Click += (sender, e) => {
                 if (!string.IsNullOrEmpty(this.filePath) && File.Exists(this.filePath))
                 {
-                    try { Process.Start("explorer.exe", "/select,\"" + this.filePath.Replace('/', '\\') + "\""); }
+                    try { Process.Start("explorer.exe",
+                        "/select,\"" + this.filePath.Replace('/', '\\') + "\""); }
                     catch { }
                 }
                 else if (!string.IsNullOrEmpty(this.filePath))
                 {
-                    string directory = Path.GetDirectoryName(this.filePath);
-                    if (!string.IsNullOrEmpty(directory) && Directory.Exists(directory))
+                    string parent = Path.GetDirectoryName(this.filePath);
+                    if (!string.IsNullOrEmpty(parent) && Directory.Exists(parent))
                     {
-                        try { Process.Start("explorer.exe", directory); } catch { }
+                        try { Process.Start("explorer.exe", parent); } catch { }
                     }
                 }
                 Close();
             };
-            Button close = CreateAction("Close", 270, 104, false);
-            close.Click += (s, e) => Close();
+
+            MiniActionButton copy = new MiniActionButton {
+                Text = "Copy path", Borderless = true,
+                Location = new Point(313, 139), Size = new Size(111, 30),
+                Enabled = !string.IsNullOrEmpty(this.filePath),
+                AccessibleName = "Copy full file path"
+            };
+            copy.Click += (sender, e) => {
+                if (string.IsNullOrEmpty(this.filePath)) return;
+                try {
+                    Clipboard.SetText(this.filePath);
+                    copy.Text = "Copied ✓";
+                } catch { }
+            };
 
             Controls.Add(open);
             Controls.Add(folder);
-            Controls.Add(close);
+            Controls.Add(copy);
             AcceptButton = open;
             CancelButton = close;
+
+            // Drag the borderless notification by its heading, never by the file card.
+            foreach (Control c in new Control[] { this, success, check, heading, subheading })
+            {
+                c.MouseDown += (sender, e) => {
+                    windowDragArmed = e.Button == MouseButtons.Left;
+                    if (!windowDragArmed) return;
+                    windowDragStart = Cursor.Position;
+                    windowStartLocation = Location;
+                };
+                c.MouseMove += (sender, e) => {
+                    if (!windowDragArmed || e.Button != MouseButtons.Left) return;
+                    Point pos = Cursor.Position;
+                    Location = new Point(windowStartLocation.X + pos.X - windowDragStart.X,
+                        windowStartLocation.Y + pos.Y - windowDragStart.Y);
+                };
+                c.MouseUp += (sender, e) => windowDragArmed = false;
+            }
+
+            Resize += (sender, e) => UpdateCornerRegion();
+            FormClosed += (sender, e) => tooltip.Dispose();
         }
 
-        private static Button CreateAction(string label, int x, int width, bool primary)
+        private void StartFileDrag(object sender, MouseEventArgs e)
         {
-            Button button = new Button
+            fileDragArmed = e.Button == MouseButtons.Left &&
+                !string.IsNullOrEmpty(filePath) && File.Exists(filePath);
+            if (fileDragArmed) fileDragStart = Cursor.Position;
+        }
+
+        private void ContinueFileDrag(object sender, MouseEventArgs e)
+        {
+            if (!fileDragArmed || e.Button != MouseButtons.Left) return;
+            Point current = Cursor.Position;
+            Size distance = SystemInformation.DragSize;
+            if (Math.Abs(current.X - fileDragStart.X) < distance.Width / 2 &&
+                Math.Abs(current.Y - fileDragStart.Y) < distance.Height / 2)
+                return;
+
+            fileDragArmed = false;
+            if (!File.Exists(filePath)) return;
+            try
             {
-                Text = label, Location = new Point(x, 104), Size = new Size(width, 28),
-                Font = new Font("Segoe UI", 8.5F, primary ? FontStyle.Bold : FontStyle.Regular),
-                FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand,
-                BackColor = primary ? Color.FromArgb(32, 172, 125) : Color.FromArgb(39, 45, 56),
-                ForeColor = Color.White
-            };
-            button.FlatAppearance.BorderSize = primary ? 0 : 1;
-            button.FlatAppearance.BorderColor = Color.FromArgb(58, 67, 81);
-            return button;
+                DataObject payload = new DataObject(DataFormats.FileDrop, new string[] { filePath });
+                DragDropEffects effect = ((Control)sender).DoDragDrop(payload,
+                    DragDropEffects.Copy | DragDropEffects.Move);
+                if (effect == DragDropEffects.Move && !File.Exists(filePath)) Close();
+            }
+            catch { }
+        }
+
+        private void UpdateCornerRegion()
+        {
+            using (var path = RoundedPath(new Rectangle(0, 0, Width, Height), 13))
+            {
+                Region old = Region;
+                Region = new Region(path);
+                if (old != null) old.Dispose();
+            }
+        }
+
+        private static void RoundRegion(Control control, int radius)
+        {
+            using (var path = RoundedPath(new Rectangle(0, 0, control.Width, control.Height), radius))
+                control.Region = new Region(path);
+        }
+
+        private static System.Drawing.Drawing2D.GraphicsPath RoundedPath(Rectangle r, int radius)
+        {
+            var path = new System.Drawing.Drawing2D.GraphicsPath();
+            int d = radius * 2;
+            path.AddArc(r.Left, r.Top, d, d, 180, 90);
+            path.AddArc(r.Right - d, r.Top, d, d, 270, 90);
+            path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+            path.AddArc(r.Left, r.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        private sealed class MiniActionButton : Button
+        {
+            private bool hover;
+            public bool Primary { get; set; }
+            public bool Borderless { get; set; }
+
+            public MiniActionButton()
+            {
+                SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true);
+                FlatStyle = FlatStyle.Flat;
+                FlatAppearance.BorderSize = 0;
+                Cursor = Cursors.Hand;
+                ForeColor = Color.White;
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
+            }
+
+            protected override void OnMouseEnter(EventArgs e)
+            {
+                hover = true;
+                Invalidate();
+                base.OnMouseEnter(e);
+            }
+
+            protected override void OnMouseLeave(EventArgs e)
+            {
+                hover = false;
+                Invalidate();
+                base.OnMouseLeave(e);
+            }
+
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                e.Graphics.Clear(BackgroundInk);
+                Color background = !Enabled ? Color.FromArgb(36, 43, 53) :
+                    Primary ? (hover ? Color.FromArgb(93, 233, 185) : Mint) :
+                    (Borderless ? BackgroundInk :
+                        (hover ? Color.FromArgb(53, 65, 81) : Color.FromArgb(39, 49, 63)));
+                using (var path = RoundedPath(new Rectangle(1, 1, Width - 2, Height - 2), 8))
+                using (var brush = new SolidBrush(background))
+                    e.Graphics.FillPath(brush, path);
+                Color color = !Enabled ? TextDim : (Primary ? BackgroundInk :
+                    (hover ? Color.White : Color.FromArgb(221, 232, 243)));
+                TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, color,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
+                    TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            }
         }
     }
 
-    // Lightweight IDM-style live transfer flyout opened with a single tray click.
-    // It uses only engine-reported bytes and speed, never a simulated timer percentage.
     // Tray flyout follows the same compact visual language as the transfer dialog.
     // Rows are reused during live updates, preventing 1-second full-list flicker.
     public class TrayDownloadsForm : Form
