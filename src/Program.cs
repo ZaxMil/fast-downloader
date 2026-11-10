@@ -6876,6 +6876,8 @@ namespace FastDownloader
         private readonly Dictionary<string, DateTime> recentNotifications = new Dictionary<string, DateTime>();
         private readonly object completedGidsLock = new object();
         private HashSet<string> completedGids = new HashSet<string>();
+        // Prevent overlapping completion scans; never block the tray's UI thread on RPC.
+        private int completionScanInFlight;
 
         public DownloaderAppContext()
         {
@@ -7483,47 +7485,43 @@ namespace FastDownloader
                 }
             }
 
-            // Check completed downloads for IDM-style completion popup
-            try
+            // A background poll keeps native dialogs/tray responsive even if
+            // aria2 is slow or unavailable. The scheduler itself is only 5s.
+            if (Interlocked.Exchange(ref completionScanInFlight, 1) == 0)
             {
-                var ariaList = engine.GetAriaTasks();
-                foreach (var t in ariaList)
+                ThreadPool.QueueUserWorkItem(_ =>
                 {
-                    if (t.ContainsKey("status") && t["status"].ToString() == "complete" && t.ContainsKey("gid"))
+                    try
                     {
-                        string g = t["gid"].ToString();
-                        bool already;
-                        lock (completedGidsLock) { already = completedGids.Contains(g); }
-                        if (!already)
+                        var ariaList = engine.GetAriaTasks();
+                        foreach (var t in ariaList)
                         {
-                            var info = engine.GetTaskInfo(g);
+                            if (!t.ContainsKey("status") || Convert.ToString(t["status"]) != "complete" ||
+                                !t.ContainsKey("gid")) continue;
+                            string g = Convert.ToString(t["gid"]);
+                            bool already;
+                            lock (completedGidsLock) { already = completedGids.Contains(g); }
+                            if (already) continue;
+                            UnifiedTaskInfo info = engine.GetTaskInfo(g);
                             if (info != null)
-                            {
                                 ShowCompleteDialog(g, info.Name, info.FilePath, info.TotalLength);
-                            }
                         }
-                    }
-                }
 
-                var ytList = engine.GetYtTasksSnapshot();
-                foreach (var yt in ytList)
-                {
-                    if (yt.Status == "completed")
-                    {
-                        bool already;
-                        lock (completedGidsLock) { already = completedGids.Contains(yt.Gid); }
-                        if (!already)
+                        foreach (var yt in engine.GetYtTasksSnapshot())
                         {
-                            var info = engine.GetTaskInfo(yt.Gid);
+                            if (yt.Status != "completed") continue;
+                            bool already;
+                            lock (completedGidsLock) { already = completedGids.Contains(yt.Gid); }
+                            if (already) continue;
+                            UnifiedTaskInfo info = engine.GetTaskInfo(yt.Gid);
                             if (info != null)
-                            {
                                 ShowCompleteDialog(yt.Gid, info.Name, info.FilePath, info.TotalLength);
-                            }
                         }
                     }
-                }
+                    catch { }
+                    finally { Interlocked.Exchange(ref completionScanInFlight, 0); }
+                });
             }
-            catch { }
         }
     }
 
