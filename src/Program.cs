@@ -1074,6 +1074,10 @@ namespace FastDownloader
         public int Progress { get; set; }
         public double ProgressExact { get; set; }
         public string Status { get; set; } // "downloading", "paused", "completed", "error"
+        public string StatusMessage { get; set; }
+        public DateTime LastOutputUtc { get; set; }
+        public DateTime StartedAtUtc { get; set; }
+        public DateTime FinishedAtUtc { get; set; }
         public long DownloadSpeed { get; set; }
         public long TotalLength { get; set; }
         public long CompletedLength { get; set; }
@@ -1107,6 +1111,7 @@ namespace FastDownloader
     public class PendingDownloadInfo
     {
         public string pendingId { get; set; }
+        public bool automaticIntercept { get; set; }
         public string url { get; set; }
         public string title { get; set; }
         public string filename { get; set; }
@@ -1191,6 +1196,9 @@ namespace FastDownloader
         public string LastUpdateCheck { get; set; }
         private string settingsFilePath;
         private readonly object pendingLock = new object();
+        private readonly object autoInterceptLock = new object();
+        private readonly Dictionary<string, DateTime> recentAutoIntercepts =
+            new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, PendingDownloadInfo> PendingDownloads { get; private set; }
         private PendingRefreshInfo pendingRefresh = null;
         private readonly object refreshLock = new object();
@@ -1273,15 +1281,52 @@ namespace FastDownloader
             return false;
         }
 
+        // FOLDERID_Downloads respects customized / redirected Windows Downloads paths.
+        private static readonly Guid DownloadsId = new Guid("374DE290-123F-4565-9164-39C4925E467B");
+
+        [DllImport("shell32.dll")]
+        private static extern int SHGetKnownFolderPath(ref Guid folderId, uint flags, IntPtr token, out IntPtr path);
+
+        private static string ResolveDownloadsFolder(string appDir)
+        {
+            string path = null;
+            IntPtr ptr = IntPtr.Zero;
+            try
+            {
+                Guid id = DownloadsId;
+                if (SHGetKnownFolderPath(ref id, 0, IntPtr.Zero, out ptr) == 0)
+                    path = Marshal.PtrToStringUni(ptr);
+            }
+            catch { }
+            finally { if (ptr != IntPtr.Zero) Marshal.FreeCoTaskMem(ptr); }
+
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                if (!string.IsNullOrWhiteSpace(profile))
+                    path = Path.Combine(profile, "Downloads");
+            }
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                try
+                {
+                    Directory.CreateDirectory(path);
+                    return Path.GetFullPath(path);
+                }
+                catch { }
+            }
+
+            // Do not break startup if the user's Downloads folder is unavailable.
+            string fallback = Path.Combine(appDir, "downloads");
+            Directory.CreateDirectory(fallback);
+            return fallback;
+        }
+
         public EngineManager()
         {
             PendingDownloads = new Dictionary<string, PendingDownloadInfo>();
             AppDir = AppDomain.CurrentDomain.BaseDirectory;
-            DownloadsFolder = Path.Combine(AppDir, "downloads");
-            if (!Directory.Exists(DownloadsFolder))
-            {
-                Directory.CreateDirectory(DownloadsFolder);
-            }
+            DownloadsFolder = ResolveDownloadsFolder(AppDir);
             AutoCaptureEnabled = true;
             AutoUpdateEngines = true;
             AutoUpdateApp = true;
@@ -1565,13 +1610,83 @@ namespace FastDownloader
         }
 
 
-        public PendingDownloadInfo AddPending(string url, string title = null, string filename = null, string category = null, string quality = "best", string cookies = null, string userAgent = null, string referer = null, Dictionary<string, object> headers = null)
+        // Browser events are asynchronous; a finished/active video must not trigger
+        // another confirmation dialog a few seconds after it has been watched.
+        private static string InterceptKey(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return "";
+            string value = url.Trim();
+            try
+            {
+                var uri = new Uri(value);
+                string host = uri.Host.ToLowerInvariant();
+                if (host == "youtube.com" || host == "www.youtube.com" ||
+                    host == "m.youtube.com" || host == "youtu.be")
+                {
+                    Match match = Regex.Match(value,
+                        @"(?:[?&]v=|youtu\.be/|/shorts/|/live/|/embed/)([A-Za-z0-9_-]{11})",
+                        RegexOptions.IgnoreCase);
+                    if (match.Success) return "youtube:" + match.Groups[1].Value;
+                }
+                return uri.GetLeftPart(UriPartial.Path) + uri.Query;
+            }
+            catch { return value; }
+        }
+
+        public bool AlreadyHasVideoTransfer(string url)
+        {
+            string key = InterceptKey(url);
+            if (string.IsNullOrEmpty(key)) return false;
+            lock (ytLock)
+            {
+                foreach (YtTaskInfo task in YtTasks ?? new List<YtTaskInfo>())
+                {
+                    if (InterceptKey(task.Url) != key || task.Status == "removed" ||
+                        task.Status == "error") continue;
+                    // Old completed downloads do not block a fresh user request forever.
+                    if (task.Status == "completed")
+                    {
+                        DateTime finished = task.FinishedAtUtc != DateTime.MinValue ?
+                            task.FinishedAtUtc : task.StartedAtUtc;
+                        if ((DateTime.UtcNow - finished).TotalMinutes > 10) continue;
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public bool ReserveAutomaticIntercept(string url, string referer)
+        {
+            string key = InterceptKey(url);
+            if (string.IsNullOrEmpty(key) || AlreadyHasVideoTransfer(url) ||
+                (MediaUrlHelper.IsMediaPlatformUrl(referer) && AlreadyHasVideoTransfer(referer)))
+                return false;
+            lock (autoInterceptLock)
+            {
+                DateTime now = DateTime.UtcNow;
+                foreach (string stale in recentAutoIntercepts.Where(x =>
+                    (now - x.Value).TotalMinutes > 2).Select(x => x.Key).ToList())
+                    recentAutoIntercepts.Remove(stale);
+                if (recentAutoIntercepts.ContainsKey(key)) return false;
+                recentAutoIntercepts[key] = now;
+                return true;
+            }
+        }
+
+        public PendingDownloadInfo AddPending(string url, string title = null, string filename = null,
+            string category = null, string quality = "best", string cookies = null,
+            string userAgent = null, string referer = null, Dictionary<string, object> headers = null,
+            bool automatic = false)
         {
             string pid = "pen_" + Guid.NewGuid().ToString().Substring(0, 8);
             ProbeResult probe = null;
+            // Video platform pages are handled by yt-dlp; a full HTTP page probe
+            // here delays the confirmation dialog and may finish after download.
             try
             {
-                probe = UrlProbeHelper.Probe(url, AppDir, cookies, userAgent, headers);
+                if (!automatic && !MediaUrlHelper.IsMediaPlatformUrl(url))
+                    probe = UrlProbeHelper.Probe(url, AppDir, cookies, userAgent, headers);
             }
             catch { }
 
@@ -1588,8 +1703,11 @@ namespace FastDownloader
                 resolvedFilename = !string.IsNullOrEmpty(probeFilename) ? probeFilename : (!string.IsNullOrEmpty(title) && title != "Browser Download" ? title : "download");
             }
 
-            string resolvedCat = !string.IsNullOrEmpty(category) ? category : probeCategory;
+            string resolvedCat = !string.IsNullOrEmpty(category) ? category :
+                (quality == "audio" ? "Music" : probeCategory);
             if (string.IsNullOrEmpty(resolvedCat)) resolvedCat = "General";
+            if (quality == "audio" && !string.IsNullOrWhiteSpace(resolvedFilename))
+                resolvedFilename = Path.ChangeExtension(resolvedFilename, ".mp3");
 
             string thumb = "";
             if (url.Contains("youtube.com") || url.Contains("youtu.be"))
@@ -1604,6 +1722,7 @@ namespace FastDownloader
             var item = new PendingDownloadInfo
             {
                 pendingId = pid,
+                automaticIntercept = automatic,
                 url = url,
                 title = !string.IsNullOrEmpty(title) ? title : resolvedFilename,
                 filename = resolvedFilename,
@@ -1894,7 +2013,8 @@ namespace FastDownloader
                                 FilePath = resolvedPath,
                                 Url = yt.Url,
                                 Engine = "yt-dlp",
-                                NumConnections = 16
+                                StatusMessage = yt.StatusMessage,
+                                NumConnections = 0
                             };
                         }
                     }
@@ -1913,7 +2033,7 @@ namespace FastDownloader
                     jsonrpc = "2.0",
                     id = "status",
                     method = "aria2.tellStatus",
-                    @params = new object[] { "token:" + ariaRpcSecret, gid, new string[] { "gid", "status", "totalLength", "completedLength", "downloadSpeed", "files", "connections" } }
+                    @params = new object[] { "token:" + ariaRpcSecret, gid, new string[] { "gid", "status", "totalLength", "completedLength", "downloadSpeed", "files", "connections", "errorCode" } }
                 };
                 byte[] data = Encoding.UTF8.GetBytes(JsonHelper.Serialize(payload));
                 req.ContentLength = data.Length;
@@ -1964,7 +2084,7 @@ namespace FastDownloader
                                 }
                             }
 
-                            int conns = 16;
+                            int conns = 0;
                             if (res.ContainsKey("connections") && res["connections"] != null)
                             {
                                 int.TryParse(res["connections"].ToString(), out conns);
@@ -1983,7 +2103,10 @@ namespace FastDownloader
                                 FilePath = filePath,
                                 Url = "",
                                 Engine = "aria2",
-                                NumConnections = conns > 0 ? conns : 16
+                                StatusMessage = status == "error" ?
+                                    "Transfer failed (aria2 error " +
+                                    (res.ContainsKey("errorCode") ? Convert.ToString(res["errorCode"]) : "?") + ")." : "",
+                                NumConnections = Math.Max(0, conns)
                             };
                         }
                     }
@@ -2064,6 +2187,8 @@ namespace FastDownloader
                     {
                         Interlocked.Increment(ref yt.RunGeneration);
                         yt.Status = "downloading";
+                        yt.StatusMessage = "Retrying video download...";
+                        yt.LastOutputUtc = DateTime.UtcNow;
                         var taskRef = yt;
                         Thread t = new Thread(() =>
                         {
@@ -2124,6 +2249,8 @@ namespace FastDownloader
                     {
                         Interlocked.Increment(ref yt.RunGeneration);
                         yt.Status = "downloading";
+                        yt.StatusMessage = "Retrying video download...";
+                        yt.LastOutputUtc = DateTime.UtcNow;
                         var taskRef = yt;
                         Thread t = new Thread(() =>
                         {
@@ -2222,9 +2349,10 @@ namespace FastDownloader
 
             string finalCat = !string.IsNullOrEmpty(category) ? category : pending.category;
             string finalQuality = !string.IsNullOrEmpty(pending.quality) ? pending.quality : "best";
+            if (finalQuality == "audio") finalName = Path.ChangeExtension(finalName, ".mp3");
 
-            // A direct .mp4/.mkv file belongs to aria2 even when categorized as Video.
-            bool isVideo = MediaUrlHelper.IsMediaPlatformUrl(pending.url) ||
+            // Audio extraction needs yt-dlp even when the source is a direct media file.
+            bool isVideo = finalQuality == "audio" || MediaUrlHelper.IsMediaPlatformUrl(pending.url) ||
                            (pending.type == "video" && !MediaUrlHelper.HasDirectFileExtension(pending.url));
             string assignedGid;
             if (isVideo)
@@ -2271,10 +2399,8 @@ namespace FastDownloader
 
             string extraHeaders = "";
             bool isYouTube = url.Contains("youtube.com") || url.Contains("youtu.be");
-            if (isYouTube)
-            {
-                extraHeaders += " --extractor-args \"youtube:player_client=ios,android,mweb,web\"";
-            }
+            // Allow yt-dlp to use its supported default clients first. Forcing
+            // four clients creates extra requests and delays stream selection.
 
             if (!string.IsNullOrEmpty(cookies))
             {
@@ -2337,6 +2463,9 @@ namespace FastDownloader
                 Queue = queue,
                 Progress = 0,
                 Status = startNow ? "downloading" : "paused",
+                StatusMessage = startNow ? "Connecting to video source..." : "Queued",
+                LastOutputUtc = DateTime.UtcNow,
+                StartedAtUtc = DateTime.UtcNow,
                 YtExe = ytExe,
                 FfmpegDir = ffmpegDir,
                 FormatArg = formatArg,
@@ -2365,31 +2494,32 @@ namespace FastDownloader
             return gid;
         }
 
-        // Restart one truly idle initial extractor process (for signed Facebook links
-        // and other streams) while preserving yt-dlp .part files.
+        // Retry a truly silent initial extractor only once. Do not interrupt
+        // active video metadata extraction, even when total bytes are unknown.
         private void MonitorNewYtDownload(YtTaskInfo task)
         {
             ThreadPool.QueueUserWorkItem(_ =>
             {
-                Thread.Sleep(25000);
-                for (int i = 0; i < 2; i++)
-                {
-                    if (task.Status != "downloading" || task.CompletedLength > 0 ||
-                        task.ProgressExact > 0 || task.DownloadSpeed > 0) return;
-                    Thread.Sleep(5000);
-                }
+                Thread.Sleep(22000);
+                if (task.Status != "downloading" || task.CompletedLength > 0 ||
+                    task.ProgressExact > 0 || task.DownloadSpeed > 0 ||
+                    (DateTime.UtcNow - task.LastOutputUtc).TotalSeconds < 16) return;
                 lock (ytLock)
                 {
                     if (!YtTasks.Contains(task) || task.Status != "downloading" ||
                         task.CompletedLength > 0 || task.ProgressExact > 0 ||
-                        task.DownloadSpeed > 0) return;
-                    // Invalidate stale output/exit notifications from the old process.
+                        task.DownloadSpeed > 0 ||
+                        (DateTime.UtcNow - task.LastOutputUtc).TotalSeconds < 16) return;
+                    task.StatusMessage = "Connection stalled; retrying once...";
                     Interlocked.Increment(ref task.RunGeneration);
                     KillProcessTree(task.Process);
+                    string retryArgs = task.ExtraHeaders ?? "";
+                    if (task.IsYouTube)
+                        retryArgs += " --extractor-args \"youtube:player_client=android,web\"";
                     var retry = new Thread(() =>
                         RunYtDlpProcess(task, task.YtExe, task.FfmpegDir,
-                            task.FormatArg, task.ExtraHeaders, task.SaveDir,
-                            task.Url, task.IsYouTube, true));
+                            task.FormatArg, retryArgs, task.SaveDir,
+                            task.Url, task.IsYouTube, false));
                     retry.IsBackground = true;
                     retry.Start();
                 }
@@ -2456,6 +2586,12 @@ namespace FastDownloader
         {
             if (taskInfo == null || taskInfo.Status == "paused" || taskInfo.Status == "removed") return;
             if (string.IsNullOrEmpty(line)) return;
+            taskInfo.LastOutputUtc = DateTime.UtcNow;
+            if (line.StartsWith("[youtube") || line.StartsWith("[facebook") ||
+                line.StartsWith("[info]") || line.StartsWith("[generic]"))
+                taskInfo.StatusMessage = "Preparing video stream...";
+            else if (line.StartsWith("[download]"))
+                taskInfo.StatusMessage = "Receiving video data...";
 
             if (line.Contains("Destination: "))
             {
@@ -2566,6 +2702,23 @@ namespace FastDownloader
             }
         }
 
+        private static string GetDownloadFailureMessage(string errorLog, int exitCode)
+        {
+            string message = errorLog ?? "";
+            if (message.IndexOf("Sign in", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                message.IndexOf("login required", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "Source requires sign-in. Check access in browser.";
+            if (message.IndexOf("HTTP Error 403", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "Source denied access (HTTP 403). Refresh link.";
+            if (message.IndexOf("HTTP Error 404", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "Video not found (HTTP 404).";
+            if (message.IndexOf("Requested format is not available", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "Selected quality unavailable.";
+            if (message.IndexOf("timed out", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "Source connection timed out. Retry.";
+            return "Video extractor failed (code " + exitCode + "). Check log.";
+        }
+
         private void RunYtDlpProcess(YtTaskInfo taskInfo, string ytExe, string ffmpegDir, string formatArg, string extraHeaders, string saveDir, string url, bool isYouTube, bool allowRetry)
         {
             int generation = Interlocked.Increment(ref taskInfo.RunGeneration);
@@ -2594,7 +2747,7 @@ namespace FastDownloader
                     FileName = ytExe,
                     // yt-dlp's native HTTP downloader is more reliable for Facebook's signed media links.
                     // Nested aria2 handoff could stall at zero until manually restarted.
-                    Arguments = string.Format("--encoding utf-8 --continue --newline --retries 5 --fragment-retries 5 --socket-timeout 20 --ffmpeg-location \"{0}\" {1}{2} -o \"{3}\" --windows-filenames --downloader dash:native --downloader m3u8:native --downloader http:native --downloader https:native -P \"{4}\" -- \"{5}\"",
+                    Arguments = string.Format("--encoding utf-8 --continue --newline --retries 3 --fragment-retries 3 --socket-timeout 12 --concurrent-fragments 4 --ffmpeg-location \"{0}\" {1}{2} -o \"{3}\" --windows-filenames --downloader dash:native --downloader m3u8:native --downloader http:native --downloader https:native -P \"{4}\" -- \"{5}\"",
                         ffmpegDir, formatArg, extraHeaders, safeOutputTemplate, safeSaveDir, safeUrl),
                     CreateNoWindow = true,
                     UseShellExecute = false,
@@ -2617,7 +2770,8 @@ namespace FastDownloader
                     {
                         if (!string.IsNullOrEmpty(e.Data))
                         {
-                            errLog.AppendLine(e.Data);
+                            lock (errLog) errLog.AppendLine(e.Data);
+                            taskInfo.LastOutputUtc = DateTime.UtcNow;
                         }
                     };
                     p.BeginErrorReadLine();
@@ -2661,7 +2815,8 @@ namespace FastDownloader
                     if (generation != Interlocked.CompareExchange(ref taskInfo.RunGeneration, 0, 0))
                         return;
 
-                    string allErrors = errLog.ToString();
+                    string allErrors;
+                    lock (errLog) allErrors = errLog.ToString();
                     if (!string.IsNullOrEmpty(allErrors))
                     {
                         try { File.WriteAllText(Path.Combine(AppDir, "ytdlp_last_error.log"), allErrors); } catch { }
@@ -2683,7 +2838,8 @@ namespace FastDownloader
                             allErrors.Contains("Skipping client") ||
                             allErrors.Contains("Only images are available"))
                         {
-                            string retryHeaders = " --extractor-args \"youtube:player_client=ios,android,mweb,web\"";
+                            string retryHeaders = extraHeaders +
+                                " --extractor-args \"youtube:player_client=android,web\"";
                             RunYtDlpProcess(taskInfo, ytExe, ffmpegDir, formatArg, retryHeaders, saveDir, url, isYouTube, false);
                             return;
                         }
@@ -2691,9 +2847,16 @@ namespace FastDownloader
 
                     taskInfo.DownloadSpeed = 0;
                     taskInfo.Eta = 0;
-                    try { string cFile = Path.Combine(AppDir, "cookie_" + taskInfo.Gid + ".txt"); if (File.Exists(cFile)) File.Delete(cFile); } catch { }
+                    // Keep the temporary cookie file available for a user-initiated
+                    // retry after failure. Clean up after successful completion.
                     if (p.ExitCode == 0)
                     {
+                        try { string cFile = Path.Combine(AppDir, "cookie_" + taskInfo.Gid + ".txt"); if (File.Exists(cFile)) File.Delete(cFile); } catch { }
+                    }
+                    if (p.ExitCode == 0)
+                    {
+                        taskInfo.StatusMessage = "Completed";
+                        taskInfo.FinishedAtUtc = DateTime.UtcNow;
                         taskInfo.Progress = 100;
                         taskInfo.ProgressExact = 100;
                         taskInfo.Status = "completed";
@@ -2702,6 +2865,7 @@ namespace FastDownloader
                     else
                     {
                         taskInfo.Status = "error";
+                        taskInfo.StatusMessage = GetDownloadFailureMessage(allErrors, p.ExitCode);
                     }
                     if (p.ExitCode == 0)
                     {
@@ -2730,14 +2894,17 @@ namespace FastDownloader
             {
                 try { File.WriteAllText(Path.Combine(AppDir, "ytdlp_last_error.log"), ex.ToString() + "\n" + errLog.ToString()); } catch { }
                 if (generation == Interlocked.CompareExchange(ref taskInfo.RunGeneration, 0, 0))
+                {
                     taskInfo.Status = "error";
+                    taskInfo.StatusMessage = "Video downloader could not start. Check log.";
+                }
             }
         }
     }
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.14";
+        public const string CurrentAppVersion = "0.1.15";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -2934,13 +3101,27 @@ namespace FastDownloader
 
         private void BackgroundLoop()
         {
-            // Initial grace period: wait 15 seconds after app startup
-            Thread.Sleep(15000);
+            // Leave startup CPU/disk to the actual app, not update scans.
+            // Automatic update checks are deferred, run at most once daily.
+            Thread.Sleep(120000);
 
             while (isRunning)
             {
                 try
                 {
+                    if (!isRunning) break;
+                    DateTime lastCheckUtc;
+                    if (!string.IsNullOrEmpty(engine.LastUpdateCheck) &&
+                        DateTime.TryParse(engine.LastUpdateCheck, CultureInfo.InvariantCulture,
+                            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                            out lastCheckUtc) &&
+                        lastCheckUtc <= DateTime.UtcNow &&
+                        DateTime.UtcNow - lastCheckUtc < TimeSpan.FromHours(24))
+                    {
+                        // Settings persist across restarts; don't spawn the updater again.
+                        for (int m = 0; m < 60 && isRunning; m++) Thread.Sleep(60000);
+                        continue;
+                    }
                     // 1. Check and auto-update engines (yt-dlp) if enabled
                     if (engine.AutoUpdateEngines)
                     {
@@ -2974,8 +3155,11 @@ namespace FastDownloader
                         }
                     }
 
-                    engine.LastUpdateCheck = DateTime.UtcNow.ToString("s") + "Z";
-                    engine.SaveSettings();
+                    if (engine.AutoUpdateEngines || engine.AutoUpdateApp)
+                    {
+                        engine.LastUpdateCheck = DateTime.UtcNow.ToString("s") + "Z";
+                        engine.SaveSettings();
+                    }
                 }
                 catch { }
 
@@ -4688,7 +4872,27 @@ namespace FastDownloader
                             headers = (Dictionary<string, object>)data["headers"];
                         }
 
-                        var pending = engine.AddPending(url, title, filename, category, quality, cookies, userAgent, referer, headers);
+                        // Only automatic browser interceptions are deduplicated.
+                        // Explicit user-initiated requests may always download again.
+                        // Older extension versions did not send autoIntercept.
+                        // Only explicit/manual invocations are exempt from deduplication.
+                        bool userInitiated = data != null && (
+                            (data.ContainsKey("userInitiated") &&
+                             Convert.ToString(data["userInitiated"]).Equals("true", StringComparison.OrdinalIgnoreCase)) ||
+                            (data.ContainsKey("type") && !data.ContainsKey("autoIntercept")));
+                        bool automatic = !userInitiated;
+                        if (automatic && !engine.ReserveAutomaticIntercept(url, referer))
+                        {
+                            var ignored = new { ok = true, suppressed = true, reason = "already_active_or_recent" };
+                            string ignoredJson = JsonHelper.Serialize(ignored);
+                            byte[] ignoredBytes = Encoding.UTF8.GetBytes(ignoredJson);
+                            SendHeaders(writer, 200, "OK", "application/json; charset=utf-8", ignoredBytes.Length);
+                            writer.Write(ignoredJson);
+                            writer.Flush();
+                            return;
+                        }
+
+                        var pending = engine.AddPending(url, title, filename, category, quality, cookies, userAgent, referer, headers, automatic);
 
                         // Prompt Native IDM-Style Download Confirmation Dialog
                         if (DownloaderAppContext.Instance != null)
@@ -5243,397 +5447,320 @@ namespace FastDownloader
         }
     }
 
+    // Minimal pre-download sheet: only the decisions the user actually needs.
+    // Unlike the legacy 560x395 window there is no fake turbo/resume marketing.
     public class DownloadConfirmDialog : Form
     {
         public bool Confirmed { get; private set; }
         public bool StartNow { get; private set; }
-        public string FileName { get { return txtFileName != null ? txtFileName.Text.Trim() : ""; } }
-        public string SaveDirectory { get { return txtSaveDir != null ? txtSaveDir.Text.Trim() : ""; } }
-        public string Category { get { return cmbCategory != null && cmbCategory.SelectedItem != null ? cmbCategory.SelectedItem.ToString() : "General"; } }
+        public string FileName { get { return txtFileName.Text.Trim(); } }
+        public string SaveDirectory { get { return txtSaveDir.Text.Trim(); } }
+        public string Category {
+            get { return cmbCategory.SelectedItem != null ?
+                cmbCategory.SelectedItem.ToString() : "General"; }
+        }
 
-        private TextBox txtUrl;
-        private ComboBox cmbCategory;
-        private TextBox txtFileName;
-        private TextBox txtSaveDir;
-        private Button btnBrowse;
-        private Button btnStart;
-        private Button btnLater;
-        private Button btnCancel;
+        private readonly TextBox txtFileName;
+        private readonly TextBox txtSaveDir;
+        private readonly ComboBox cmbCategory;
+        private readonly Button btnStart;
+        private readonly Button btnLater;
+        private readonly Button btnCancel;
+        private readonly ToolTip tooltip;
+        private readonly string baseDownloadsFolder;
+        private Point dragScreenStart;
+        private Point dragWindowStart;
+        private bool dragging;
+
+        private static readonly Color BackgroundInk = Color.FromArgb(16, 21, 30);
+        private static readonly Color InputInk = Color.FromArgb(30, 38, 51);
+        private static readonly Color SecondaryInk = Color.FromArgb(160, 178, 198);
+        private static readonly Color AccentMint = Color.FromArgb(53, 216, 169);
 
         protected override CreateParams CreateParams
         {
             get
             {
-                CreateParams cp = base.CreateParams;
-                cp.ExStyle |= 0x00000008; // WS_EX_TOPMOST
-                return cp;
+                CreateParams p = base.CreateParams;
+                p.ExStyle |= 0x00000008;
+                p.ClassStyle |= 0x00020000;
+                return p;
             }
         }
 
         public DownloadConfirmDialog(PendingDownloadInfo pending, string baseDownloadsFolder)
         {
+            this.baseDownloadsFolder = baseDownloadsFolder;
             Confirmed = false;
             StartNow = true;
+            Text = "FastDownloader - New download";
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = true;
+            StartPosition = FormStartPosition.CenterScreen;
+            TopMost = true;
+            AutoScaleMode = AutoScaleMode.Font;
+            ClientSize = new Size(520, 326);
+            BackColor = BackgroundInk;
+            ForeColor = Color.White;
+            Font = new Font("Segoe UI", 9F);
+            tooltip = new ToolTip { AutoPopDelay = 15000, InitialDelay = 250, ReshowDelay = 150 };
+            UpdateCornerRegion();
 
-            this.Text = "Download File Info - FastDownloader";
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
-            this.MinimizeBox = false;
-            this.ShowInTaskbar = true;
-            this.StartPosition = FormStartPosition.CenterScreen;
-            this.TopMost = true;
-            this.ClientSize = new Size(560, 395);
-            this.BackColor = Color.FromArgb(24, 25, 29);
-            this.ForeColor = Color.FromArgb(235, 238, 245);
-            this.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
+            string sourceUrl = pending != null ? pending.url ?? "" : "";
+            string pendingCat = pending != null && !string.IsNullOrWhiteSpace(pending.category) ?
+                pending.category : "General";
+            if (pendingCat == "General" && MediaUrlHelper.IsMediaPlatformUrl(sourceUrl))
+                pendingCat = "Video";
 
+            Panel header = new Panel {
+                Location = new Point(0, 0), Size = new Size(520, 66),
+                BackColor = Color.FromArgb(21, 28, 39)
+            };
+            Label heading = new Label {
+                Text = "New download", Location = new Point(20, 10),
+                Size = new Size(410, 27),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 12.5F, FontStyle.Bold)
+            };
+            Label subtitle = new Label {
+                Text = "Save this file to your computer",
+                Location = new Point(21, 37), Size = new Size(425, 20),
+                ForeColor = SecondaryInk, Font = new Font("Segoe UI", 8.5F)
+            };
+            Button exit = new Button {
+                Text = "×", Location = new Point(477, 14), Size = new Size(28, 28),
+                FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(34, 43, 57),
+                ForeColor = SecondaryInk, Cursor = Cursors.Hand,
+                Font = new Font("Segoe UI", 12F)
+            };
+            exit.FlatAppearance.BorderSize = 0;
+            exit.Click += (s, e) => CancelDownload();
+            header.Controls.Add(heading);
+            header.Controls.Add(subtitle);
+            header.Controls.Add(exit);
+            Controls.Add(header);
+            foreach (Control c in new Control[] { header, heading, subtitle })
+            {
+                c.MouseDown += (s, e) => {
+                    dragging = e.Button == MouseButtons.Left;
+                    if (dragging) {
+                        dragScreenStart = Cursor.Position;
+                        dragWindowStart = Location;
+                    }
+                };
+                c.MouseMove += (s, e) => {
+                    if (!dragging || e.Button != MouseButtons.Left) return;
+                    Point p = Cursor.Position;
+                    Location = new Point(dragWindowStart.X + p.X - dragScreenStart.X,
+                        dragWindowStart.Y + p.Y - dragScreenStart.Y);
+                };
+                c.MouseUp += (s, e) => dragging = false;
+            }
+
+            Controls.Add(Caption("FILE NAME", 20, 77, 465));
+            string initialName = pending != null ? pending.filename : "";
+            string previousName = (initialName ?? "").ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(initialName) || previousName == "browser download" ||
+                previousName == "download" || previousName == "main" ||
+                previousName.Contains("unknown_video") || previousName == "facebook")
+            {
+                string candidate = pending != null ? pending.title ?? "" : "";
+                string lower = candidate.ToLowerInvariant();
+                initialName = !string.IsNullOrWhiteSpace(candidate) && lower != "browser download" &&
+                    lower != "download" && lower != "main" && !lower.Contains("unknown_video") ?
+                    candidate : "Download_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            }
+            if (string.IsNullOrEmpty(Path.GetExtension(initialName)))
+            {
+                if (pendingCat == "Video") initialName += ".mp4";
+                else if (pendingCat == "Music") initialName += ".mp3";
+            }
+            txtFileName = Editor(new Point(20, 99), new Size(480, 28), initialName);
+            if (Regex.IsMatch(initialName, @"[\u0600-\u06FF]"))
+                txtFileName.RightToLeft = RightToLeft.Yes;
+            txtFileName.TabIndex = 0;
+            Controls.Add(txtFileName);
+
+            Controls.Add(Caption("SAVE TO", 20, 141, 470));
+            // Category never silently changes the user's chosen download directory.
+            txtSaveDir = Editor(new Point(20, 162), new Size(370, 28),
+                baseDownloadsFolder ?? "");
+            txtSaveDir.TabIndex = 1;
+            Controls.Add(txtSaveDir);
+            Button browse = ActionButton("Browse", new Point(402, 161), new Size(98, 30), false);
+            browse.TabIndex = 2;
+            browse.Click += (s, e) => {
+                using (var dialog = new FolderBrowserDialog())
+                {
+                    dialog.Description = "Choose a folder for this download";
+                    dialog.SelectedPath = Directory.Exists(txtSaveDir.Text) ?
+                        txtSaveDir.Text : this.baseDownloadsFolder;
+                    dialog.ShowNewFolderButton = true;
+                    if (dialog.ShowDialog(this) == DialogResult.OK)
+                        txtSaveDir.Text = dialog.SelectedPath;
+                }
+            };
+            Controls.Add(browse);
+
+            Controls.Add(Caption("CATEGORY", 20, 204, 157));
+            cmbCategory = new ComboBox {
+                Location = new Point(20, 225), Size = new Size(168, 28),
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor = InputInk, ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9F),
+                TabIndex = 3
+            };
+            cmbCategory.Items.AddRange(new object[] {
+                "General", "Compressed", "Programs", "Video", "Music", "Documents"
+            });
+            int ci = cmbCategory.Items.IndexOf(pendingCat);
+            cmbCategory.SelectedIndex = ci < 0 ? 0 : ci;
+            Controls.Add(cmbCategory);
+
+            Controls.Add(Caption("SOURCE", 207, 204, 286));
+            string sourceLabel = "Direct link";
             try
             {
-                string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
-                if (File.Exists(icoPath)) this.Icon = new Icon(icoPath);
+                Uri uri = new Uri(sourceUrl);
+                sourceLabel = uri.Host.StartsWith("www.") ? uri.Host.Substring(4) : uri.Host;
             }
             catch { }
-
-            // 1. Header Panel
-            Panel headerPanel = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 54,
-                BackColor = Color.FromArgb(18, 19, 22)
-            };
-
-            Label lblHeaderTitle = new Label
-            {
-                Text = "⚡ Download File Info",
-                Font = new Font("Segoe UI", 11F, FontStyle.Bold),
-                ForeColor = Color.White,
-                Location = new Point(16, 8),
-                AutoSize = true
-            };
-
-            Label lblHeaderSub = new Label
-            {
-                Text = "Confirm destination folder and filename before transfer starts",
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(150, 155, 168),
-                Location = new Point(17, 30),
-                AutoSize = true
-            };
-
-            Panel headerBorder = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 1,
-                BackColor = Color.FromArgb(40, 42, 50)
-            };
-
-            headerPanel.Controls.Add(lblHeaderTitle);
-            headerPanel.Controls.Add(lblHeaderSub);
-            headerPanel.Controls.Add(headerBorder);
-            this.Controls.Add(headerPanel);
-
-            // 2. Main Body Content
-            Panel bodyPanel = new Panel
-            {
-                Location = new Point(16, 64),
-                Size = new Size(528, 260)
-            };
-
-            // URL Row
-            Label lblUrl = new Label
-            {
-                Text = "URL:",
-                Location = new Point(0, 4),
-                Size = new Size(80, 20),
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(160, 165, 175)
-            };
-            txtUrl = new TextBox
-            {
-                Location = new Point(85, 2),
-                Size = new Size(440, 23),
-                ReadOnly = true,
-                BackColor = Color.FromArgb(32, 34, 40),
-                ForeColor = Color.FromArgb(200, 205, 215),
-                BorderStyle = BorderStyle.FixedSingle,
-                Text = pending != null && !string.IsNullOrEmpty(pending.url) ? pending.url : ""
-            };
-            bodyPanel.Controls.Add(lblUrl);
-            bodyPanel.Controls.Add(txtUrl);
-
-            // Category Row
-            Label lblCat = new Label
-            {
-                Text = "Category:",
-                Location = new Point(0, 36),
-                Size = new Size(80, 20),
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(160, 165, 175)
-            };
-            cmbCategory = new ComboBox
-            {
-                Location = new Point(85, 33),
-                Size = new Size(200, 23),
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                BackColor = Color.FromArgb(32, 34, 40),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat
-            };
-            cmbCategory.Items.AddRange(new object[] { "General", "Compressed", "Programs", "Video", "Music", "Documents" });
-            string pendingCat = pending != null && !string.IsNullOrEmpty(pending.category) ? pending.category : "General";
-            int catIdx = cmbCategory.Items.IndexOf(pendingCat);
-            cmbCategory.SelectedIndex = catIdx >= 0 ? catIdx : 0;
-            bodyPanel.Controls.Add(lblCat);
-            bodyPanel.Controls.Add(cmbCategory);
-
-            // File Name Row
-            Label lblFileName = new Label
-            {
-                Text = "File Name:",
-                Location = new Point(0, 68),
-                Size = new Size(80, 20),
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(160, 165, 175)
-            };
-
-            string initName = pending != null ? pending.filename : "download";
-            string lowerName = (initName ?? "").ToLowerInvariant();
-            if (string.IsNullOrEmpty(initName) || lowerName == "browser download" || lowerName == "main" || lowerName.Contains("unknown_video") || lowerName == "facebook")
-            {
-                string pTitle = pending != null && !string.IsNullOrEmpty(pending.title) ? pending.title : "";
-                string pTitleLower = pTitle.ToLowerInvariant();
-                if (!string.IsNullOrEmpty(pTitle) && pTitleLower != "browser download" && pTitleLower != "main" && !pTitleLower.Contains("unknown_video") && pTitleLower != "facebook")
-                {
-                    initName = pTitle;
-                }
-                else
-                {
-                    initName = "Video_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                }
-            }
-            if (string.IsNullOrEmpty(Path.GetExtension(initName)))
-            {
-                if (pendingCat == "Video" || (pending != null && pending.type == "video")) initName += ".mp4";
-                else if (pendingCat == "Music" || (pending != null && pending.type == "audio")) initName += ".mp3";
-                else if (pendingCat == "Programs") initName += ".exe";
-                else if (pendingCat == "Compressed") initName += ".zip";
-                else if (pendingCat == "Documents") initName += ".pdf";
-            }
-
-            txtFileName = new TextBox
-            {
-                Location = new Point(85, 65),
-                Size = new Size(440, 23),
-                BackColor = Color.FromArgb(32, 34, 40),
-                ForeColor = Color.White,
-                BorderStyle = BorderStyle.FixedSingle,
-                Text = initName
-            };
-            bodyPanel.Controls.Add(lblFileName);
-            bodyPanel.Controls.Add(txtFileName);
-
-            // Save To Row
-            Label lblSaveTo = new Label
-            {
-                Text = "Save To:",
-                Location = new Point(0, 100),
-                Size = new Size(80, 20),
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(160, 165, 175)
-            };
-
-            string initDir = baseDownloadsFolder;
-            if (pendingCat != "General" && pendingCat != "Default" && !string.IsNullOrEmpty(pendingCat))
-            {
-                initDir = Path.Combine(baseDownloadsFolder, pendingCat);
-            }
-
-            txtSaveDir = new TextBox
-            {
-                Location = new Point(85, 97),
-                Size = new Size(345, 23),
-                BackColor = Color.FromArgb(32, 34, 40),
-                ForeColor = Color.White,
-                BorderStyle = BorderStyle.FixedSingle,
-                Text = initDir
-            };
-
-            btnBrowse = new Button
-            {
-                Location = new Point(438, 96),
-                Size = new Size(87, 25),
-                Text = "Browse...",
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(42, 45, 55),
-                ForeColor = Color.White,
-                Cursor = Cursors.Hand
-            };
-            btnBrowse.FlatAppearance.BorderColor = Color.FromArgb(60, 64, 76);
-            btnBrowse.Click += (s, e) =>
-            {
-                using (var fbd = new FolderBrowserDialog())
-                {
-                    fbd.Description = "Select Destination Folder for Download";
-                    fbd.SelectedPath = Directory.Exists(txtSaveDir.Text) ? txtSaveDir.Text : baseDownloadsFolder;
-                    fbd.ShowNewFolderButton = true;
-                    if (fbd.ShowDialog(this) == DialogResult.OK)
-                    {
-                        txtSaveDir.Text = fbd.SelectedPath;
-                    }
-                }
-            };
-
-            cmbCategory.SelectedIndexChanged += (s, e) =>
-            {
-                string selCat = cmbCategory.SelectedItem != null ? cmbCategory.SelectedItem.ToString() : "General";
-                if (selCat == "General" || selCat == "Default")
-                {
-                    txtSaveDir.Text = baseDownloadsFolder;
-                }
-                else
-                {
-                    txtSaveDir.Text = Path.Combine(baseDownloadsFolder, selCat);
-                }
-            };
-
-            bodyPanel.Controls.Add(lblSaveTo);
-            bodyPanel.Controls.Add(txtSaveDir);
-            bodyPanel.Controls.Add(btnBrowse);
-
-            // Info Card Box
-            Panel infoCard = new Panel
-            {
-                Location = new Point(0, 134),
-                Size = new Size(525, 90),
-                BackColor = Color.FromArgb(18, 19, 22),
-                BorderStyle = BorderStyle.FixedSingle
-            };
-
-            string sz = pending != null && !string.IsNullOrEmpty(pending.sizeFormatted) ? pending.sizeFormatted : "Direct Stream";
-            Label lblSize = new Label
-            {
-                Text = "📦 File Size:  " + sz,
-                Location = new Point(14, 10),
-                AutoSize = true,
+            Label source = new Label {
+                Text = sourceLabel, Location = new Point(207, 226),
+                Size = new Size(285, 26), AutoEllipsis = true,
+                ForeColor = Color.FromArgb(211, 225, 240),
                 Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(220, 225, 235)
-            };
-
-            Label lblTurbo = new Label
-            {
-                Text = "⚡ Turbo Engine:  16x Multi-Thread Acceleration (aria2 / yt-dlp)",
-                Location = new Point(14, 34),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(16, 185, 129)
-            };
-
-            bool resumable = pending != null && pending.resumable;
-            Label lblResume = new Label
-            {
-                Text = "🔄 Resume Support:  " + (resumable ? "Yes (Byte-Range Chunking Supported)" : "Direct Web Transfer"),
-                Location = new Point(14, 58),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(6, 182, 212)
-            };
-
-            infoCard.Controls.Add(lblSize);
-            infoCard.Controls.Add(lblTurbo);
-            infoCard.Controls.Add(lblResume);
-            bodyPanel.Controls.Add(infoCard);
-
-            this.Controls.Add(bodyPanel);
-
-            // 3. Bottom Action Buttons Bar
-            Panel bottomPanel = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 56,
-                BackColor = Color.FromArgb(18, 19, 22)
-            };
-
-            Panel bottomBorder = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 1,
-                BackColor = Color.FromArgb(40, 42, 50)
-            };
-            bottomPanel.Controls.Add(bottomBorder);
-
-            btnStart = new Button
-            {
-                Text = "⚡ Start Download",
-                Location = new Point(125, 12),
-                Size = new Size(145, 34),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(16, 185, 129),
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleLeft,
                 Cursor = Cursors.Hand
             };
-            btnStart.FlatAppearance.BorderSize = 0;
-            btnStart.Click += (s, e) =>
-            {
-                Confirmed = true;
-                StartNow = true;
-                this.DialogResult = DialogResult.OK;
-                this.Close();
+            tooltip.SetToolTip(source, sourceUrl);
+            source.Click += (s, e) => {
+                if (!string.IsNullOrEmpty(sourceUrl))
+                {
+                    try { Clipboard.SetText(sourceUrl); tooltip.SetToolTip(source, "Link copied"); }
+                    catch { }
+                }
             };
+            Controls.Add(source);
 
-            btnLater = new Button
-            {
-                Text = "📋 Download Later",
-                Location = new Point(280, 12),
-                Size = new Size(135, 34),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(42, 45, 55),
-                ForeColor = Color.FromArgb(220, 225, 235),
-                Font = new Font("Segoe UI", 9F, FontStyle.Regular),
-                Cursor = Cursors.Hand
+            Panel footer = new Panel {
+                Dock = DockStyle.Bottom, Height = 60,
+                BackColor = Color.FromArgb(21, 28, 39)
             };
-            btnLater.FlatAppearance.BorderColor = Color.FromArgb(60, 64, 76);
-            btnLater.Click += (s, e) =>
-            {
-                Confirmed = true;
-                StartNow = false;
-                this.DialogResult = DialogResult.OK;
-                this.Close();
-            };
+            btnStart = ActionButton("Start download", new Point(20, 12),
+                new Size(190, 36), true);
+            btnStart.TabIndex = 4;
+            btnStart.Click += (s, e) => ConfirmDownload(true);
+            btnLater = ActionButton("Download later", new Point(220, 12),
+                new Size(145, 36), false);
+            btnLater.TabIndex = 5;
+            btnLater.Click += (s, e) => ConfirmDownload(false);
+            btnCancel = ActionButton("Cancel", new Point(375, 12),
+                new Size(125, 36), false);
+            btnCancel.TabIndex = 6;
+            btnCancel.Click += (s, e) => CancelDownload();
+            footer.Controls.Add(btnStart);
+            footer.Controls.Add(btnLater);
+            footer.Controls.Add(btnCancel);
+            Controls.Add(footer);
 
-            btnCancel = new Button
-            {
-                Text = "✕ Cancel",
-                Location = new Point(425, 12),
-                Size = new Size(100, 34),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(32, 34, 40),
-                ForeColor = Color.FromArgb(200, 205, 215),
-                Font = new Font("Segoe UI", 9F, FontStyle.Regular),
-                Cursor = Cursors.Hand
-            };
-            btnCancel.FlatAppearance.BorderColor = Color.FromArgb(50, 52, 60);
-            btnCancel.Click += (s, e) =>
-            {
-                Confirmed = false;
-                StartNow = false;
-                this.DialogResult = DialogResult.Cancel;
-                this.Close();
-            };
-
-            bottomPanel.Controls.Add(btnStart);
-            bottomPanel.Controls.Add(btnLater);
-            bottomPanel.Controls.Add(btnCancel);
-            this.Controls.Add(bottomPanel);
-
-            this.AcceptButton = btnStart;
-            this.CancelButton = btnCancel;
-
-            this.Load += (s, e) =>
-            {
+            AcceptButton = btnStart;
+            CancelButton = btnCancel;
+            Shown += (s, e) => {
                 txtFileName.Focus();
                 txtFileName.SelectAll();
             };
+            Resize += (s, e) => UpdateCornerRegion();
+            FormClosed += (s, e) => tooltip.Dispose();
+        }
+
+        private void ConfirmDownload(bool startNow)
+        {
+            string name = FileName;
+            if (string.IsNullOrWhiteSpace(name) || name == "." || name == ".." ||
+                name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
+                name.IndexOf('\\') >= 0 || name.IndexOf('/') >= 0)
+            {
+                MessageBox.Show(this, "Enter a valid file name.", "Check file name",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                txtFileName.Focus();
+                return;
+            }
+            try
+            {
+                if (string.IsNullOrWhiteSpace(SaveDirectory))
+                    throw new IOException("Please choose a destination folder.");
+                Directory.CreateDirectory(SaveDirectory);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Cannot use that folder: " + ex.Message, "Save location",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                txtSaveDir.Focus();
+                return;
+            }
+            Confirmed = true;
+            StartNow = startNow;
+            DialogResult = DialogResult.OK;
+            Close();
+        }
+
+        private void CancelDownload()
+        {
+            Confirmed = false;
+            StartNow = false;
+            DialogResult = DialogResult.Cancel;
+            Close();
+        }
+
+        private static TextBox Editor(Point p, Size s, string value)
+        {
+            return new TextBox {
+                Location = p, Size = s, Text = value ?? "",
+                BackColor = InputInk, ForeColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Segoe UI", 10F)
+            };
+        }
+
+        private static Label Caption(string text, int x, int y, int w)
+        {
+            return new Label {
+                Text = text, Location = new Point(x, y),
+                Size = new Size(w, 19), ForeColor = SecondaryInk,
+                Font = new Font("Segoe UI", 7.5F, FontStyle.Bold)
+            };
+        }
+
+        private static Button ActionButton(string title, Point p, Size s, bool primary)
+        {
+            Button button = new Button {
+                Text = title, Location = p, Size = s,
+                BackColor = primary ? AccentMint : Color.FromArgb(38, 49, 64),
+                ForeColor = primary ? BackgroundInk : Color.White,
+                Font = new Font("Segoe UI", 9F, primary ? FontStyle.Bold : FontStyle.Regular),
+                FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand
+            };
+            button.FlatAppearance.BorderSize = 0;
+            return button;
+        }
+
+        private void UpdateCornerRegion()
+        {
+            if (Width < 12 || Height < 12) return;
+            using (var path = new System.Drawing.Drawing2D.GraphicsPath())
+            {
+                const int diameter = 24;
+                path.AddArc(0, 0, diameter, diameter, 180, 90);
+                path.AddArc(Width - diameter, 0, diameter, diameter, 270, 90);
+                path.AddArc(Width - diameter, Height - diameter, diameter, diameter, 0, 90);
+                path.AddArc(0, Height - diameter, diameter, diameter, 90, 90);
+                path.CloseFigure();
+                Region old = Region;
+                Region = new Region(path);
+                if (old != null) old.Dispose();
+            }
         }
     }
 
@@ -5650,12 +5777,13 @@ namespace FastDownloader
         public string FilePath { get; set; }
         public string Url { get; set; }
         public string Engine { get; set; }
+        public string StatusMessage { get; set; }
         public int NumConnections { get; set; }
 
         public UnifiedTaskInfo()
         {
-            NumConnections = 16;
-            Status = "downloading";
+            NumConnections = 0;
+            Status = "connecting";
         }
     }
 
@@ -5686,24 +5814,46 @@ namespace FastDownloader
         {
             base.OnPaint(e);
             Graphics g = e.Graphics;
+            int w = ClientSize.Width;
+            int h = ClientSize.Height;
+            if (w < 2 || h < 2) return;
 
-            int w = this.ClientSize.Width;
-            int h = this.ClientSize.Height;
-            if (w <= 0 || h <= 0) return;
-
-            using (Pen borderPen = new Pen(Color.FromArgb(45, 48, 58)))
+            // Anti-aliased rounded rail reused by the transfer window and tray.
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.Clear(BackColor);
+            using (var rail = RoundedPath(new Rectangle(0, 0, w, h), h / 2))
+            using (var railBrush = new SolidBrush(Color.FromArgb(48, 57, 71)))
             {
-                g.DrawRectangle(borderPen, 0, 0, w - 1, h - 1);
+                g.FillPath(railBrush, rail);
             }
 
-            int fillWidth = (int)((val / 100.0) * (w - 2));
-            if (fillWidth > 0)
+            int filled = (int)Math.Round((val / 100.0) * w);
+            if (filled > 0)
             {
-                using (Brush brush = new SolidBrush(Color.FromArgb(16, 185, 129)))
+                using (var fillBrush = new SolidBrush(Color.FromArgb(36, 199, 151)))
                 {
-                    g.FillRectangle(brush, 1, 1, fillWidth, h - 2);
+                    if (filled < 4)
+                        g.FillRectangle(fillBrush, 0, 0, filled, h);
+                    else
+                    {
+                        using (var fill = RoundedPath(new Rectangle(0, 0, filled, h),
+                            Math.Min(h / 2, filled / 2)))
+                            g.FillPath(fillBrush, fill);
+                    }
                 }
             }
+        }
+
+        private static System.Drawing.Drawing2D.GraphicsPath RoundedPath(Rectangle rect, int radius)
+        {
+            var path = new System.Drawing.Drawing2D.GraphicsPath();
+            int d = Math.Max(2, radius * 2);
+            path.AddArc(rect.Left, rect.Top, d, d, 180, 90);
+            path.AddArc(rect.Right - d, rect.Top, d, d, 270, 90);
+            path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
+            path.AddArc(rect.Left, rect.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
         }
     }
 
@@ -5771,702 +5921,767 @@ namespace FastDownloader
         }
     }
 
+    // Compact transfer window: engine-reported metrics only, no simulated streams.
     public class DownloadProgressDialog : Form
     {
-        private EngineManager engine;
-        private string gid;
-        private string filename;
-        private string url;
-        private string saveDir;
+        private readonly EngineManager engine;
+        private readonly string gid;
+        private readonly string saveDir;
+        private readonly System.Windows.Forms.Timer pollTimer;
+        private readonly Label lblStatus;
+        private readonly Label lblPct;
+        private readonly Label lblSizeInfo;
+        private readonly Label lblSpeed;
+        private readonly Label lblTimeLeft;
+        private readonly Label lblResume;
+        private readonly Label lblConnections;
+        private readonly ModernProgressBar progBar;
+        private readonly CheckBox chkOpenComplete;
+        private readonly CheckBox chkShutdown;
+        private readonly Button btnPauseResume;
+        private readonly Button btnCancel;
+        private readonly Button btnHide;
+        private readonly ToolTip statusTooltip;
 
-        private System.Windows.Forms.Timer pollTimer;
-        private Label lblFileName;
-        private Label lblStatus;
-        private ModernProgressBar progBar;
-        private Label lblPct;
-        private ChunkVisualizerPanel chunkVisualizer;
-        private Label lblSizeInfo;
-        private Label lblSpeed;
-        private Label lblTimeLeft;
-        private Label lblResume;
-        private Label lblConnections;
-        private CheckBox chkOpenComplete;
-        private CheckBox chkShutdown;
-        private Button btnPauseResume;
-        private Button btnCancel;
-        private Button btnHide;
-
-        private bool isPaused = false;
-        private bool hasCompleted = false;
+        private bool isPaused;
+        private bool hasCompleted;
+        private readonly DateTime openedAt = DateTime.UtcNow;
+        private static readonly Color Surface = Color.FromArgb(20, 24, 32);
+        private static readonly Color PanelColor = Color.FromArgb(29, 35, 45);
+        private static readonly Color Secondary = Color.FromArgb(163, 179, 197);
+        private static readonly Color Accent = Color.FromArgb(36, 199, 151);
 
         public DownloadProgressDialog(EngineManager engine, string gid, string filename, string url, string saveDir)
         {
             this.engine = engine;
             this.gid = gid;
-            this.filename = filename;
-            this.url = url;
             this.saveDir = saveDir;
 
-            this.Text = "Download Status: " + filename;
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
-            this.MinimizeBox = true;
-            this.ShowInTaskbar = true;
-            this.StartPosition = FormStartPosition.CenterScreen;
-            this.ClientSize = new Size(540, 352);
-            this.BackColor = Color.FromArgb(24, 25, 29);
-            this.ForeColor = Color.FromArgb(235, 238, 245);
-            this.Font = new Font("Segoe UI", 9F);
+            // Keep the native title bar short even for very long Arabic video titles.
+            Text = "FastDownloader - Transfer";
+            FormBorderStyle = FormBorderStyle.FixedSingle;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowInTaskbar = true;
+            StartPosition = FormStartPosition.CenterScreen;
+            AutoScaleMode = AutoScaleMode.Font;
+            ClientSize = new Size(452, 306);
+            BackColor = Surface;
+            ForeColor = Color.White;
+            Font = new Font("Segoe UI", 9F);
 
             try
             {
-                string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
-                if (File.Exists(icoPath)) this.Icon = new Icon(icoPath);
+                string iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
+                if (File.Exists(iconPath)) Icon = new Icon(iconPath);
             }
             catch { }
 
-            // 1. Header Panel
-            Panel topPanel = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 52,
-                BackColor = Color.FromArgb(18, 19, 22)
+            statusTooltip = new ToolTip { AutoPopDelay = 10000, InitialDelay = 350, ReshowDelay = 250 };
+
+            Panel header = new Panel { Dock = DockStyle.Top, Height = 76, BackColor = Surface };
+            Label brand = new Label {
+                Text = "FASTDOWNLOADER  /  TRANSFER", Location = new Point(17, 7),
+                Size = new Size(410, 19), ForeColor = Accent,
+                Font = new Font("Segoe UI", 8F, FontStyle.Bold)
             };
-
-            lblFileName = new Label
-            {
-                Text = "⚡ " + (filename.Length > 55 ? filename.Substring(0, 52) + "..." : filename),
-                Font = new Font("Segoe UI", 10.5F, FontStyle.Bold),
-                ForeColor = Color.White,
-                Location = new Point(14, 8),
-                Size = new Size(510, 20),
-                AutoEllipsis = true
-            };
-
-            lblStatus = new Label
-            {
-                Text = "⚡ Status: Downloading (16x Turbo Chunks)...",
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(16, 185, 129),
-                Location = new Point(15, 29),
-                AutoSize = true
-            };
-
-            Panel headerBorder = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 1,
-                BackColor = Color.FromArgb(40, 42, 50)
-            };
-
-            topPanel.Controls.Add(lblFileName);
-            topPanel.Controls.Add(lblStatus);
-            topPanel.Controls.Add(headerBorder);
-            this.Controls.Add(topPanel);
-
-            // 2. Progress Section
-            progBar = new ModernProgressBar
-            {
-                Location = new Point(16, 62),
-                Size = new Size(440, 22)
-            };
-            this.Controls.Add(progBar);
-
-            lblPct = new Label
-            {
-                Text = "0%",
-                Location = new Point(462, 63),
-                Size = new Size(60, 20),
+            Label fileTitle = new Label {
+                Text = string.IsNullOrWhiteSpace(filename) ? "New download" : filename,
+                Location = new Point(17, 27), Size = new Size(418, 22),
                 Font = new Font("Segoe UI", 10F, FontStyle.Bold),
-                ForeColor = Color.White
+                ForeColor = Color.White, AutoEllipsis = true
             };
-            this.Controls.Add(lblPct);
-
-            // 3. Chunk Visualizer
-            Label lblChunkTitle = new Label
-            {
-                Text = "Connection Streams (16 parallel chunk segments):",
-                Location = new Point(16, 90),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 7.5F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(156, 163, 175)
+            lblStatus = new Label {
+                Text = "Connecting to source...", Location = new Point(17, 52),
+                Size = new Size(418, 19), ForeColor = Secondary,
+                Font = new Font("Segoe UI", 8.5F), AutoEllipsis = true
             };
-            this.Controls.Add(lblChunkTitle);
+            statusTooltip.SetToolTip(fileTitle, filename ?? "");
+            if (!string.IsNullOrEmpty(url)) statusTooltip.SetToolTip(brand, url);
+            header.Controls.Add(brand);
+            header.Controls.Add(fileTitle);
+            header.Controls.Add(lblStatus);
+            Controls.Add(header);
 
-            chunkVisualizer = new ChunkVisualizerPanel
-            {
-                Location = new Point(16, 107),
-                Size = new Size(508, 15)
+            progBar = new ModernProgressBar {
+                Location = new Point(17, 89), Size = new Size(349, 10)
             };
-            this.Controls.Add(chunkVisualizer);
-
-            // 4. Statistics Card
-            Panel statsCard = new Panel
-            {
-                Location = new Point(16, 128),
-                Size = new Size(508, 86),
-                BackColor = Color.FromArgb(18, 19, 22),
-                BorderStyle = BorderStyle.FixedSingle
+            Controls.Add(progBar);
+            lblPct = new Label {
+                Text = "--", Location = new Point(375, 83),
+                Size = new Size(61, 24), TextAlign = ContentAlignment.MiddleRight,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold)
             };
+            Controls.Add(lblPct);
 
-            lblSizeInfo = new Label
-            {
-                Text = "📦 Downloaded: 0 B / Calculating...",
-                Location = new Point(12, 10),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(209, 213, 219)
+            Panel stats = new Panel {
+                Location = new Point(14, 112), Size = new Size(424, 67),
+                BackColor = PanelColor
             };
+            stats.Controls.Add(StatCaption("DOWNLOADED", 12, 8, 145));
+            stats.Controls.Add(StatCaption("SPEED", 164, 8, 108));
+            stats.Controls.Add(StatCaption("TIME LEFT", 288, 8, 122));
+            lblSizeInfo = StatValue("0 B / unknown", 12, 29, 147);
+            lblSpeed = StatValue("0 B/s", 164, 29, 112);
+            lblTimeLeft = StatValue("Waiting", 288, 29, 121);
+            stats.Controls.Add(lblSizeInfo);
+            stats.Controls.Add(lblSpeed);
+            stats.Controls.Add(lblTimeLeft);
+            Controls.Add(stats);
 
-            lblSpeed = new Label
-            {
-                Text = "🚀 Transfer rate: 0 B/s",
-                Location = new Point(12, 34),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(16, 185, 129)
+            lblConnections = new Label {
+                Text = "Connections: --", Location = new Point(17, 186),
+                Size = new Size(156, 20), ForeColor = Secondary,
+                Font = new Font("Segoe UI", 8F), AutoEllipsis = true
             };
-
-            lblTimeLeft = new Label
-            {
-                Text = "⏱ Time left: Calculating...",
-                Location = new Point(12, 58),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(6, 182, 212)
+            lblResume = new Label {
+                Text = "Resume: depends on source", Location = new Point(177, 186),
+                Size = new Size(258, 20), ForeColor = Secondary,
+                Font = new Font("Segoe UI", 8F), AutoEllipsis = true
             };
+            Controls.Add(lblConnections);
+            Controls.Add(lblResume);
 
-            lblResume = new Label
-            {
-                Text = "🔄 Resume: Supported",
-                Location = new Point(280, 10),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(156, 163, 175)
+            chkOpenComplete = new CheckBox {
+                Text = "Open when complete", Location = new Point(17, 209),
+                Size = new Size(200, 22), ForeColor = Secondary,
+                Font = new Font("Segoe UI", 8.5F)
             };
-
-            lblConnections = new Label
-            {
-                Text = "⚡ Active Streams: 16 Chunks",
-                Location = new Point(280, 34),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(156, 163, 175)
+            chkShutdown = new CheckBox {
+                // The existing action puts Windows to sleep; do not label it as power off.
+                Text = "Sleep PC when done", Location = new Point(232, 209),
+                Size = new Size(205, 22), ForeColor = Secondary,
+                Font = new Font("Segoe UI", 8.5F)
             };
+            Controls.Add(chkOpenComplete);
+            Controls.Add(chkShutdown);
 
-            statsCard.Controls.Add(lblSizeInfo);
-            statsCard.Controls.Add(lblSpeed);
-            statsCard.Controls.Add(lblTimeLeft);
-            statsCard.Controls.Add(lblResume);
-            statsCard.Controls.Add(lblConnections);
-            this.Controls.Add(statsCard);
-
-            // 5. Options Checkboxes
-            chkOpenComplete = new CheckBox
-            {
-                Text = "Open file when complete",
-                Location = new Point(18, 222),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 8.5F),
-                ForeColor = Color.FromArgb(209, 213, 219)
+            Label limitLabel = new Label {
+                Text = "Speed limit", Location = new Point(17, 236),
+                Size = new Size(78, 18), ForeColor = Secondary,
+                Font = new Font("Segoe UI", 8F)
             };
-            this.Controls.Add(chkOpenComplete);
-
-            chkShutdown = new CheckBox
-            {
-                Text = "Turn off computer when done",
-                Location = new Point(260, 222),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 8.5F),
-                ForeColor = Color.FromArgb(209, 213, 219)
+            ComboBox cmbSpeedLimit = new ComboBox {
+                Location = new Point(99, 232), Size = new Size(158, 24),
+                DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat,
+                BackColor = PanelColor, ForeColor = Color.White
             };
-            this.Controls.Add(chkShutdown);
-
-            // Speed Limiter Control (IDM Feature)
-            Label lblSpeedLimit = new Label
-            {
-                Text = "Speed Limiter:",
-                Location = new Point(18, 252),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(160, 165, 175)
-            };
-            this.Controls.Add(lblSpeedLimit);
-
-            ComboBox cmbSpeedLimit = new ComboBox
-            {
-                Location = new Point(115, 248),
-                Size = new Size(140, 23),
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                BackColor = Color.FromArgb(32, 34, 40),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat
-            };
-            cmbSpeedLimit.Items.AddRange(new object[] { "🚀 Maximum / Unlimited", "🐌 500 KB/s", "⚡ 1 MB/s", "⚡ 2 MB/s", "⚡ 5 MB/s", "⚡ 10 MB/s" });
+            cmbSpeedLimit.Items.AddRange(new object[] {
+                "Unlimited", "500 KB/s", "1 MB/s", "2 MB/s", "5 MB/s", "10 MB/s"
+            });
             cmbSpeedLimit.SelectedIndex = 0;
-            cmbSpeedLimit.SelectedIndexChanged += (s, e) =>
-            {
-                string sel = cmbSpeedLimit.SelectedItem != null ? cmbSpeedLimit.SelectedItem.ToString() : "";
-                if (sel.Contains("Unlimited") || sel.Contains("Maximum")) engine.SetSpeedLimit("0");
-                else if (sel.Contains("500 KB")) engine.SetSpeedLimit("500K");
-                else if (sel.Contains("1 MB")) engine.SetSpeedLimit("1M");
-                else if (sel.Contains("2 MB")) engine.SetSpeedLimit("2M");
-                else if (sel.Contains("5 MB")) engine.SetSpeedLimit("5M");
-                else if (sel.Contains("10 MB")) engine.SetSpeedLimit("10M");
+            cmbSpeedLimit.SelectedIndexChanged += (s, e) => {
+                switch (cmbSpeedLimit.SelectedIndex)
+                {
+                    case 0: engine.SetSpeedLimit("0"); break;
+                    case 1: engine.SetSpeedLimit("500K"); break;
+                    case 2: engine.SetSpeedLimit("1M"); break;
+                    case 3: engine.SetSpeedLimit("2M"); break;
+                    case 4: engine.SetSpeedLimit("5M"); break;
+                    case 5: engine.SetSpeedLimit("10M"); break;
+                }
             };
-            this.Controls.Add(cmbSpeedLimit);
+            Controls.Add(limitLabel);
+            Controls.Add(cmbSpeedLimit);
 
-            // 6. Bottom Buttons Bar
-            Panel bottomPanel = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 52,
-                BackColor = Color.FromArgb(18, 19, 22)
+            Panel footer = new Panel {
+                Dock = DockStyle.Bottom, Height = 47,
+                BackColor = Color.FromArgb(26, 31, 41)
             };
+            btnPauseResume = ActionButton("Pause", 128, 99, false);
+            btnCancel = ActionButton("Cancel", 234, 96, false);
+            btnHide = ActionButton("Hide", 337, 98, true);
 
-            Panel bottomBorder = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 1,
-                BackColor = Color.FromArgb(40, 42, 50)
-            };
-            bottomPanel.Controls.Add(bottomBorder);
-
-            btnPauseResume = new Button
-            {
-                Text = "⏸ Pause",
-                Location = new Point(200, 10),
-                Size = new Size(95, 32),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(42, 45, 55),
-                ForeColor = Color.White,
-                Cursor = Cursors.Hand
-            };
-            btnPauseResume.FlatAppearance.BorderColor = Color.FromArgb(60, 64, 76);
-            btnPauseResume.Click += (s, e) =>
-            {
+            btnPauseResume.Click += (s, e) => {
+                if (!btnPauseResume.Enabled) return;
                 if (isPaused)
                 {
                     engine.ResumeTask(gid);
                     isPaused = false;
-                    btnPauseResume.Text = "⏸ Pause";
-                    lblStatus.Text = "⚡ Status: Downloading...";
-                    lblStatus.ForeColor = Color.FromArgb(16, 185, 129);
+                    btnPauseResume.Text = "Pause";
+                    lblStatus.Text = "Reconnecting...";
+                    lblStatus.ForeColor = Secondary;
                 }
                 else
                 {
                     engine.PauseTask(gid);
                     isPaused = true;
-                    btnPauseResume.Text = "▶ Resume";
-                    lblStatus.Text = "⏸ Status: Paused";
-                    lblStatus.ForeColor = Color.FromArgb(245, 158, 11);
+                    btnPauseResume.Text = "Resume";
+                    lblStatus.Text = "Paused";
+                    lblStatus.ForeColor = Color.FromArgb(245, 176, 82);
                 }
             };
-
-            btnCancel = new Button
-            {
-                Text = "✕ Cancel",
-                Location = new Point(305, 10),
-                Size = new Size(95, 32),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(42, 45, 55),
-                ForeColor = Color.FromArgb(248, 113, 113),
-                Cursor = Cursors.Hand
-            };
-            btnCancel.FlatAppearance.BorderColor = Color.FromArgb(60, 64, 76);
-            btnCancel.Click += (s, e) =>
-            {
-                var r = MessageBox.Show(this, "Are you sure you want to stop and remove this download?", "Cancel Download", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-                if (r == DialogResult.Yes)
-                {
-                    pollTimer.Stop();
-                    engine.RemoveTask(gid);
-                    this.Close();
-                }
-            };
-
-            btnHide = new Button
-            {
-                Text = "🔽 Hide",
-                Location = new Point(410, 10),
-                Size = new Size(95, 32),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(32, 34, 40),
-                ForeColor = Color.FromArgb(156, 163, 175),
-                Cursor = Cursors.Hand
-            };
-            btnHide.FlatAppearance.BorderColor = Color.FromArgb(50, 52, 60);
-            btnHide.Click += (s, e) =>
-            {
+            btnCancel.Click += (s, e) => {
+                if (MessageBox.Show(this, "Remove this download from the list?",
+                    "Cancel download", MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question) != DialogResult.Yes) return;
                 pollTimer.Stop();
-                this.Close();
+                engine.RemoveTask(gid);
+                Close();
             };
+            btnHide.Click += (s, e) => Close();
 
-            bottomPanel.Controls.Add(btnPauseResume);
-            bottomPanel.Controls.Add(btnCancel);
-            bottomPanel.Controls.Add(btnHide);
-            this.Controls.Add(bottomPanel);
+            footer.Controls.Add(btnPauseResume);
+            footer.Controls.Add(btnCancel);
+            footer.Controls.Add(btnHide);
+            Controls.Add(footer);
 
-            // 7. Polling Timer
-            pollTimer = new System.Windows.Forms.Timer();
-            pollTimer.Interval = 300;
+            AcceptButton = btnHide;
+            CancelButton = btnHide;
+            pollTimer = new System.Windows.Forms.Timer { Interval = 500 };
             pollTimer.Tick += (s, e) => PollProgress();
+            Shown += (s, e) => PollProgress();
+            FormClosing += (s, e) => pollTimer.Stop();
             pollTimer.Start();
+        }
 
-            this.FormClosing += (s, e) =>
-            {
-                if (pollTimer != null) pollTimer.Stop();
+        private static Label StatCaption(string text, int x, int y, int w)
+        {
+            return new Label {
+                Text = text, Location = new Point(x, y), Size = new Size(w, 18),
+                Font = new Font("Segoe UI", 7.5F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(155, 171, 190)
             };
+        }
+
+        private static Label StatValue(string text, int x, int y, int w)
+        {
+            return new Label {
+                Text = text, Location = new Point(x, y), Size = new Size(w, 25),
+                AutoEllipsis = true,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Color.White
+            };
+        }
+
+        private static Button ActionButton(string label, int x, int width, bool primary)
+        {
+            Button button = new Button {
+                Text = label, Location = new Point(x, 8), Size = new Size(width, 30),
+                FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand,
+                Font = new Font("Segoe UI", 8.5F, primary ? FontStyle.Bold : FontStyle.Regular),
+                BackColor = primary ? Accent : Color.FromArgb(40, 48, 61),
+                ForeColor = primary ? Color.FromArgb(12, 36, 31) : Color.White
+            };
+            button.FlatAppearance.BorderSize = 0;
+            return button;
         }
 
         private void PollProgress()
         {
             if (hasCompleted) return;
-
-            var task = engine.GetTaskInfo(gid);
-            if (task == null) return;
+            UnifiedTaskInfo task = engine.GetTaskInfo(gid);
+            if (task == null)
+            {
+                lblStatus.Text = (DateTime.UtcNow - openedAt).TotalSeconds > 20 ?
+                    "Download engine not responding. Check the connection." :
+                    "Connecting to download engine...";
+                lblStatus.ForeColor = Color.FromArgb(245, 176, 82);
+                statusTooltip.SetToolTip(lblStatus, lblStatus.Text);
+                return;
+            }
 
             progBar.Value = task.Progress;
             lblPct.Text = task.TotalLength > 0 ?
-                Math.Min(100.0, task.CompletedLength * 100.0 / task.TotalLength).ToString("0.0", CultureInfo.InvariantCulture) + "%" :
-                (task.CompletedLength > 0 ? "Transferring..." : "Connecting...");
-            chunkVisualizer.UpdateProgress(task.Progress, task.Status == "downloading" || task.Status == "active");
-
-            string totalFormatted = task.TotalLength > 0 ? UrlProbeHelper.FormatBytes(task.TotalLength) : "Unknown";
-            lblSizeInfo.Text = "📦 Downloaded: " + UrlProbeHelper.FormatBytes(task.CompletedLength) + " of " + totalFormatted;
-            lblSpeed.Text = "🚀 Transfer rate: " + UrlProbeHelper.FormatBytes(task.DownloadSpeed) + "/s";
-            lblTimeLeft.Text = "⏱ Time left: " + (task.Eta > 0 ? UrlProbeHelper.FormatEta(task.Eta) : (task.Progress >= 100 ? "00:00" : "Calculating..."));
+                Math.Min(100.0, task.CompletedLength * 100.0 / task.TotalLength)
+                    .ToString("0.0", CultureInfo.InvariantCulture) + "%" :
+                (task.CompletedLength > 0 ? "..." : "--");
+            lblSizeInfo.Text = UrlProbeHelper.FormatBytes(task.CompletedLength) +
+                " / " + (task.TotalLength > 0 ? UrlProbeHelper.FormatBytes(task.TotalLength) : "unknown");
+            lblSpeed.Text = UrlProbeHelper.FormatBytes(task.DownloadSpeed) + "/s";
+            lblTimeLeft.Text = task.Eta > 0 ? UrlProbeHelper.FormatEta(task.Eta) :
+                (task.Progress >= 100 ? "00:00" :
+                 (task.CompletedLength == 0 ? "Waiting" : "Calculating"));
+            lblConnections.Text = task.Engine == "aria2" ?
+                "Connections: " + task.NumConnections.ToString(CultureInfo.InvariantCulture) :
+                "Video stream";
+            lblResume.Text = task.Engine == "yt-dlp" ?
+                "Resume: source-dependent" : "Resume: if supported";
+            lblPct.ForeColor = task.Status == "error" ? Color.FromArgb(248, 113, 113) : Color.White;
 
             if (task.Status == "paused" || task.Status == "waiting")
             {
                 isPaused = true;
-                btnPauseResume.Text = "▶ Resume";
-                lblStatus.Text = "⏸ Status: Paused";
-                lblStatus.ForeColor = Color.FromArgb(245, 158, 11);
+                btnPauseResume.Enabled = task.Status == "paused";
+                btnPauseResume.Text = "Resume";
+                lblStatus.Text = task.Status == "waiting" ? "Queued, waiting for a slot" : "Paused";
+                lblStatus.ForeColor = Color.FromArgb(245, 176, 82);
             }
-            else if (task.Status == "downloading" || task.Status == "active")
+            else if (task.Status == "downloading" || task.Status == "active" ||
+                     task.Status == "processing")
             {
                 isPaused = false;
-                btnPauseResume.Text = "⏸ Pause";
-                lblStatus.Text = "⚡ Status: Downloading...";
-                lblStatus.ForeColor = Color.FromArgb(16, 185, 129);
+                btnPauseResume.Enabled = true;
+                btnPauseResume.Text = "Pause";
+                lblStatus.Text = task.Status == "processing" ? "Finalizing video..." :
+                    (task.DownloadSpeed > 0 || task.CompletedLength > 0 ? "Receiving data..." :
+                    (!string.IsNullOrEmpty(task.StatusMessage) ?
+                        task.StatusMessage : "Connecting to source..."));
+                lblStatus.ForeColor = task.DownloadSpeed > 0 ? Accent : Secondary;
             }
-
-            if (task.Status == "complete" || task.Status == "completed")
+            else if (task.Status == "error" || task.Status == "removed")
             {
-                hasCompleted = true;
-                pollTimer.Stop();
-
-                string finalPath = task.FilePath;
-                if (string.IsNullOrEmpty(finalPath) && !string.IsNullOrEmpty(saveDir))
-                {
-                    finalPath = Path.Combine(saveDir, task.Name);
-                }
-
-                if (chkOpenComplete.Checked && !string.IsNullOrEmpty(finalPath) && File.Exists(finalPath))
-                {
-                    try { Process.Start(finalPath); } catch { }
-                }
-
-                if (chkShutdown.Checked)
-                {
-                    try { Application.SetSuspendState(PowerState.Suspend, false, false); } catch { }
-                }
-
-                this.Close();
-
-                if (DownloaderAppContext.Instance != null)
-                {
-                    DownloaderAppContext.Instance.ShowCompleteDialog(task.Gid, task.Name, finalPath, task.TotalLength);
-                }
+                isPaused = true;
+                bool canRetry = task.Engine == "yt-dlp" && task.Status == "error";
+                btnPauseResume.Enabled = canRetry;
+                btnPauseResume.Text = canRetry ? "Retry" : "Failed";
+                lblStatus.Text = !string.IsNullOrEmpty(task.StatusMessage) ?
+                    task.StatusMessage : "Transfer failed. Check the link.";
+                lblStatus.ForeColor = Color.FromArgb(248, 113, 113);
+                lblTimeLeft.Text = "--";
             }
+            statusTooltip.SetToolTip(lblStatus, lblStatus.Text);
+
+            if (task.Status != "complete" && task.Status != "completed") return;
+            hasCompleted = true;
+            pollTimer.Stop();
+            string finalPath = task.FilePath;
+            if (string.IsNullOrEmpty(finalPath) && !string.IsNullOrEmpty(saveDir))
+                finalPath = Path.Combine(saveDir, task.Name);
+            if (chkOpenComplete.Checked && !string.IsNullOrEmpty(finalPath) && File.Exists(finalPath))
+            {
+                try { Process.Start(finalPath); } catch { }
+            }
+            if (chkShutdown.Checked)
+            {
+                try { Application.SetSuspendState(PowerState.Suspend, false, false); } catch { }
+            }
+            Close();
+            if (DownloaderAppContext.Instance != null)
+                DownloaderAppContext.Instance.ShowCompleteDialog(task.Gid, task.Name, finalPath, task.TotalLength);
         }
     }
 
+    // A small, borderless Windows notification: no redundant title bar or large footer.
+    // The full file card supports native drag-and-drop into Explorer/Desktop.
     public class DownloadCompleteDialog : Form
     {
-        private string filename;
-        private string filePath;
-        private long totalLength;
+        private readonly string filePath;
+        private readonly ToolTip tooltip;
+        private Point fileDragStart;
+        private Point windowDragStart;
+        private Point windowStartLocation;
+        private bool fileDragArmed;
+        private bool windowDragArmed;
+
+        private static readonly Color BackgroundInk = Color.FromArgb(16, 21, 30);
+        private static readonly Color CardInk = Color.FromArgb(29, 37, 50);
+        private static readonly Color TextDim = Color.FromArgb(155, 172, 192);
+        private static readonly Color Mint = Color.FromArgb(53, 216, 169);
 
         protected override CreateParams CreateParams
         {
             get
             {
-                CreateParams cp = base.CreateParams;
-                cp.ExStyle |= 0x00000008; // WS_EX_TOPMOST
-                return cp;
+                CreateParams p = base.CreateParams;
+                p.ExStyle |= 0x00000008; // Topmost; match previous completion alert.
+                p.ClassStyle |= 0x00020000; // CS_DROPSHADOW for the borderless form.
+                return p;
             }
         }
 
         public DownloadCompleteDialog(string filename, string filePath, long totalLength)
         {
-            this.filename = filename;
             this.filePath = filePath;
-            this.totalLength = totalLength;
+            Text = "FastDownloader - Download ready";
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = true;
+            StartPosition = FormStartPosition.CenterScreen;
+            TopMost = true;
+            AutoScaleMode = AutoScaleMode.Font;
+            ClientSize = new Size(440, 180);
+            BackColor = BackgroundInk;
+            ForeColor = Color.White;
+            Font = new Font("Segoe UI", 9F);
+            DoubleBuffered = true;
+            UpdateCornerRegion();
 
-            this.Text = "Download Complete - FastDownloader";
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
-            this.MinimizeBox = false;
-            this.ShowInTaskbar = true;
-            this.StartPosition = FormStartPosition.CenterScreen;
-            this.TopMost = true;
-            this.ClientSize = new Size(500, 235);
-            this.BackColor = Color.FromArgb(24, 25, 29);
-            this.ForeColor = Color.FromArgb(235, 238, 245);
-            this.Font = new Font("Segoe UI", 9F);
+            tooltip = new ToolTip { AutoPopDelay = 10000, InitialDelay = 250, ReshowDelay = 150 };
+            string fullName = !string.IsNullOrWhiteSpace(filename) ? filename :
+                (!string.IsNullOrWhiteSpace(filePath) ? Path.GetFileName(filePath) : "Downloaded file");
+            string displaySize = totalLength > 0 ? UrlProbeHelper.FormatBytes(totalLength) : "Saved";
+            bool fileAvailable = !string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath);
 
+            Panel success = new Panel {
+                Location = new Point(16, 15), Size = new Size(30, 30),
+                BackColor = Mint
+            };
+            RoundRegion(success, 15);
+            Label check = new Label {
+                Text = "✓", Dock = DockStyle.Fill, ForeColor = BackgroundInk,
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Segoe UI", 13F, FontStyle.Bold)
+            };
+            success.Controls.Add(check);
+
+            Label heading = new Label {
+                Text = "Download ready", Location = new Point(56, 14),
+                Size = new Size(324, 23), AutoEllipsis = true,
+                Font = new Font("Segoe UI", 11F, FontStyle.Bold),
+                ForeColor = Color.White
+            };
+            Label subheading = new Label {
+                Text = fileAvailable ? "Saved to your computer" : "File unavailable on disk",
+                Location = new Point(56, 37), Size = new Size(325, 19),
+                Font = new Font("Segoe UI", 8.5F),
+                ForeColor = TextDim
+            };
+
+            MiniActionButton close = new MiniActionButton {
+                Text = "×", Location = new Point(402, 13), Size = new Size(25, 26),
+                Primary = false, Borderless = true,
+                Font = new Font("Segoe UI", 13F),
+                AccessibleName = "Close notification"
+            };
+            close.Click += (sender, e) => Close();
+            Controls.Add(success);
+            Controls.Add(heading);
+            Controls.Add(subheading);
+            Controls.Add(close);
+
+            Panel fileCard = new Panel {
+                Location = new Point(16, 67), Size = new Size(408, 60),
+                BackColor = CardInk, Cursor = fileAvailable ? Cursors.SizeAll : Cursors.Default
+            };
+            RoundRegion(fileCard, 10);
+
+            Panel typeSquare = new Panel {
+                Location = new Point(12, 11), Size = new Size(40, 39),
+                BackColor = Color.FromArgb(43, 59, 75)
+            };
+            RoundRegion(typeSquare, 8);
+            string extension = Path.GetExtension(fullName).TrimStart('.').ToUpperInvariant();
+            if (string.IsNullOrWhiteSpace(extension) || extension.Length > 4) extension = "FILE";
+            Label ext = new Label {
+                Text = extension, Dock = DockStyle.Fill,
+                ForeColor = Mint, BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Segoe UI", extension.Length > 3 ? 7F : 9F, FontStyle.Bold),
+                Cursor = fileCard.Cursor
+            };
+            typeSquare.Controls.Add(ext);
+
+            Label fileName = new Label {
+                Text = fullName, Location = new Point(63, 10),
+                Size = new Size(328, 22), AutoEllipsis = true,
+                TextAlign = ContentAlignment.MiddleLeft,
+                ForeColor = Color.White, Cursor = fileCard.Cursor,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold)
+            };
+            // Arabic names remain readable even when the extension uses Latin letters.
+            if (Regex.IsMatch(fullName, @"[\u0600-\u06FF]"))
+                fileName.RightToLeft = RightToLeft.Yes;
+
+            Label detail = new Label {
+                Text = displaySize + (fileAvailable ? "  ·  Drag to Desktop or folder" : "  ·  Missing file"),
+                Location = new Point(63, 33), Size = new Size(328, 19),
+                ForeColor = TextDim, Cursor = fileCard.Cursor,
+                Font = new Font("Segoe UI", 8F),
+                AutoEllipsis = true
+            };
+            typeSquare.Cursor = fileCard.Cursor;
+            foreach (Control c in new Control[] { fileCard, typeSquare, ext, fileName, detail })
+            {
+                c.MouseDown += StartFileDrag;
+                c.MouseMove += ContinueFileDrag;
+                c.MouseUp += (sender, e) => fileDragArmed = false;
+                tooltip.SetToolTip(c, fileAvailable ? filePath : "File not found");
+            }
+            fileCard.Controls.Add(typeSquare);
+            fileCard.Controls.Add(fileName);
+            fileCard.Controls.Add(detail);
+            Controls.Add(fileCard);
+
+            MiniActionButton open = new MiniActionButton {
+                Text = "Open file", Primary = true,
+                Location = new Point(16, 139), Size = new Size(125, 30),
+                Enabled = fileAvailable, AccessibleName = "Open downloaded file"
+            };
+            open.Click += (sender, e) => {
+                if (!string.IsNullOrEmpty(this.filePath) && File.Exists(this.filePath))
+                {
+                    try { Process.Start(this.filePath); }
+                    catch { }
+                }
+                Close();
+            };
+
+            MiniActionButton folder = new MiniActionButton {
+                Text = "Show in folder",
+                Location = new Point(150, 139), Size = new Size(154, 30),
+                AccessibleName = "Show file in Windows Explorer"
+            };
+            folder.Click += (sender, e) => {
+                if (!string.IsNullOrEmpty(this.filePath) && File.Exists(this.filePath))
+                {
+                    try { Process.Start("explorer.exe",
+                        "/select,\"" + this.filePath.Replace('/', '\\') + "\""); }
+                    catch { }
+                }
+                else if (!string.IsNullOrEmpty(this.filePath))
+                {
+                    string parent = Path.GetDirectoryName(this.filePath);
+                    if (!string.IsNullOrEmpty(parent) && Directory.Exists(parent))
+                    {
+                        try { Process.Start("explorer.exe", parent); } catch { }
+                    }
+                }
+                Close();
+            };
+
+            MiniActionButton copy = new MiniActionButton {
+                Text = "Copy path", Borderless = true,
+                Location = new Point(313, 139), Size = new Size(111, 30),
+                Enabled = !string.IsNullOrEmpty(this.filePath),
+                AccessibleName = "Copy full file path"
+            };
+            copy.Click += (sender, e) => {
+                if (string.IsNullOrEmpty(this.filePath)) return;
+                try {
+                    Clipboard.SetText(this.filePath);
+                    copy.Text = "Copied ✓";
+                } catch { }
+            };
+
+            Controls.Add(open);
+            Controls.Add(folder);
+            Controls.Add(copy);
+            AcceptButton = open;
+            CancelButton = close;
+
+            // Drag the borderless notification by its heading, never by the file card.
+            foreach (Control c in new Control[] { this, success, check, heading, subheading })
+            {
+                c.MouseDown += (sender, e) => {
+                    windowDragArmed = e.Button == MouseButtons.Left;
+                    if (!windowDragArmed) return;
+                    windowDragStart = Cursor.Position;
+                    windowStartLocation = Location;
+                };
+                c.MouseMove += (sender, e) => {
+                    if (!windowDragArmed || e.Button != MouseButtons.Left) return;
+                    Point pos = Cursor.Position;
+                    Location = new Point(windowStartLocation.X + pos.X - windowDragStart.X,
+                        windowStartLocation.Y + pos.Y - windowDragStart.Y);
+                };
+                c.MouseUp += (sender, e) => windowDragArmed = false;
+            }
+
+            Resize += (sender, e) => UpdateCornerRegion();
+            FormClosed += (sender, e) => tooltip.Dispose();
+        }
+
+        private void StartFileDrag(object sender, MouseEventArgs e)
+        {
+            fileDragArmed = e.Button == MouseButtons.Left &&
+                !string.IsNullOrEmpty(filePath) && File.Exists(filePath);
+            if (fileDragArmed) fileDragStart = Cursor.Position;
+        }
+
+        private void ContinueFileDrag(object sender, MouseEventArgs e)
+        {
+            if (!fileDragArmed || e.Button != MouseButtons.Left) return;
+            Point current = Cursor.Position;
+            Size distance = SystemInformation.DragSize;
+            if (Math.Abs(current.X - fileDragStart.X) < distance.Width / 2 &&
+                Math.Abs(current.Y - fileDragStart.Y) < distance.Height / 2)
+                return;
+
+            fileDragArmed = false;
+            if (!File.Exists(filePath)) return;
             try
             {
-                string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
-                if (File.Exists(icoPath)) this.Icon = new Icon(icoPath);
+                DataObject payload = new DataObject(DataFormats.FileDrop, new string[] { filePath });
+                DragDropEffects effect = ((Control)sender).DoDragDrop(payload,
+                    DragDropEffects.Copy | DragDropEffects.Move);
+                if (effect == DragDropEffects.Move && !File.Exists(filePath)) Close();
             }
             catch { }
+        }
 
-            // 1. Header Panel
-            Panel topPanel = new Panel
+        private void UpdateCornerRegion()
+        {
+            using (var path = RoundedPath(new Rectangle(0, 0, Width, Height), 13))
             {
-                Dock = DockStyle.Top,
-                Height = 56,
-                BackColor = Color.FromArgb(18, 19, 22)
-            };
+                Region old = Region;
+                Region = new Region(path);
+                if (old != null) old.Dispose();
+            }
+        }
 
-            Label lblBadge = new Label
+        private static void RoundRegion(Control control, int radius)
+        {
+            using (var path = RoundedPath(new Rectangle(0, 0, control.Width, control.Height), radius))
+                control.Region = new Region(path);
+        }
+
+        private static System.Drawing.Drawing2D.GraphicsPath RoundedPath(Rectangle r, int radius)
+        {
+            var path = new System.Drawing.Drawing2D.GraphicsPath();
+            int d = radius * 2;
+            path.AddArc(r.Left, r.Top, d, d, 180, 90);
+            path.AddArc(r.Right - d, r.Top, d, d, 270, 90);
+            path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+            path.AddArc(r.Left, r.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        private sealed class MiniActionButton : Button
+        {
+            private bool hover;
+            public bool Primary { get; set; }
+            public bool Borderless { get; set; }
+
+            public MiniActionButton()
             {
-                Text = "✔",
-                Font = new Font("Segoe UI", 16F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(16, 185, 129),
-                Location = new Point(14, 10),
-                Size = new Size(32, 34)
-            };
+                SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true);
+                FlatStyle = FlatStyle.Flat;
+                FlatAppearance.BorderSize = 0;
+                Cursor = Cursors.Hand;
+                ForeColor = Color.White;
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
+            }
 
-            Label lblTitle = new Label
+            protected override void OnMouseEnter(EventArgs e)
             {
-                Text = "Download Complete!",
-                Font = new Font("Segoe UI", 12F, FontStyle.Bold),
-                ForeColor = Color.White,
-                Location = new Point(48, 8),
-                AutoSize = true
-            };
+                hover = true;
+                Invalidate();
+                base.OnMouseEnter(e);
+            }
 
-            Label lblSub = new Label
+            protected override void OnMouseLeave(EventArgs e)
             {
-                Text = "File has been verified and saved to disk.",
-                Font = new Font("Segoe UI", 8.5F),
-                ForeColor = Color.FromArgb(156, 163, 175),
-                Location = new Point(50, 31),
-                AutoSize = true
-            };
+                hover = false;
+                Invalidate();
+                base.OnMouseLeave(e);
+            }
 
-            Panel headerBorder = new Panel
+            protected override void OnPaint(PaintEventArgs e)
             {
-                Dock = DockStyle.Bottom,
-                Height = 1,
-                BackColor = Color.FromArgb(40, 42, 50)
-            };
-
-            topPanel.Controls.Add(lblBadge);
-            topPanel.Controls.Add(lblTitle);
-            topPanel.Controls.Add(lblSub);
-            topPanel.Controls.Add(headerBorder);
-            this.Controls.Add(topPanel);
-
-            // 2. Info Box
-            Panel infoCard = new Panel
-            {
-                Location = new Point(16, 68),
-                Size = new Size(468, 95),
-                BackColor = Color.FromArgb(18, 19, 22),
-                BorderStyle = BorderStyle.FixedSingle
-            };
-
-            Label lblFile = new Label
-            {
-                Text = filename,
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
-                ForeColor = Color.White,
-                Location = new Point(12, 10),
-                Size = new Size(440, 20),
-                AutoEllipsis = true
-            };
-
-            string szFormatted = totalLength > 0 ? UrlProbeHelper.FormatBytes(totalLength) : "Complete";
-            Label lblSize = new Label
-            {
-                Text = "📦 Size:  " + szFormatted,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(16, 185, 129),
-                Location = new Point(12, 36),
-                AutoSize = true
-            };
-
-            string dirPath = !string.IsNullOrEmpty(filePath) ? Path.GetDirectoryName(filePath) : "";
-            Label lblFolder = new Label
-            {
-                Text = "📁 Saved to:  " + dirPath,
-                Font = new Font("Segoe UI", 8.5F),
-                ForeColor = Color.FromArgb(156, 163, 175),
-                Location = new Point(12, 60),
-                Size = new Size(440, 20),
-                AutoEllipsis = true
-            };
-
-            infoCard.Controls.Add(lblFile);
-            infoCard.Controls.Add(lblSize);
-            infoCard.Controls.Add(lblFolder);
-            this.Controls.Add(infoCard);
-
-            // 3. Bottom Button Bar
-            Panel bottomPanel = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 54,
-                BackColor = Color.FromArgb(18, 19, 22)
-            };
-
-            Panel bottomBorder = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 1,
-                BackColor = Color.FromArgb(40, 42, 50)
-            };
-            bottomPanel.Controls.Add(bottomBorder);
-
-            Button btnOpen = new Button
-            {
-                Text = "🚀 Open",
-                Location = new Point(115, 10),
-                Size = new Size(115, 34),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(16, 185, 129),
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
-                Cursor = Cursors.Hand
-            };
-            btnOpen.FlatAppearance.BorderSize = 0;
-            btnOpen.Click += (s, e) =>
-            {
-                if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
-                {
-                    try { Process.Start(filePath); } catch { }
-                }
-                this.Close();
-            };
-
-            Button btnOpenFolder = new Button
-            {
-                Text = "📁 Open Folder",
-                Location = new Point(240, 10),
-                Size = new Size(140, 34),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(42, 45, 55),
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9F),
-                Cursor = Cursors.Hand
-            };
-            btnOpenFolder.FlatAppearance.BorderColor = Color.FromArgb(60, 64, 76);
-            btnOpenFolder.Click += (s, e) =>
-            {
-                if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
-                {
-                    try { Process.Start("explorer.exe", "/select,\"" + filePath.Replace('/', '\\') + "\""); } catch { }
-                }
-                else if (!string.IsNullOrEmpty(dirPath) && Directory.Exists(dirPath))
-                {
-                    try { Process.Start("explorer.exe", dirPath.Replace('/', '\\')); } catch { }
-                }
-                this.Close();
-            };
-
-            Button btnClose = new Button
-            {
-                Text = "✕ Close",
-                Location = new Point(390, 10),
-                Size = new Size(95, 34),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(32, 34, 40),
-                ForeColor = Color.FromArgb(156, 163, 175),
-                Font = new Font("Segoe UI", 9F),
-                Cursor = Cursors.Hand
-            };
-            btnClose.FlatAppearance.BorderColor = Color.FromArgb(50, 52, 60);
-            btnClose.Click += (s, e) => this.Close();
-
-            bottomPanel.Controls.Add(btnOpen);
-            bottomPanel.Controls.Add(btnOpenFolder);
-            bottomPanel.Controls.Add(btnClose);
-            this.Controls.Add(bottomPanel);
-
-            this.AcceptButton = btnOpen;
-            this.CancelButton = btnClose;
+                e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                e.Graphics.Clear(BackgroundInk);
+                Color background = !Enabled ? Color.FromArgb(36, 43, 53) :
+                    Primary ? (hover ? Color.FromArgb(93, 233, 185) : Mint) :
+                    (Borderless ? BackgroundInk :
+                        (hover ? Color.FromArgb(53, 65, 81) : Color.FromArgb(39, 49, 63)));
+                using (var path = RoundedPath(new Rectangle(1, 1, Width - 2, Height - 2), 8))
+                using (var brush = new SolidBrush(background))
+                    e.Graphics.FillPath(brush, path);
+                Color color = !Enabled ? TextDim : (Primary ? BackgroundInk :
+                    (hover ? Color.White : Color.FromArgb(221, 232, 243)));
+                TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, color,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
+                    TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            }
         }
     }
 
-    // Lightweight IDM-style live transfer flyout opened with a single tray click.
-    // It uses only engine-reported bytes and speed, never a simulated timer percentage.
+    // Tray flyout follows the same compact visual language as the transfer dialog.
+    // Rows are reused during live updates, preventing 1-second full-list flicker.
     public class TrayDownloadsForm : Form
     {
         private sealed class TrayTransfer
         {
             public string Name;
+            public string StatusMessage;
             public long Completed;
             public long Total;
             public long Speed;
             public double ExactProgress;
+            public bool Failed;
+        }
+
+        private sealed class TransferRow
+        {
+            public Panel Card;
+            public Label Name;
+            public Label Percent;
+            public Label Detail;
+            public ModernProgressBar Progress;
         }
 
         private readonly EngineManager engine;
         private readonly Action openDashboard;
         private readonly FlowLayoutPanel list;
         private readonly Label headerLabel;
+        private readonly Label emptyLabel;
+        private readonly ToolTip tooltip;
         private readonly System.Windows.Forms.Timer refreshTimer;
+        private readonly List<TransferRow> rows = new List<TransferRow>();
         private int refreshInFlight;
+        private static readonly Color BackgroundColor = Color.FromArgb(20, 24, 32);
+        private static readonly Color CardColor = Color.FromArgb(30, 37, 48);
+        private static readonly Color TextMuted = Color.FromArgb(164, 181, 199);
 
         public TrayDownloadsForm(EngineManager engine, Action openDashboard)
         {
             this.engine = engine;
             this.openDashboard = openDashboard;
-            Width = 400;
-            Height = 386;
             FormBorderStyle = FormBorderStyle.FixedSingle;
             ShowInTaskbar = false;
             ControlBox = false;
             StartPosition = FormStartPosition.Manual;
+            AutoScaleMode = AutoScaleMode.Font;
             TopMost = true;
-            BackColor = Color.FromArgb(20, 24, 34);
+            ClientSize = new Size(358, 164);
+            BackColor = BackgroundColor;
             ForeColor = Color.White;
+            Font = new Font("Segoe UI", 9F);
 
-            var header = new Panel { Dock = DockStyle.Top, Height = 52,
-                BackColor = Color.FromArgb(28, 34, 47) };
-            headerLabel = new Label { Text = "Active Downloads", ForeColor = Color.White,
-                Location = new Point(14, 16), AutoSize = true,
-                Font = new Font("Segoe UI", 11F, FontStyle.Bold) };
-            var closeButton = new Button { Text = "×", Width = 32, Height = 28,
-                Location = new Point(349, 11), FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(38, 45, 58), ForeColor = Color.White };
-            closeButton.FlatAppearance.BorderSize = 0;
-            closeButton.Click += (s, e) => Hide();
+            Panel header = new Panel {
+                Dock = DockStyle.Top, Height = 45, BackColor = BackgroundColor
+            };
+            headerLabel = new Label {
+                Text = "Downloads", Location = new Point(13, 11),
+                Size = new Size(299, 22), AutoEllipsis = true,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Color.White
+            };
+            Button close = new Button {
+                Text = "×", Location = new Point(322, 9), Size = new Size(26, 26),
+                FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand,
+                BackColor = CardColor, ForeColor = TextMuted,
+                Font = new Font("Segoe UI", 11F)
+            };
+            close.FlatAppearance.BorderSize = 0;
+            close.Click += (s, e) => Hide();
             header.Controls.Add(headerLabel);
-            header.Controls.Add(closeButton);
+            header.Controls.Add(close);
 
-            var footer = new Panel { Dock = DockStyle.Bottom, Height = 49,
-                BackColor = Color.FromArgb(28, 34, 47) };
-            var openButton = new Button { Text = "Open Full Dashboard", Width = 355,
-                Height = 32, Location = new Point(17, 8), FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(16, 185, 129), ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9F, FontStyle.Bold) };
-            openButton.FlatAppearance.BorderSize = 0;
-            openButton.Click += (s, e) => { Hide(); openDashboard(); };
-            footer.Controls.Add(openButton);
+            Panel footer = new Panel {
+                Dock = DockStyle.Bottom, Height = 46,
+                BackColor = Color.FromArgb(25, 31, 41)
+            };
+            Button open = new Button {
+                Text = "Open dashboard", Location = new Point(12, 7),
+                Size = new Size(334, 31), FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(36, 199, 151),
+                ForeColor = Color.FromArgb(12, 36, 31),
+                Cursor = Cursors.Hand, Font = new Font("Segoe UI", 9F, FontStyle.Bold)
+            };
+            open.FlatAppearance.BorderSize = 0;
+            open.Click += (s, e) => { Hide(); this.openDashboard(); };
+            footer.Controls.Add(open);
 
-            list = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true,
+            list = new FlowLayoutPanel {
+                Dock = DockStyle.Fill, AutoScroll = true,
                 FlowDirection = FlowDirection.TopDown, WrapContents = false,
-                Padding = new Padding(10, 10, 10, 8), BackColor = BackColor };
+                Padding = new Padding(11, 7, 7, 5), BackColor = BackgroundColor
+            };
+            emptyLabel = new Label {
+                Text = "No active transfers\nCompleted and failed downloads remain in the dashboard.",
+                Width = 328, Height = 63, TextAlign = ContentAlignment.MiddleCenter,
+                ForeColor = TextMuted, Font = new Font("Segoe UI", 8.5F),
+                Margin = new Padding(0, 0, 0, 0)
+            };
+            list.Controls.Add(emptyLabel);
             Controls.Add(list);
             Controls.Add(footer);
             Controls.Add(header);
 
+            tooltip = new ToolTip { AutoPopDelay = 10000, InitialDelay = 300, ReshowDelay = 250 };
             refreshTimer = new System.Windows.Forms.Timer { Interval = 1200 };
             refreshTimer.Tick += (s, e) => RefreshTransfers();
             Deactivate += (s, e) => Hide();
@@ -6474,23 +6689,31 @@ namespace FastDownloader
                 if (Visible) { refreshTimer.Start(); RefreshTransfers(); }
                 else refreshTimer.Stop();
             };
-            FormClosed += (s, e) => refreshTimer.Dispose();
+            FormClosed += (s, e) => {
+                refreshTimer.Stop();
+                refreshTimer.Dispose();
+                tooltip.Dispose();
+            };
         }
 
         public void ShowNearTray()
         {
-            Rectangle area = Screen.FromPoint(Cursor.Position).WorkingArea;
-            Location = new Point(Math.Max(area.Left, area.Right - Width - 8),
-                Math.Max(area.Top, area.Bottom - Height - 8));
+            RepositionNearTray();
             Show();
             BringToFront();
+        }
+
+        private void RepositionNearTray()
+        {
+            Rectangle area = Screen.FromPoint(Cursor.Position).WorkingArea;
+            Location = new Point(Math.Max(area.Left + 4, area.Right - Width - 8),
+                Math.Max(area.Top + 4, area.Bottom - Height - 8));
         }
 
         private void RefreshTransfers()
         {
             if (Interlocked.Exchange(ref refreshInFlight, 1) != 0) return;
-            ThreadPool.QueueUserWorkItem(_ =>
-            {
+            ThreadPool.QueueUserWorkItem(_ => {
                 try
                 {
                     var snapshot = new List<TrayTransfer>();
@@ -6506,24 +6729,31 @@ namespace FastDownloader
                         if (task.ContainsKey("files") && (files = task["files"] as ArrayList) != null &&
                             files.Count > 0)
                         {
-                            var file = files[0] as Dictionary<string, object>;
-                            if (file != null && file.ContainsKey("path"))
+                            Dictionary<string, object> firstFile = files[0] as Dictionary<string, object>;
+                            if (firstFile != null && firstFile.ContainsKey("path"))
                             {
-                                var path = Convert.ToString(file["path"]);
+                                string path = Convert.ToString(firstFile["path"]);
                                 if (!string.IsNullOrEmpty(path)) filename = Path.GetFileName(path);
                             }
                         }
                         snapshot.Add(new TrayTransfer {
-                            Name = filename, Completed = downloaded, Total = total,
-                            Speed = speed, ExactProgress = total > 0 ? downloaded * 100.0 / total : -1
+                            Name = filename, Completed = downloaded, Total = total, Speed = speed,
+                            StatusMessage = speed <= 0 && downloaded <= 0 ? "Connecting to source" : "Receiving data",
+                            ExactProgress = total > 0 ? downloaded * 100.0 / total : -1
                         });
                     }
                     foreach (var task in engine.GetYtTasksSnapshot())
                     {
-                        if (task.Status != "downloading" && task.Status != "processing") continue;
+                        if (task.Status != "downloading" && task.Status != "processing" &&
+                            task.Status != "error") continue;
                         snapshot.Add(new TrayTransfer {
                             Name = task.Name, Completed = task.CompletedLength,
                             Total = task.TotalLength, Speed = task.DownloadSpeed,
+                            Failed = task.Status == "error",
+                            StatusMessage = task.Status == "error" ? task.StatusMessage :
+                                (task.Status == "processing" ? "Finalizing video" :
+                                 (task.DownloadSpeed > 0 ? "Receiving data" :
+                                  (task.StatusMessage ?? "Connecting to source"))),
                             ExactProgress = task.TotalLength > 0 ?
                                 task.CompletedLength * 100.0 / task.TotalLength : task.ProgressExact
                         });
@@ -6543,64 +6773,91 @@ namespace FastDownloader
 
         private static long ParseLong(Dictionary<string, object> dict, string key)
         {
-            long result;
-            if (dict.ContainsKey(key) && dict[key] != null &&
-                long.TryParse(Convert.ToString(dict[key]), out result))
-                return result;
-            return 0;
+            long number;
+            return dict.ContainsKey(key) && dict[key] != null &&
+                long.TryParse(Convert.ToString(dict[key]), out number) ? number : 0;
+        }
+
+        private TransferRow CreateRow()
+        {
+            var row = new TransferRow();
+            row.Card = new Panel {
+                Width = 330, Height = 70, Margin = new Padding(0, 0, 0, 8),
+                BackColor = CardColor
+            };
+            row.Name = new Label {
+                Text = "Download", Location = new Point(11, 7),
+                Size = new Size(252, 22), AutoEllipsis = true,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+                ForeColor = Color.White
+            };
+            row.Percent = new Label {
+                Text = "--", Location = new Point(262, 7),
+                Size = new Size(57, 22), TextAlign = ContentAlignment.MiddleRight,
+                ForeColor = Color.FromArgb(36, 199, 151),
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Bold)
+            };
+            row.Progress = new ModernProgressBar {
+                Location = new Point(11, 33), Size = new Size(308, 7)
+            };
+            row.Detail = new Label {
+                Location = new Point(11, 47), Size = new Size(308, 18),
+                AutoEllipsis = true, ForeColor = TextMuted,
+                Font = new Font("Segoe UI", 8F)
+            };
+            row.Card.Controls.Add(row.Name);
+            row.Card.Controls.Add(row.Percent);
+            row.Card.Controls.Add(row.Progress);
+            row.Card.Controls.Add(row.Detail);
+            rows.Add(row);
+            list.Controls.Add(row.Card);
+            return row;
         }
 
         private void RenderTransfers(List<TrayTransfer> transfers)
         {
-            headerLabel.Text = transfers.Count == 1 ? "1 Active Download" :
-                transfers.Count + " Active Downloads";
+            int active = transfers.Count(t => !t.Failed);
+            int failed = transfers.Count(t => t.Failed);
+            headerLabel.Text = "Downloads  ·  " + active + " active" +
+                (failed > 0 ? "  /  " + failed + " failed" : "");
+            emptyLabel.Visible = transfers.Count == 0;
+            int visibleCount = Math.Min(20, transfers.Count);
             list.SuspendLayout();
             try
             {
-                while (list.Controls.Count > 0)
+                while (rows.Count < visibleCount) CreateRow();
+                for (int i = 0; i < rows.Count; i++)
                 {
-                    Control oldCard = list.Controls[0];
-                    list.Controls.RemoveAt(0);
-                    oldCard.Dispose();
-                }
-                if (transfers.Count == 0)
-                {
-                    list.Controls.Add(new Label {
-                        Text = "No active transfers\nNew downloads will appear here automatically.",
-                        Width = 345, Height = 70, TextAlign = ContentAlignment.MiddleCenter,
-                        ForeColor = Color.FromArgb(168, 180, 199),
-                        Font = new Font("Segoe UI", 9F)
-                    });
-                    return;
-                }
-                foreach (var transfer in transfers.Take(20))
-                {
-                    var card = new Panel { Width = 353, Height = 82,
-                        Margin = new Padding(0, 0, 0, 8),
-                        BackColor = Color.FromArgb(31, 38, 52) };
-                    var name = new Label { Text = transfer.Name ?? "Download",
-                        Width = 331, Height = 21, Location = new Point(10, 7),
-                        AutoEllipsis = true, ForeColor = Color.White,
-                        Font = new Font("Segoe UI", 9F, FontStyle.Bold) };
-                    double pct = Math.Max(0, Math.Min(100, transfer.ExactProgress));
-                    var bar = new ProgressBar { Location = new Point(10, 32),
-                        Width = 331, Height = 11, Minimum = 0, Maximum = 1000,
-                        Value = transfer.ExactProgress >= 0 ? (int)Math.Round(pct * 10) : 0,
-                        Style = ProgressBarStyle.Continuous };
-                    var label = new Label { Location = new Point(10, 50),
-                        Width = 331, Height = 20, ForeColor = Color.FromArgb(177, 193, 212),
-                        Font = new Font("Segoe UI", 8F),
-                        Text = (transfer.Total > 0 ? pct.ToString("0.0", CultureInfo.InvariantCulture) + "% · " : "") +
-                            UrlProbeHelper.FormatBytes(transfer.Completed) +
-                            (transfer.Total > 0 ? " / " + UrlProbeHelper.FormatBytes(transfer.Total) : " transferred") +
-                            " · " + UrlProbeHelper.FormatBytes(transfer.Speed) + "/s" };
-                    card.Controls.Add(name);
-                    card.Controls.Add(bar);
-                    card.Controls.Add(label);
-                    list.Controls.Add(card);
+                    TransferRow row = rows[i];
+                    row.Card.Visible = i < visibleCount;
+                    if (i >= visibleCount) continue;
+                    TrayTransfer task = transfers[i];
+                    double pct = Math.Max(0.0, Math.Min(100.0, task.ExactProgress));
+                    row.Name.Text = string.IsNullOrWhiteSpace(task.Name) ? "Download" : task.Name;
+                    row.Percent.Text = task.Failed ? "FAILED" :
+                        (task.Total > 0 ? pct.ToString("0.0", CultureInfo.InvariantCulture) + "%" : "--");
+                    row.Percent.ForeColor = task.Failed ?
+                        Color.FromArgb(248, 113, 113) : Color.FromArgb(36, 199, 151);
+                    row.Progress.Value = task.Total > 0 ? (int)Math.Round(pct) : 0;
+                    string amount = UrlProbeHelper.FormatBytes(task.Completed) +
+                        (task.Total > 0 ? " / " + UrlProbeHelper.FormatBytes(task.Total) : "");
+                    string speed = task.Failed ? "" : "  ·  " + UrlProbeHelper.FormatBytes(task.Speed) + "/s";
+                    row.Detail.Text = (task.Failed ?
+                        (!string.IsNullOrEmpty(task.StatusMessage) ? task.StatusMessage : "Download failed") :
+                        (amount + speed));
+                    tooltip.SetToolTip(row.Name, task.Name ?? "Download");
+                    tooltip.SetToolTip(row.Detail, task.Failed ? task.StatusMessage : task.StatusMessage + " · " + amount);
                 }
             }
             finally { list.ResumeLayout(); }
+
+            int bodyHeight = transfers.Count == 0 ? 73 : Math.Min(4, visibleCount) * 78 + 15;
+            int newHeight = 45 + 46 + bodyHeight;
+            if (ClientSize.Height != newHeight)
+            {
+                ClientSize = new Size(358, newHeight);
+                RepositionNearTray();
+            }
         }
     }
 
@@ -6623,6 +6880,8 @@ namespace FastDownloader
         private readonly Dictionary<string, DateTime> recentNotifications = new Dictionary<string, DateTime>();
         private readonly object completedGidsLock = new object();
         private HashSet<string> completedGids = new HashSet<string>();
+        // Prevent overlapping completion scans; never block the tray's UI thread on RPC.
+        private int completionScanInFlight;
 
         public DownloaderAppContext()
         {
@@ -6769,7 +7028,9 @@ namespace FastDownloader
 
             // Background Queue Scheduler Timer
             schedulerTimer = new System.Windows.Forms.Timer();
-            schedulerTimer.Interval = 1000;
+            // Scheduler boundaries are minute-based; polling 5× per minute
+            // instead of 60× cuts idle RPC/UI churn without affecting transfers.
+            schedulerTimer.Interval = 5000;
             schedulerTimer.Tick += (s, e) => CheckSchedulerTick();
             schedulerTimer.Start();
 
@@ -6874,6 +7135,17 @@ namespace FastDownloader
         {
             try
             {
+                // Probing and native messaging may finish AFTER another route has
+                // already completed this video. Drop only stale automatic prompts.
+                if (pending.automaticIntercept &&
+                    (engine.AlreadyHasVideoTransfer(pending.url) ||
+                     (MediaUrlHelper.IsMediaPlatformUrl(pending.referer) &&
+                      engine.AlreadyHasVideoTransfer(pending.referer))))
+                {
+                    PendingDownloadInfo stale;
+                    engine.RemovePending(pending.pendingId, out stale);
+                    return;
+                }
                 try { File.AppendAllText(Path.Combine(engine.AppDir, "startup.log"), DateTime.Now.ToString() + " ShowConfirmDialog started for " + pending.filename + "\r\n"); } catch { }
                 using (var dlg = new DownloadConfirmDialog(pending, engine.DownloadsFolder))
                 {
@@ -7137,7 +7409,7 @@ namespace FastDownloader
                     {
                         FileName = targetBrowser,
                         // Use a separate user profile and explicitly request a standalone app window.
-                        Arguments = string.Format("--user-data-dir=\"{0}\" --app=\"http://127.0.0.1:6801/\" --new-window --window-size=1240,800 --no-first-run --no-default-browser-check --disable-features=Translate,OptimizationHints --disable-extensions --disable-background-mode --disable-http-cache", profileDir),
+                        Arguments = string.Format("--user-data-dir=\"{0}\" --app=\"http://127.0.0.1:6801/\" --new-window --window-size=1240,800 --no-first-run --no-default-browser-check --disable-features=Translate,OptimizationHints --disable-extensions --disable-background-mode", profileDir),
                         CreateNoWindow = false,
                         UseShellExecute = true
                     };
@@ -7217,47 +7489,43 @@ namespace FastDownloader
                 }
             }
 
-            // Check completed downloads for IDM-style completion popup
-            try
+            // A background poll keeps native dialogs/tray responsive even if
+            // aria2 is slow or unavailable. The scheduler itself is only 5s.
+            if (Interlocked.Exchange(ref completionScanInFlight, 1) == 0)
             {
-                var ariaList = engine.GetAriaTasks();
-                foreach (var t in ariaList)
+                ThreadPool.QueueUserWorkItem(_ =>
                 {
-                    if (t.ContainsKey("status") && t["status"].ToString() == "complete" && t.ContainsKey("gid"))
+                    try
                     {
-                        string g = t["gid"].ToString();
-                        bool already;
-                        lock (completedGidsLock) { already = completedGids.Contains(g); }
-                        if (!already)
+                        var ariaList = engine.GetAriaTasks();
+                        foreach (var t in ariaList)
                         {
-                            var info = engine.GetTaskInfo(g);
+                            if (!t.ContainsKey("status") || Convert.ToString(t["status"]) != "complete" ||
+                                !t.ContainsKey("gid")) continue;
+                            string g = Convert.ToString(t["gid"]);
+                            bool already;
+                            lock (completedGidsLock) { already = completedGids.Contains(g); }
+                            if (already) continue;
+                            UnifiedTaskInfo info = engine.GetTaskInfo(g);
                             if (info != null)
-                            {
                                 ShowCompleteDialog(g, info.Name, info.FilePath, info.TotalLength);
-                            }
                         }
-                    }
-                }
 
-                var ytList = engine.GetYtTasksSnapshot();
-                foreach (var yt in ytList)
-                {
-                    if (yt.Status == "completed")
-                    {
-                        bool already;
-                        lock (completedGidsLock) { already = completedGids.Contains(yt.Gid); }
-                        if (!already)
+                        foreach (var yt in engine.GetYtTasksSnapshot())
                         {
-                            var info = engine.GetTaskInfo(yt.Gid);
+                            if (yt.Status != "completed") continue;
+                            bool already;
+                            lock (completedGidsLock) { already = completedGids.Contains(yt.Gid); }
+                            if (already) continue;
+                            UnifiedTaskInfo info = engine.GetTaskInfo(yt.Gid);
                             if (info != null)
-                            {
                                 ShowCompleteDialog(yt.Gid, info.Name, info.FilePath, info.TotalLength);
-                            }
                         }
                     }
-                }
+                    catch { }
+                    finally { Interlocked.Exchange(ref completionScanInFlight, 0); }
+                });
             }
-            catch { }
         }
     }
 

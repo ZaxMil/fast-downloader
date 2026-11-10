@@ -99,6 +99,7 @@ async function sendDownloadToApp({ url, title, type = "auto", quality = "best", 
 
   const payload = {
     action: "intercept",
+    userInitiated: true,
     url: url,
     title: title || "Download",
     type: type,
@@ -548,9 +549,15 @@ async function handleDownloadIntercept(item) {
     }
     if (!shouldInterceptDownload(targetUrl, cleanFilename, item.mime)) return;
 
+    // Browser may finish a small file while cookies are being resolved.
+    // Never issue a delayed confirmation for an already completed transfer.
+    if (item.state === "complete" || item.state === "interrupted") return;
     const cookies = await getCookiesForUrl(targetUrl, item.referrer || "");
+    const priorState = await chrome.downloads.search({ id: item.id }).catch(() => []);
+    if (!priorState.length || priorState[0].state !== "in_progress") return;
     const payload = {
       action: "intercept",
+      autoIntercept: true,
       url: targetUrl,
       title: cleanFilename || "Download",
       filename: cleanFilename,
@@ -562,6 +569,9 @@ async function handleDownloadIntercept(item) {
 
     let accepted = false;
     const nativeRes = await sendViaNativeMessaging(payload);
+    // A deduplicated event is acknowledged without creating a popup. Do not
+    // fall through to HTTP or cancel the original Chrome transfer.
+    if (nativeRes && nativeRes.suppressed) return;
     if (nativeRes && nativeRes.ok === true &&
         (nativeRes.pending || nativeRes.pendingId || nativeRes.gid || nativeRes.refreshed)) {
       accepted = true;
@@ -575,6 +585,7 @@ async function handleDownloadIntercept(item) {
           body: JSON.stringify(payload)
         });
         const data = await resp.json().catch(() => null);
+        if (data && data.suppressed) return;
         accepted = !!(resp.ok && data && data.ok === true &&
           (data.pending || data.pendingId || data.gid || data.refreshed));
       } catch (e) {

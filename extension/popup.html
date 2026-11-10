@@ -240,7 +240,7 @@
     }
     .media-actions {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr auto;
+      grid-template-columns: 1fr 1fr 1fr 1fr auto;
       gap: 5px;
     }
     .pill-btn {
@@ -512,13 +512,14 @@
       <span id="mediaTitle" class="media-title">Detecting...</span>
     </div>
     <div class="media-actions">
-      <button class="pill-btn pill-primary" data-quality="best" title="Best Quality (1080p/4K)">
+      <button class="pill-btn pill-primary" data-quality="best" title="Best available quality">
         <span>✨ Best</span>
       </button>
-      <button class="pill-btn" data-quality="720p" title="Fast 720p HD">
+      <button class="pill-btn" data-quality="720p" title="Up to 720p when available">
         <span>720p</span>
       </button>
-      <button class="pill-btn" data-quality="audio" title="Audio (MP3)">
+      <button class="pill-btn" data-quality="480p" title="Up to 480p when available"><span>480p</span></button>
+      <button class="pill-btn" data-quality="audio" title="Extract MP3 when supported">
         <span>🎵 MP3</span>
       </button>
       <button id="copyMediaBtn" class="pill-btn pill-icon" title="Copy Video Link">

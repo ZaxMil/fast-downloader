@@ -47,8 +47,14 @@ assert.equal((backend.match(/trayIcon\.ShowBalloonTip\(/g) || []).length, 1, "al
 assert.match(backend, /if \(!engine\.NotificationsEnabled\) return;/);
 assert.match(backend, /class TrayDownloadsForm : Form/);
 assert.match(backend, /public void ShowNearTray\(\)/);
-assert.match(backend, /new ProgressBar \{/);
-assert.match(backend, /Value = transfer\.ExactProgress >= 0/);
+// The updated tray uses a shared compact progress control and reuses rows rather
+// than disposing and recreating every bar on every live poll.
+assert.match(backend, /row\.Progress = new ModernProgressBar \{/);
+assert.match(backend, /row\.Progress\.Value = task\.Total > 0 \? \(int\)Math\.Round\(pct\) : 0/);
+assert.match(backend, /while \(rows\.Count < visibleCount\) CreateRow\(\)/);
+assert.match(backend, /ClientSize = new Size\(358, newHeight\)/);
+assert.match(backend, /AutoEllipsis = true/);
+assert.doesNotMatch(backend, /16 parallel chunk segments/);
 assert.match(backend, /SendAriaAction\("aria2\.forcePause", gid\)/);
 assert.match(backend, /state\.CompletedLength > 0 \|\| state\.DownloadSpeed > 0/);
 assert.match(backend, /"max-connection-per-server", "1"/);
@@ -56,5 +62,23 @@ assert.match(backend, /public int RunGeneration;/);
 assert.match(backend, /MonitorNewYtDownload\(taskInfo\)/);
 assert.match(backend, /generation != Interlocked\.CompareExchange\(ref taskInfo\.RunGeneration/);
 assert.match(backend, /--continue --newline/);
+assert.match(backend, /class DownloadConfirmDialog : Form/);
+assert.match(backend, /FormBorderStyle = FormBorderStyle.None;/);
+assert.match(backend, /ReserveAutomaticIntercept\(string url, string referer\)/);
+assert.match(backend, /AlreadyHasVideoTransfer\(pending\.url\)/);
+assert.match(backend, /pending\.automaticIntercept/);
+assert.match(backend, /userInitiated/);
+assert.match(backend, /!automatic && !MediaUrlHelper\.IsMediaPlatformUrl\(url\)/);
+assert.doesNotMatch(backend, /16x Multi-Thread Acceleration/);
+assert.match(backend, /schedulerTimer\.Interval = 5000/);
+assert.match(backend, /Interlocked\.Exchange\(ref completionScanInFlight, 1\)/);
+assert.match(backend, /DateTime\.UtcNow - lastCheckUtc < TimeSpan\.FromHours\(24\)/);
+assert.match(backend, /Thread\.Sleep\(120000\)/);
+assert.doesNotMatch(backend, /--disable-http-cache/);
+assert.match(html, /dashboardHasActiveTransfers \? 1200 : 5000/);
+assert.match(html, /document\.hidden \? 15000/);
+assert.match(html, /pollBackend\(\)\.then\(scheduleTaskPolling\)/);
+assert.doesNotMatch(html, /setInterval\(pollBackend, 1000\)/);
+
 
 console.log("PASS: real byte progress, sequential polling, tray transfers, global notification mute/deduplication and watchdog");
