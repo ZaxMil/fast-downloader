@@ -99,6 +99,7 @@ async function sendDownloadToApp({ url, title, type = "auto", quality = "best", 
 
   const payload = {
     action: "intercept",
+    userInitiated: true,
     url: url,
     title: title || "Download",
     type: type,
