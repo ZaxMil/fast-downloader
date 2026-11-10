@@ -1076,6 +1076,7 @@ namespace FastDownloader
         public string Status { get; set; } // "downloading", "paused", "completed", "error"
         public string StatusMessage { get; set; }
         public DateTime LastOutputUtc { get; set; }
+        public DateTime StartedAtUtc { get; set; }
         public long DownloadSpeed { get; set; }
         public long TotalLength { get; set; }
         public long CompletedLength { get; set; }
@@ -1109,6 +1110,7 @@ namespace FastDownloader
     public class PendingDownloadInfo
     {
         public string pendingId { get; set; }
+        public bool automaticIntercept { get; set; }
         public string url { get; set; }
         public string title { get; set; }
         public string filename { get; set; }
@@ -1193,6 +1195,9 @@ namespace FastDownloader
         public string LastUpdateCheck { get; set; }
         private string settingsFilePath;
         private readonly object pendingLock = new object();
+        private readonly object autoInterceptLock = new object();
+        private readonly Dictionary<string, DateTime> recentAutoIntercepts =
+            new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, PendingDownloadInfo> PendingDownloads { get; private set; }
         private PendingRefreshInfo pendingRefresh = null;
         private readonly object refreshLock = new object();
@@ -1604,7 +1609,68 @@ namespace FastDownloader
         }
 
 
-        public PendingDownloadInfo AddPending(string url, string title = null, string filename = null, string category = null, string quality = "best", string cookies = null, string userAgent = null, string referer = null, Dictionary<string, object> headers = null)
+        // Browser events are asynchronous; a finished/active video must not trigger
+        // another confirmation dialog a few seconds after it has been watched.
+        private static string InterceptKey(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return "";
+            string value = url.Trim();
+            try
+            {
+                var uri = new Uri(value);
+                string host = uri.Host.ToLowerInvariant();
+                if (host == "youtube.com" || host == "www.youtube.com" ||
+                    host == "m.youtube.com" || host == "youtu.be")
+                {
+                    Match match = Regex.Match(value,
+                        @"(?:[?&]v=|youtu\.be/|/shorts/|/live/|/embed/)([A-Za-z0-9_-]{11})",
+                        RegexOptions.IgnoreCase);
+                    if (match.Success) return "youtube:" + match.Groups[1].Value;
+                }
+                return uri.GetLeftPart(UriPartial.Path) + uri.Query;
+            }
+            catch { return value; }
+        }
+
+        public bool AlreadyHasVideoTransfer(string url)
+        {
+            string key = InterceptKey(url);
+            if (string.IsNullOrEmpty(key)) return false;
+            lock (ytLock)
+            {
+                foreach (YtTaskInfo task in YtTasks ?? new List<YtTaskInfo>())
+                {
+                    if (InterceptKey(task.Url) != key || task.Status == "removed" ||
+                        task.Status == "error") continue;
+                    // Old completed downloads do not block a fresh user request forever.
+                    if (task.Status == "completed" &&
+                        (DateTime.UtcNow - task.StartedAtUtc).TotalMinutes > 10) continue;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public bool ReserveAutomaticIntercept(string url)
+        {
+            string key = InterceptKey(url);
+            if (string.IsNullOrEmpty(key) || AlreadyHasVideoTransfer(url)) return false;
+            lock (autoInterceptLock)
+            {
+                DateTime now = DateTime.UtcNow;
+                foreach (string stale in recentAutoIntercepts.Where(x =>
+                    (now - x.Value).TotalMinutes > 2).Select(x => x.Key).ToList())
+                    recentAutoIntercepts.Remove(stale);
+                if (recentAutoIntercepts.ContainsKey(key)) return false;
+                recentAutoIntercepts[key] = now;
+                return true;
+            }
+        }
+
+        public PendingDownloadInfo AddPending(string url, string title = null, string filename = null,
+            string category = null, string quality = "best", string cookies = null,
+            string userAgent = null, string referer = null, Dictionary<string, object> headers = null,
+            bool automatic = false)
         {
             string pid = "pen_" + Guid.NewGuid().ToString().Substring(0, 8);
             ProbeResult probe = null;
@@ -1643,6 +1709,7 @@ namespace FastDownloader
             var item = new PendingDownloadInfo
             {
                 pendingId = pid,
+                automaticIntercept = automatic,
                 url = url,
                 title = !string.IsNullOrEmpty(title) ? title : resolvedFilename,
                 filename = resolvedFilename,
@@ -2384,6 +2451,7 @@ namespace FastDownloader
                 Status = startNow ? "downloading" : "paused",
                 StatusMessage = startNow ? "Connecting to video source..." : "Queued",
                 LastOutputUtc = DateTime.UtcNow,
+                StartedAtUtc = DateTime.UtcNow,
                 YtExe = ytExe,
                 FfmpegDir = ffmpegDir,
                 FormatArg = formatArg,
@@ -4772,7 +4840,22 @@ namespace FastDownloader
                             headers = (Dictionary<string, object>)data["headers"];
                         }
 
-                        var pending = engine.AddPending(url, title, filename, category, quality, cookies, userAgent, referer, headers);
+                        // Only automatic browser interceptions are deduplicated.
+                        // Explicit user-initiated requests may always download again.
+                        bool automatic = data != null && data.ContainsKey("autoIntercept") &&
+                            Convert.ToString(data["autoIntercept"]).Equals("true", StringComparison.OrdinalIgnoreCase);
+                        if (automatic && !engine.ReserveAutomaticIntercept(url))
+                        {
+                            var ignored = new { ok = true, suppressed = true, reason = "already_active_or_recent" };
+                            string ignoredJson = JsonHelper.Serialize(ignored);
+                            byte[] ignoredBytes = Encoding.UTF8.GetBytes(ignoredJson);
+                            SendHeaders(writer, 200, "OK", "application/json; charset=utf-8", ignoredBytes.Length);
+                            writer.Write(ignoredJson);
+                            writer.Flush();
+                            return;
+                        }
+
+                        var pending = engine.AddPending(url, title, filename, category, quality, cookies, userAgent, referer, headers, automatic);
 
                         // Prompt Native IDM-Style Download Confirmation Dialog
                         if (DownloaderAppContext.Instance != null)
@@ -7088,6 +7171,14 @@ namespace FastDownloader
         {
             try
             {
+                // Probing and native messaging may finish AFTER another route has
+                // already completed this video. Drop only stale automatic prompts.
+                if (pending.automaticIntercept && engine.AlreadyHasVideoTransfer(pending.url))
+                {
+                    PendingDownloadInfo stale;
+                    engine.RemovePending(pending.pendingId, out stale);
+                    return;
+                }
                 try { File.AppendAllText(Path.Combine(engine.AppDir, "startup.log"), DateTime.Now.ToString() + " ShowConfirmDialog started for " + pending.filename + "\r\n"); } catch { }
                 using (var dlg = new DownloadConfirmDialog(pending, engine.DownloadsFolder))
                 {
