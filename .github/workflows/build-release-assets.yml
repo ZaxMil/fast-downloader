@@ -144,6 +144,13 @@ jobs:
           $global:LASTEXITCODE = 0 # The intentionally rejected update returned exit code 1.
           Write-Host 'Updater staging, version rejection, and embedded resource verified.'
 
+      - name: Verify real updater restart, API identity and companion assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File './tests/updater_restart_rehearsal.ps1'
+          if ($LASTEXITCODE -ne 0) { throw 'Live updater restart integration test failed' }
+
       - name: Verify live downloads disk metrics against Windows volume
         shell: pwsh
         run: |
