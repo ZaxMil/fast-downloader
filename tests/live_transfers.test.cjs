@@ -80,5 +80,11 @@ assert.match(html, /document\.hidden \? 15000/);
 assert.match(html, /pollBackend\(\)\.then\(scheduleTaskPolling\)/);
 assert.doesNotMatch(html, /setInterval\(pollBackend, 1000\)/);
 
+assert.match(html, /let lastSpeedGraphFrame = '';/);
+assert.match(html, /if \(!canvas \|\| document\.hidden\) return;/);
+assert.match(html, /if \(frameKey === lastSpeedGraphFrame\) return;/);
+assert.match(html, /speedHistory\.join\(','\)/);
+
+
 
 console.log("PASS: real byte progress, sequential polling, tray transfers, global notification mute/deduplication and watchdog");
