@@ -1651,10 +1651,12 @@ namespace FastDownloader
             return false;
         }
 
-        public bool ReserveAutomaticIntercept(string url)
+        public bool ReserveAutomaticIntercept(string url, string referer)
         {
             string key = InterceptKey(url);
-            if (string.IsNullOrEmpty(key) || AlreadyHasVideoTransfer(url)) return false;
+            if (string.IsNullOrEmpty(key) || AlreadyHasVideoTransfer(url) ||
+                (MediaUrlHelper.IsMediaPlatformUrl(referer) && AlreadyHasVideoTransfer(referer)))
+                return false;
             lock (autoInterceptLock)
             {
                 DateTime now = DateTime.UtcNow;
@@ -1674,9 +1676,12 @@ namespace FastDownloader
         {
             string pid = "pen_" + Guid.NewGuid().ToString().Substring(0, 8);
             ProbeResult probe = null;
+            // Video platform pages are handled by yt-dlp; a full HTTP page probe
+            // here delays the confirmation dialog and may finish after download.
             try
             {
-                probe = UrlProbeHelper.Probe(url, AppDir, cookies, userAgent, headers);
+                if (!automatic && !MediaUrlHelper.IsMediaPlatformUrl(url))
+                    probe = UrlProbeHelper.Probe(url, AppDir, cookies, userAgent, headers);
             }
             catch { }
 
@@ -4844,7 +4849,7 @@ namespace FastDownloader
                         // Explicit user-initiated requests may always download again.
                         bool automatic = data != null && data.ContainsKey("autoIntercept") &&
                             Convert.ToString(data["autoIntercept"]).Equals("true", StringComparison.OrdinalIgnoreCase);
-                        if (automatic && !engine.ReserveAutomaticIntercept(url))
+                        if (automatic && !engine.ReserveAutomaticIntercept(url, referer))
                         {
                             var ignored = new { ok = true, suppressed = true, reason = "already_active_or_recent" };
                             string ignoredJson = JsonHelper.Serialize(ignored);
@@ -7173,7 +7178,10 @@ namespace FastDownloader
             {
                 // Probing and native messaging may finish AFTER another route has
                 // already completed this video. Drop only stale automatic prompts.
-                if (pending.automaticIntercept && engine.AlreadyHasVideoTransfer(pending.url))
+                if (pending.automaticIntercept &&
+                    (engine.AlreadyHasVideoTransfer(pending.url) ||
+                     (MediaUrlHelper.IsMediaPlatformUrl(pending.referer) &&
+                      engine.AlreadyHasVideoTransfer(pending.referer))))
                 {
                     PendingDownloadInfo stale;
                     engine.RemovePending(pending.pendingId, out stale);
