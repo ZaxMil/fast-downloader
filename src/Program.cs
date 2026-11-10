@@ -5771,24 +5771,46 @@ namespace FastDownloader
         {
             base.OnPaint(e);
             Graphics g = e.Graphics;
+            int w = ClientSize.Width;
+            int h = ClientSize.Height;
+            if (w < 2 || h < 2) return;
 
-            int w = this.ClientSize.Width;
-            int h = this.ClientSize.Height;
-            if (w <= 0 || h <= 0) return;
-
-            using (Pen borderPen = new Pen(Color.FromArgb(45, 48, 58)))
+            // Anti-aliased rounded rail reused by the transfer window and tray.
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.Clear(BackColor);
+            using (var rail = RoundedPath(new Rectangle(0, 0, w, h), h / 2))
+            using (var railBrush = new SolidBrush(Color.FromArgb(48, 57, 71)))
             {
-                g.DrawRectangle(borderPen, 0, 0, w - 1, h - 1);
+                g.FillPath(railBrush, rail);
             }
 
-            int fillWidth = (int)((val / 100.0) * (w - 2));
-            if (fillWidth > 0)
+            int filled = (int)Math.Round((val / 100.0) * w);
+            if (filled > 0)
             {
-                using (Brush brush = new SolidBrush(Color.FromArgb(16, 185, 129)))
+                using (var fillBrush = new SolidBrush(Color.FromArgb(36, 199, 151)))
                 {
-                    g.FillRectangle(brush, 1, 1, fillWidth, h - 2);
+                    if (filled < 4)
+                        g.FillRectangle(fillBrush, 0, 0, filled, h);
+                    else
+                    {
+                        using (var fill = RoundedPath(new Rectangle(0, 0, filled, h),
+                            Math.Min(h / 2, filled / 2)))
+                            g.FillPath(fillBrush, fill);
+                    }
                 }
             }
+        }
+
+        private static System.Drawing.Drawing2D.GraphicsPath RoundedPath(Rectangle rect, int radius)
+        {
+            var path = new System.Drawing.Drawing2D.GraphicsPath();
+            int d = Math.Max(2, radius * 2);
+            path.AddArc(rect.Left, rect.Top, d, d, 180, 90);
+            path.AddArc(rect.Right - d, rect.Top, d, d, 270, 90);
+            path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
+            path.AddArc(rect.Left, rect.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
         }
     }
 
