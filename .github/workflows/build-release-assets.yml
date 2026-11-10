@@ -212,6 +212,21 @@ jobs:
           if ($invalid['ok']) { throw 'Invalid folder returned fabricated disk values' }
           Write-Host "Downloads volume $($metrics['drive']) has $($metrics['freeBytes']) bytes available."
 
+      - name: Render native download modal visual QA previews
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & powershell.exe -NoProfile -NonInteractive -Sta -ExecutionPolicy Bypass -File './tests/preview_native_dialog.ps1'
+          if ($LASTEXITCODE -ne 0) { throw 'Dialog rendering failed' }
+
+      - name: Upload native download modal visual previews
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-download-dialog-previews
+          path: dialog-preview/*.png
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload release candidate (not published automatically)
         uses: actions/upload-artifact@v4
         with:
