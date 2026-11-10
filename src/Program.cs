@@ -1703,8 +1703,11 @@ namespace FastDownloader
                 resolvedFilename = !string.IsNullOrEmpty(probeFilename) ? probeFilename : (!string.IsNullOrEmpty(title) && title != "Browser Download" ? title : "download");
             }
 
-            string resolvedCat = !string.IsNullOrEmpty(category) ? category : probeCategory;
+            string resolvedCat = !string.IsNullOrEmpty(category) ? category :
+                (quality == "audio" ? "Music" : probeCategory);
             if (string.IsNullOrEmpty(resolvedCat)) resolvedCat = "General";
+            if (quality == "audio" && !string.IsNullOrWhiteSpace(resolvedFilename))
+                resolvedFilename = Path.ChangeExtension(resolvedFilename, ".mp3");
 
             string thumb = "";
             if (url.Contains("youtube.com") || url.Contains("youtu.be"))
@@ -2346,9 +2349,10 @@ namespace FastDownloader
 
             string finalCat = !string.IsNullOrEmpty(category) ? category : pending.category;
             string finalQuality = !string.IsNullOrEmpty(pending.quality) ? pending.quality : "best";
+            if (finalQuality == "audio") finalName = Path.ChangeExtension(finalName, ".mp3");
 
-            // A direct .mp4/.mkv file belongs to aria2 even when categorized as Video.
-            bool isVideo = MediaUrlHelper.IsMediaPlatformUrl(pending.url) ||
+            // Audio extraction needs yt-dlp even when the source is a direct media file.
+            bool isVideo = finalQuality == "audio" || MediaUrlHelper.IsMediaPlatformUrl(pending.url) ||
                            (pending.type == "video" && !MediaUrlHelper.HasDirectFileExtension(pending.url));
             string assignedGid;
             if (isVideo)
