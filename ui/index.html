@@ -6866,13 +6866,21 @@
       }
     }
 
-    // Draw Smooth Canvas Speed Graph
+    // Avoid a GPU/canvas paint for identical graph data while idle.
+    // Data, dimensions, visibility, and theme all invalidate the memoized frame.
+    let lastSpeedGraphFrame = '';
     function drawSpeedGraph() {
       const canvas = document.getElementById('speedGraph');
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
+      if (!canvas || document.hidden) return;
       const width = canvas.parentElement.clientWidth;
       const height = canvas.parentElement.clientHeight;
+      if (width <= 0 || height <= 0) return;
+      const frameKey = width + 'x' + height + ':' +
+        (document.documentElement.getAttribute('data-theme') || 'dark') +
+        ':' + speedHistory.join(',');
+      if (frameKey === lastSpeedGraphFrame) return;
+      lastSpeedGraphFrame = frameKey;
+      const ctx = canvas.getContext('2d');
 
       if (canvas.width !== width || canvas.height !== height) {
         canvas.width = width;
