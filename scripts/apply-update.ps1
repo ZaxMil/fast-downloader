@@ -6,6 +6,7 @@ param(
     [Parameter(Mandatory=$true)][string]$UiZip,
     [Parameter(Mandatory=$true)][string]$ExpectedVersion,
     [Parameter(Mandatory=$true)][string]$StatusFile,
+    [ValidateRange(5, 300)][int]$RestartTimeoutSeconds = 120,
     [switch]$SkipRestart
 )
 $ErrorActionPreference = 'Stop'
@@ -33,12 +34,110 @@ function Status([string]$state, [string]$message) {
 }
 function TryRestart([string]$program) {
     if ($SkipRestart -or -not (Test-Path $program)) { return $null }
+    Log ("Launching verified executable: " + $program)
     return Start-Process -FilePath $program -WorkingDirectory (Split-Path -Parent $program) -PassThru
+}
+function Test-ExpectedProcess([int]$id, [string]$expectedPath) {
+    if ($id -le 0) { return $false }
+    $p = Get-Process -Id $id -ErrorAction SilentlyContinue
+    if (-not $p -or $p.HasExited) { return $false }
+    $real = try { $p.Path } catch { $null }
+    return $real -and [string]::Equals(
+        [IO.Path]::GetFullPath($real),
+        [IO.Path]::GetFullPath($expectedPath),
+        [StringComparison]::OrdinalIgnoreCase)
+}
+function Get-BridgeOwner {
+    try {
+        $listeners = @(Get-NetTCPConnection -LocalPort 6801 -State Listen -ErrorAction Stop)
+        $ids = @($listeners | ForEach-Object { [int]$_.OwningProcess } | Where-Object { $_ -gt 0 } | Select-Object -Unique)
+        if ($ids.Count -eq 0) { return 0 }
+        if ($ids.Count -eq 1) { return $ids[0] }
+        return -1 # Multiple listeners: fail closed rather than verify the wrong app.
+    } catch {
+        if ($_.Exception.Message -match 'No MSFT_NetTCPConnection objects found') { return 0 }
+        # If network diagnostics are blocked, the API's processId is mandatory.
+        return -2
+    }
+}
+function Assert-UpdateBinaryVersion {
+    $assembly = [Reflection.Assembly]::LoadFile([IO.Path]::GetFullPath($NewExe))
+    $type = $assembly.GetType('FastDownloader.UpdateManager')
+    if (-not $type) { throw 'New executable does not contain FastDownloader.UpdateManager.' }
+    $field = $type.GetField('CurrentAppVersion', [Reflection.BindingFlags]'Public,Static')
+    if (-not $field) { throw 'New executable is missing its application version.' }
+    $actualVersion = [string]$field.GetRawConstantValue()
+    if ($actualVersion -ne $ExpectedVersion) {
+        throw "New EXE has version $actualVersion, not expected $ExpectedVersion."
+    }
+    Log "Verified staged executable version $actualVersion."
+}
+function Wait-BridgeRelease {
+    # Closing the PID must also release the old API listener. ReuseAddress can
+    # otherwise allow the new dashboard to reach a stale/wrong process.
+    $deadline = [DateTime]::UtcNow.AddSeconds(18)
+    do {
+        $owner = Get-BridgeOwner
+        if ($owner -eq 0) { return }
+        if ($owner -eq -2) {
+            Log 'TCP listener ownership unavailable; continuing with strict API process identity verification.'
+            return
+        }
+        if ($owner -eq -1) { throw 'Multiple processes listen on port 6801. Refusing update.' }
+        if ($owner -ne $TargetPid) {
+            throw "Port 6801 belongs to unrelated process PID $owner. Update aborted before replacement."
+        }
+        Start-Sleep -Milliseconds 450
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw 'Old FastDownloader process exited but port 6801 is still in use.'
+}
+function Confirm-UpdatedApp([int]$newPid) {
+    $deadline = [DateTime]::UtcNow.AddSeconds($RestartTimeoutSeconds)
+    $lastObservation = 'No response from FastDownloader HTTP bridge'
+    $lastLogged = ''
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $p = Get-Process -Id $newPid -ErrorAction SilentlyContinue
+        if (-not $p -or $p.HasExited) {
+            throw "New FastDownloader process PID $newPid exited before the API was ready. $lastObservation"
+        }
+        $owner = Get-BridgeOwner
+        if ($owner -gt 0 -and $owner -ne $newPid) {
+            throw "Port 6801 is held by PID $owner, not the newly started FastDownloader PID $newPid."
+        }
+        if ($owner -eq -1) { throw 'Ambiguous listeners on port 6801 while verifying restart.' }
+        try {
+            $reply = Invoke-RestMethod -Uri 'http://127.0.0.1:6801/api/update/status' -TimeoutSec 3 -ErrorAction Stop
+            $runningVersion = [string]$reply.app.currentVersion
+            $reportedPid = [int]$reply.app.processId
+            if ($runningVersion -eq $ExpectedVersion -and $reportedPid -eq $newPid) {
+                Log "Verified updated API version $runningVersion on PID $reportedPid."
+                return
+            }
+            $lastObservation = "API returned version '$runningVersion' and PID $reportedPid; expected $ExpectedVersion from PID $newPid."
+        } catch {
+            $lastObservation = "API not ready: $($_.Exception.Message)"
+        }
+        if ($lastObservation -ne $lastLogged) {
+            Log $lastObservation
+            $lastLogged = $lastObservation
+        }
+        Start-Sleep -Milliseconds 900
+    }
+    $bridgeError = Join-Path $root 'bridge_error.log'
+    if (Test-Path $bridgeError) {
+        Log ('Bridge log: ' + ((Get-Content $bridgeError -Tail 8) -join ' | '))
+    }
+    throw "Restart validation timed out after $RestartTimeoutSeconds seconds. $lastObservation"
 }
 function Restore-OldVersion {
     if ($started -and -not $started.HasExited) {
-        Stop-Process -Id $started.Id -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Milliseconds 500
+        if (-not (Test-ExpectedProcess $started.Id $TargetExe)) {
+            throw "Rollback aborted: PID $($started.Id) does not match installed FastDownloader."
+        }
+        Stop-Process -Id $started.Id -Force -ErrorAction Stop
+        Start-Sleep -Milliseconds 800
+        $started.Refresh()
+        if (-not $started.HasExited) { throw 'Rollback aborted: updated process could not be stopped.' }
     }
     if ($originalExe -and (Test-Path (Join-Path $backup 'FastDownloader.exe'))) {
         Copy-Item (Join-Path $backup 'FastDownloader.exe') $TargetExe -Force
@@ -88,6 +187,8 @@ try {
         Start-Sleep -Milliseconds 300
     }
     if (-not (Test-Path $NewExe) -or (Get-Item $NewExe).Length -lt 50000) { throw 'Missing or incomplete application executable.' }
+    Assert-UpdateBinaryVersion
+    if (-not $SkipRestart) { Wait-BridgeRelease }
     foreach ($zip in @($ExtensionZip, $UiZip)) {
         if (-not (Test-Path $zip) -or (Get-Item $zip).Length -lt 500) { throw "Missing or incomplete update package: $zip" }
     }
@@ -133,24 +234,11 @@ try {
         exit 0
     }
 
-    Status 'restarting' 'Launching updated application and checking its version'
+    Status 'restarting' "Starting version $ExpectedVersion and verifying its process and local API"
     $started = TryRestart $TargetExe
     if (-not $started) { throw 'Failed to launch updated application.' }
-    $deadline = [DateTime]::UtcNow.AddSeconds(40)
-    $verified = $false
-    while ([DateTime]::UtcNow -lt $deadline) {
-        Start-Sleep -Milliseconds 700
-        try {
-            $response = Invoke-RestMethod -Uri "http://127.0.0.1:6801/api/update/status" -TimeoutSec 2
-            if ($response.app.currentVersion -eq $ExpectedVersion) {
-                $verified = $true
-                break
-            }
-        } catch { }
-        if ($started.HasExited) { throw 'Updated application exited before becoming ready.' }
-    }
-    if (-not $verified) { throw "Updated app did not report version $ExpectedVersion within 40 seconds." }
-    Status 'success' "FastDownloader $ExpectedVersion launched and verified"
+    Confirm-UpdatedApp $started.Id
+    Status 'success' "FastDownloader $ExpectedVersion running and API verified (PID $($started.Id))"
     exit 0
 }
 catch {
@@ -158,8 +246,12 @@ catch {
     Log "Update failed: $reason"
     try {
         if ($originalExe -and (Test-Path $backup)) {
+            Log 'Restoring previous executable and companion assets after failed validation.'
             Restore-OldVersion
-            [void](TryRestart $TargetExe)
+            if (-not $SkipRestart) {
+                $restored = TryRestart $TargetExe
+                if ($restored) { Log "Previous application restarted as PID $($restored.Id)." }
+            }
         }
     } catch {
         Log "Rollback also failed: $($_.Exception.Message)"

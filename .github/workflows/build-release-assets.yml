@@ -144,6 +144,24 @@ jobs:
           $global:LASTEXITCODE = 0 # The intentionally rejected update returned exit code 1.
           Write-Host 'Updater staging, version rejection, and embedded resource verified.'
 
+      - name: Verify recovery-script syntax and release packaging
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($source in @('scripts/apply-update.ps1','scripts/recover-in-place.ps1','tests/updater_restart_rehearsal.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $source).Path, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) { throw "PowerShell syntax check failed for $source : $($errors | Out-String)" }
+          }
+
+      - name: Verify real updater restart, API identity and companion assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File './tests/updater_restart_rehearsal.ps1'
+          if ($LASTEXITCODE -ne 0) { throw 'Live updater restart integration test failed' }
+
       - name: Verify live downloads disk metrics against Windows volume
         shell: pwsh
         run: |
@@ -176,6 +194,8 @@ jobs:
             FastDownloader-Setup.exe
             fast-downloader-extension.zip
             fast-downloader-ui.zip
+            scripts/apply-update.ps1
+            scripts/recover-in-place.ps1
           if-no-files-found: error
           retention-days: 14
 
@@ -222,11 +242,15 @@ jobs:
           for asset in FastDownloader.exe FastDownloader-Setup.exe fast-downloader-extension.zip fast-downloader-ui.zip; do
             test -s "release/$asset"
           done
+          test -s release/scripts/apply-update.ps1
+          test -s release/scripts/recover-in-place.ps1
           gh release create "$TAG" \
             "release/FastDownloader.exe" \
             "release/FastDownloader-Setup.exe" \
             "release/fast-downloader-extension.zip" \
             "release/fast-downloader-ui.zip" \
+            "release/scripts/apply-update.ps1" \
+            "release/scripts/recover-in-place.ps1" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "FastDownloader Pro $TAG" \
@@ -247,11 +271,13 @@ jobs:
                     .name == "FastDownloader.exe" or
                     .name == "FastDownloader-Setup.exe" or
                     .name == "fast-downloader-extension.zip" or
-                    .name == "fast-downloader-ui.zip"
+                    .name == "fast-downloader-ui.zip" or
+                    .name == "apply-update.ps1" or
+                    .name == "recover-in-place.ps1"
                   ) |
                   select(.digest != null and (.digest | startswith("sha256:")))
-                ] | length == 4' >/dev/null; then
-              echo "All four assets have SHA-256 digests."
+                ] | length == 6' >/dev/null; then
+              echo "All six release assets have SHA-256 digests."
               exit 0
             fi
             sleep 5

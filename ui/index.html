@@ -7675,10 +7675,12 @@
             }
             if (['waiting','closing','installing','restarting'].includes(stage.status) && !restartStarted)
               restartStarted = Date.now();
-            if (restartStarted && Date.now() - restartStarted > 85000)
-              throw new Error('Restart exceeded safe timeout. Use the official installer and check the update log.');
-            if (installed === expected) {
-              logToUpdateConsole('[Success] FastDownloader v' + expected + ' is running.', true);
+            if (restartStarted && Date.now() - restartStarted > 175000)
+              throw new Error('Restart verification exceeded its safety timeout. Check the update log for the precise cause.');
+            // Do not report success while the external helper is still
+            // validating the new process, its port, and companion assets.
+            if (stage.status === 'success' && installed === expected) {
+              logToUpdateConsole('[Success] FastDownloader v' + expected + ' is verified.', true);
               showToast('FastDownloader updated to v' + expected);
               window.location.reload();
               return;
