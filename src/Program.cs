@@ -2904,7 +2904,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.17";
+        public const string CurrentAppVersion = "0.1.18";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -3605,6 +3605,18 @@ namespace FastDownloader
                 }
                 WriteInstallStatus("verifying", "Verifying SHA-256 checksums for all update files", version, 100);
                 VerifyReleaseHashes(tag, packages);
+
+                // Never terminate an active file/video transfer for an app update.
+                // Paused and completed tasks can safely survive the restart.
+                var runningFileTasks = engine.GetActiveAriaTasks();
+                if (runningFileTasks != null && runningFileTasks.Count > 0)
+                    throw new InvalidOperationException("Active file downloads detected. Pause or finish them before updating the app.");
+                foreach (var video in engine.GetYtTasksSnapshot())
+                {
+                    if (video.Status == "downloading" || video.Status == "processing")
+                        throw new InvalidOperationException("Active video download detected. Pause or finish it before updating the app.");
+                }
+
                 WriteInstallStatus("verified", "All assets verified. Preparing safe restart", version, 100);
 
                 string scriptPath = Path.Combine(tempDir, "apply-update.ps1");
@@ -3667,6 +3679,9 @@ namespace FastDownloader
             
             var appInfo = new Dictionary<string, object>();
             appInfo["currentVersion"] = CurrentAppVersion;
+            // The updater checks both version and process identity to reject
+            // replies from stale dashboard backends or unrelated port owners.
+            appInfo["processId"] = Process.GetCurrentProcess().Id;
             appInfo["latestVersion"] = LatestAppVersion ?? CurrentAppVersion;
             appInfo["updateAvailable"] = AppUpdateAvailable;
             appInfo["releaseUrl"] = AppReleaseUrl ?? ("https://github.com/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases");
