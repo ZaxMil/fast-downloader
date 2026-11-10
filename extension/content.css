@@ -1,316 +1,107 @@
-/* FastDownloader Pro - Floating Video Download Bar & In-Page Action UI */
-
+/* FastDownloader: quiet, crisp media controls. One click = one request. */
 .fd-download-btn-container {
   position: absolute !important;
   top: 14px;
   left: 14px;
   z-index: 2147483647 !important;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  opacity: 1 !important;
-  transform: translateY(0);
-  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  pointer-events: auto !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif !important;
   user-select: none !important;
+  -webkit-user-select: none !important;
+  pointer-events: auto !important;
+  opacity: 1;
+}
+.fd-download-pill {
+  box-sizing: border-box !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 3px !important;
+  height: 36px !important;
+  padding: 3px !important;
+  background: #101923 !important;
+  border: 1px solid rgba(121, 152, 170, .38) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .40) !important;
+  color: #edf9f5 !important;
+  direction: ltr !important;
+}
+.fd-download-pill:hover {
+  border-color: rgba(62, 208, 162, .7) !important;
+  box-shadow: 0 5px 19px rgba(0,0,0,.46) !important;
+}
+.fd-download-pill button {
+  box-sizing: border-box !important;
+  font-family: inherit !important;
+  line-height: 1 !important;
+  border: 0 !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  outline-offset: 2px !important;
+}
+.fd-pill-drag {
+  width: 20px !important;
+  height: 28px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: #8097a4 !important;
+  cursor: grab !important;
   touch-action: none !important;
 }
-
-/* Brighten & subtle pop when hovered or active */
-.fd-parent-hover .fd-download-btn-container,
-.fd-download-btn-container:hover,
-.fd-download-btn-container.fd-menu-open {
-  opacity: 1 !important;
-  transform: translateY(0) scale(1.02) !important;
-}
-
-.fd-download-btn-container.fd-dragging {
-  transition: none !important;
-  opacity: 0.95 !important;
-  transform: scale(1.04) !important;
-  cursor: grabbing !important;
-}
-
-.fd-download-btn-container.fd-dragging * {
-  cursor: grabbing !important;
-  pointer-events: none !important;
-}
-
-/* Solid Opaque Compact Main Pill Container */
-.fd-download-pill {
-  display: inline-flex;
-  align-items: center;
-  background: #0F172A !important;
-  border: 1px solid rgba(16, 185, 129, 0.6) !important;
-  border-radius: 13px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.75), 0 0 10px rgba(16, 185, 129, 0.3) !important;
-  padding: 2px 3px 2px 4px;
-  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-  pointer-events: auto !important;
-  z-index: 2147483647 !important;
-  height: 24px;
-  box-sizing: border-box;
-}
-
-.fd-download-pill:hover,
-.fd-download-btn-container.fd-menu-open .fd-download-pill {
-  background: #0B0F19 !important;
-  border-color: #10B981 !important;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.85), 0 0 16px rgba(16, 185, 129, 0.5) !important;
-}
-
-/* Subtle Drag Grip Handle */
-.fd-pill-drag {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 9px;
-  height: 18px;
-  color: #64748B;
-  cursor: grab !important;
-  margin-right: 2px;
-  opacity: 0.6;
-  transition: opacity 0.15s, color 0.15s;
-  flex-shrink: 0;
-}
-
-.fd-pill-drag:hover,
-.fd-download-btn-container.fd-dragging .fd-pill-drag {
-  opacity: 1;
-  color: #10B981;
-}
-
-/* Primary Action Area (Compact) */
+.fd-pill-drag:hover { color: #c5dadc !important; }
+.fd-download-btn-container.fd-dragging .fd-pill-drag { cursor: grabbing !important; }
 .fd-pill-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 6px 2px 4px;
-  background: transparent;
-  border: none;
-  color: #F8FAFC !important;
-  font-size: 11px;
-  font-weight: 600;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 7px !important;
+  min-width: 112px !important;
+  height: 28px !important;
+  padding: 0 11px !important;
+  border-radius: 7px !important;
+  background: #0eab80 !important;
+  color: #062d25 !important;
+  font-size: 12px !important;
+  font-weight: 750 !important;
+  letter-spacing: .05px !important;
   cursor: pointer !important;
-  border-radius: 10px;
-  transition: background 0.15s, color 0.15s;
-  line-height: 1;
-  pointer-events: auto !important;
-  flex-shrink: 0;
+  transition: background .12s ease !important;
+  white-space: nowrap !important;
 }
-
-.fd-pill-action:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.fd-pill-action:active {
-  transform: scale(0.97);
-}
-
-.fd-pill-icon {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-  flex-shrink: 0;
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
-  display: block;
-}
-
-.fd-pill-text {
-  font-size: 11px;
-  letter-spacing: -0.1px;
-}
-
-/* Dropdown Arrow Trigger */
-.fd-pill-arrow {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 20px;
-  background: transparent;
-  border: none;
-  border-left: 1px solid rgba(255, 255, 255, 0.12);
-  color: #94A3B8;
+.fd-pill-action:hover { background: #43ddb0 !important; }
+.fd-pill-action:active { background: #087d63 !important; }
+.fd-pill-action:focus-visible, .fd-pill-audio:focus-visible,
+.fd-pill-close:focus-visible { outline: 2px solid #b5f7e4 !important; }
+.fd-pill-icon { flex-shrink: 0 !important; width: 17px !important; height: 17px !important; }
+.fd-pill-text { font-size: 12px !important; font-weight: 750 !important; }
+.fd-pill-audio {
+  height: 28px !important;
+  min-width: 50px !important;
+  padding: 0 10px !important;
+  border-radius: 7px !important;
+  background: #263746 !important;
+  color: #e5f1f4 !important;
+  font-size: 11px !important;
+  font-weight: 650 !important;
   cursor: pointer !important;
-  border-radius: 0;
-  transition: all 0.15s;
-  padding: 0;
-  flex-shrink: 0;
+  transition: background .12s ease !important;
 }
-
-.fd-pill-arrow:hover,
-.fd-download-btn-container.fd-menu-open .fd-pill-arrow {
-  background: rgba(255, 255, 255, 0.08);
-  color: #10B981;
-}
-
-.fd-pill-arrow svg {
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.fd-download-btn-container.fd-menu-open .fd-pill-arrow svg {
-  transform: rotate(180deg);
-}
-
-/* Close / Dismiss Trigger */
+.fd-pill-audio:hover { background: #375064 !important; }
 .fd-pill-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 20px;
-  background: transparent;
-  border: none;
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
-  color: #64748B;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 7px !important;
+  background: transparent !important;
+  color: #a8bac6 !important;
   cursor: pointer !important;
-  border-radius: 0 10px 10px 0;
-  transition: all 0.15s;
-  padding: 0;
-  flex-shrink: 0;
 }
-
-.fd-pill-close:hover {
-  background: rgba(239, 68, 68, 0.18);
-  color: #EF4444;
-}
-
-/* Dimmed Menu Items (for Dismiss / Disable actions) */
-.fd-menu-item-dim {
-  opacity: 0.72;
-  font-size: 11px;
-}
-
-.fd-menu-item-dim:hover {
-  opacity: 1;
-  color: #EF4444 !important;
-  background: rgba(239, 68, 68, 0.12) !important;
-}
-
-/* Dropdown Quality Menu */
-.fd-download-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  right: auto;
-  background: #0F172A !important;
-  border: 1px solid rgba(255, 255, 255, 0.15) !important;
-  border-radius: 12px;
-  padding: 6px;
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.8), 0 0 1px rgba(255, 255, 255, 0.2);
-  display: none;
-  flex-direction: column;
-  min-width: 220px;
-  animation: fdMenuDrop 0.16s cubic-bezier(0.16, 1, 0.3, 1);
-  z-index: 2147483647;
-}
-
-@keyframes fdMenuDrop {
-  from {
-    opacity: 0;
-    transform: translateY(-6px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-.fd-download-menu.fd-show {
-  display: flex;
-}
-
-.fd-menu-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px 8px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  margin-bottom: 4px;
-  font-size: 11px;
-  font-weight: 700;
-  color: #94A3B8;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-}
-
-.fd-menu-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: #10B981;
-  font-size: 10.5px;
-  font-weight: 600;
-}
-
-.fd-menu-status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #10B981;
-  box-shadow: 0 0 6px #10B981;
-}
-
-.fd-menu-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 10px;
-  color: #F1F5F9;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.12s ease;
-}
-
-.fd-menu-item:hover {
-  background: rgba(16, 185, 129, 0.15);
-  color: #10B981;
-}
-
-.fd-menu-item-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.fd-menu-badge {
-  font-size: 10px;
-  font-weight: 700;
-  background: rgba(255, 255, 255, 0.08);
-  color: #94A3B8;
-  padding: 2px 7px;
-  border-radius: 5px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.fd-menu-item:hover .fd-menu-badge {
-  background: rgba(16, 185, 129, 0.25);
-  color: #10B981;
-  border-color: rgba(16, 185, 129, 0.4);
-}
-
-.fd-menu-badge.fd-badge-best {
-  background: rgba(16, 185, 129, 0.2);
-  color: #34D399;
-  border-color: rgba(16, 185, 129, 0.35);
-}
-
-.fd-menu-divider {
-  height: 1px;
-  background: rgba(255, 255, 255, 0.08);
-  margin: 4px 6px;
-}
-
-/* Success Feedback State on Pill */
-.fd-download-pill.fd-success {
-  background: rgba(6, 78, 59, 0.95);
-  border-color: #10B981;
-  box-shadow: 0 0 20px rgba(16, 185, 129, 0.5);
-}
-
-.fd-download-pill.fd-success .fd-pill-action {
-  color: #A7F3D0;
+.fd-pill-close:hover { background: rgba(239,68,68,.18) !important; color: #ff9b9b !important; }
+.fd-download-pill.fd-busy .fd-pill-action,
+.fd-download-pill.fd-busy .fd-pill-audio { cursor: progress !important; opacity: .68 !important; }
+@media (prefers-reduced-motion: reduce) {
+  .fd-download-pill *, .fd-download-btn-container * { transition: none !important; }
 }
 
 /* Platform In-Page Action Button */
