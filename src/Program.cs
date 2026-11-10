@@ -3097,13 +3097,27 @@ namespace FastDownloader
 
         private void BackgroundLoop()
         {
-            // Initial grace period: wait 15 seconds after app startup
-            Thread.Sleep(15000);
+            // Leave startup CPU/disk to the actual app, not update scans.
+            // Automatic update checks are deferred, run at most once daily.
+            Thread.Sleep(120000);
 
             while (isRunning)
             {
                 try
                 {
+                    if (!isRunning) break;
+                    DateTime lastCheckUtc;
+                    if (!string.IsNullOrEmpty(engine.LastUpdateCheck) &&
+                        DateTime.TryParse(engine.LastUpdateCheck, CultureInfo.InvariantCulture,
+                            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                            out lastCheckUtc) &&
+                        lastCheckUtc <= DateTime.UtcNow &&
+                        DateTime.UtcNow - lastCheckUtc < TimeSpan.FromHours(24))
+                    {
+                        // Settings persist across restarts; don't spawn the updater again.
+                        for (int m = 0; m < 60 && isRunning; m++) Thread.Sleep(60000);
+                        continue;
+                    }
                     // 1. Check and auto-update engines (yt-dlp) if enabled
                     if (engine.AutoUpdateEngines)
                     {
@@ -3137,8 +3151,11 @@ namespace FastDownloader
                         }
                     }
 
-                    engine.LastUpdateCheck = DateTime.UtcNow.ToString("s") + "Z";
-                    engine.SaveSettings();
+                    if (engine.AutoUpdateEngines || engine.AutoUpdateApp)
+                    {
+                        engine.LastUpdateCheck = DateTime.UtcNow.ToString("s") + "Z";
+                        engine.SaveSettings();
+                    }
                 }
                 catch { }
 
@@ -7005,7 +7022,9 @@ namespace FastDownloader
 
             // Background Queue Scheduler Timer
             schedulerTimer = new System.Windows.Forms.Timer();
-            schedulerTimer.Interval = 1000;
+            // Scheduler boundaries are minute-based; polling 5× per minute
+            // instead of 60× cuts idle RPC/UI churn without affecting transfers.
+            schedulerTimer.Interval = 5000;
             schedulerTimer.Tick += (s, e) => CheckSchedulerTick();
             schedulerTimer.Start();
 
@@ -7384,7 +7403,7 @@ namespace FastDownloader
                     {
                         FileName = targetBrowser,
                         // Use a separate user profile and explicitly request a standalone app window.
-                        Arguments = string.Format("--user-data-dir=\"{0}\" --app=\"http://127.0.0.1:6801/\" --new-window --window-size=1240,800 --no-first-run --no-default-browser-check --disable-features=Translate,OptimizationHints --disable-extensions --disable-background-mode --disable-http-cache", profileDir),
+                        Arguments = string.Format("--user-data-dir=\"{0}\" --app=\"http://127.0.0.1:6801/\" --new-window --window-size=1240,800 --no-first-run --no-default-browser-check --disable-features=Translate,OptimizationHints --disable-extensions --disable-background-mode", profileDir),
                         CreateNoWindow = false,
                         UseShellExecute = true
                     };
