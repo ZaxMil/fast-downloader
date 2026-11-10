@@ -905,248 +905,98 @@
     pill.appendChild(audioBtn);
     pill.appendChild(closeBtn);
 
-    // DRAGGABLE IMPLEMENTATION (Pointer events with window capture)
+    // Dragging is exclusive to the grip; action buttons stay clickable.
     let isDragging = false;
-    let dragStartX = 0;
-    let dragStartY = 0;
-    let initialLeft = 0;
-    let initialTop = 0;
     let hasDragged = false;
-    let suppressClickUntil = 0;
+    let startX = 0, startY = 0, leftAtStart = 0, topAtStart = 0;
 
-    const onPointerMove = (e) => {
+    function onPointerMove(e) {
       if (!isDragging) return;
-      const dx = e.clientX - dragStartX;
-      const dy = e.clientY - dragStartY;
-
-      if (!hasDragged && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
-        hasDragged = true;
-        container.classList.add('fd-dragging');
-        menu.classList.remove('fd-show');
-        container.classList.remove('fd-menu-open');
-      }
-
-      if (hasDragged) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        const aRect = anchor.getBoundingClientRect();
-        let newLeft = initialLeft + dx;
-        let newTop = initialTop + dy;
-
-        const maxL = Math.max(0, aRect.width - container.offsetWidth);
-        const maxT = Math.max(0, aRect.height - container.offsetHeight);
-        newLeft = Math.max(4, Math.min(newLeft, maxL));
-        newTop = Math.max(4, Math.min(newTop, maxT));
-
-        container.style.setProperty('position', 'absolute', 'important');
-        container.style.setProperty('left', `${newLeft}px`, 'important');
-        container.style.setProperty('top', `${newTop}px`, 'important');
-        container.style.setProperty('right', 'auto', 'important');
-        container.style.setProperty('bottom', 'auto', 'important');
-      }
-    };
-
-    const onPointerUp = (e) => {
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      if (!hasDragged && Math.abs(dx) <= 4 && Math.abs(dy) <= 4) return;
+      hasDragged = true;
+      container.classList.add('fd-dragging');
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = anchor.getBoundingClientRect();
+      const x = Math.min(Math.max(4, rect.width - container.offsetWidth - 4),
+        Math.max(4, leftAtStart + dx));
+      const y = Math.min(Math.max(4, rect.height - container.offsetHeight - 4),
+        Math.max(4, topAtStart + dy));
+      container.style.setProperty('left', x + 'px', 'important');
+      container.style.setProperty('top', y + 'px', 'important');
+      container.style.setProperty('right', 'auto', 'important');
+    }
+    function onPointerUp(e) {
       window.removeEventListener('pointermove', onPointerMove, true);
       window.removeEventListener('pointerup', onPointerUp, true);
       window.removeEventListener('pointercancel', onPointerUp, true);
-
       if (!isDragging) return;
       isDragging = false;
       container.classList.remove('fd-dragging');
-      try { container.releasePointerCapture(e.pointerId); } catch (_) {}
-
       if (hasDragged) {
         e.preventDefault();
         e.stopPropagation();
-        suppressClickUntil = Date.now() + 300;
-
-        const pos = {
-          left: container.style.left,
-          top: container.style.top
-        };
+        const pos = { left: container.style.left, top: container.style.top };
         anchor._fdCustomPos = pos;
         globalButtonPos = pos;
-        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local)
           chrome.storage.local.set({ savedButtonPos: pos });
-        }
       }
-    };
-
-    const startDrag = (e) => {
+    }
+    dragHandle.addEventListener('pointerdown', e => {
       if (e.button !== 0) return;
-      if (closeBtn.contains(e.target) || arrowBtn.contains(e.target) || menu.contains(e.target)) return;
-
+      e.stopPropagation();
+      e.preventDefault();
       isDragging = true;
       hasDragged = false;
-      dragStartX = e.clientX;
-      dragStartY = e.clientY;
-
-      const cRect = container.getBoundingClientRect();
-      const aRect = anchor.getBoundingClientRect();
-      initialLeft = cRect.left - aRect.left;
-      initialTop = cRect.top - aRect.top;
-
-      try { container.setPointerCapture(e.pointerId); } catch (_) {}
-
+      startX = e.clientX;
+      startY = e.clientY;
+      const current = container.getBoundingClientRect();
+      const parent = anchor.getBoundingClientRect();
+      leftAtStart = current.left - parent.left;
+      topAtStart = current.top - parent.top;
       window.addEventListener('pointermove', onPointerMove, { capture: true, passive: false });
-      window.addEventListener('pointerup', onPointerUp, { capture: true });
-      window.addEventListener('pointercancel', onPointerUp, { capture: true });
-    };
+      window.addEventListener('pointerup', onPointerUp, true);
+      window.addEventListener('pointercancel', onPointerUp, true);
+    });
 
-    container.addEventListener('pointerdown', startDrag);
-
-    // Dismiss Button Handler
-    const dismissButton = () => {
+    closeBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      e.preventDefault();
       targetElement._fdDismissed = true;
       anchor._fdDismissed = true;
-      container.style.transition = 'opacity 0.15s ease, transform 0.15s ease';
-      container.style.opacity = '0';
-      container.style.transform = 'scale(0.8)';
-      setTimeout(() => {
-        try { container.remove(); } catch (_) {}
-      }, 150);
-    };
+      container.remove();
+    });
 
-    closeBtn.addEventListener('click', (e) => {
+    let requestBusy = false;
+    async function startDownload(e, quality) {
       e.stopPropagation();
       e.preventDefault();
-      dismissButton();
-    });
-
-    // 1-Click Direct Download on Pill or Action click
-    const triggerDownload = async (e, quality = 'best') => {
-      if (Date.now() < suppressClickUntil || hasDragged) {
-        e.stopPropagation();
-        e.preventDefault();
-        return;
-      }
-
-      e.stopPropagation();
-      e.preventDefault();
-      if (isCanvas) {
-        recordCanvasStream(targetElement, 15000);
-        return;
-      }
-
-      let videoSrc = detectBestMediaUrl(targetElement);
-
-      // Auto-nudge video element silently if paused or has blob src so platform requests stream chunks
-      if ((!videoSrc || videoSrc === window.location.href || videoSrc.startsWith('blob:')) && targetElement && targetElement.tagName === 'VIDEO') {
-        const textSpan = pill.querySelector('.fd-pill-text');
-        if (textSpan) textSpan.textContent = 'Buffering...';
-
-        const wasPaused = targetElement.paused;
-        const prevMuted = targetElement.muted;
-        try {
-          targetElement.muted = true;
-          const p = targetElement.play();
-          if (p && typeof p.then === 'function') await p.catch(() => {});
-        } catch (err) {}
-
-        for (let i = 0; i < 5; i++) {
-          await new Promise(r => setTimeout(r, 100));
-          videoSrc = detectBestMediaUrl(targetElement);
-          if (videoSrc && videoSrc !== window.location.href && !videoSrc.startsWith('blob:')) {
-            break;
-          }
-        }
-
-        if (wasPaused) {
-          try { targetElement.pause(); } catch (err) {}
-        }
-        targetElement.muted = prevMuted;
-      }
-
-      if (!videoSrc || videoSrc === window.location.href || videoSrc.startsWith('blob:')) {
-        videoSrc = findSocialPostPermalink(targetElement) || window.location.href;
-      }
-
-      sendToFastDownloader(videoSrc, document.title, 'video', quality, pill);
-    };
-
-    mainAction.addEventListener('click', triggerDownload);
-    pill.addEventListener('click', (e) => {
-      if (arrowBtn.contains(e.target) || closeBtn.contains(e.target) || dragHandle.contains(e.target)) return;
-      triggerDownload(e, 'best');
-    });
-
-    // Toggle Dropdown Menu on Arrow click
-    arrowBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      const isOpen = menu.classList.toggle('fd-show');
-      container.classList.toggle('fd-menu-open', isOpen);
-      if (isOpen) {
-        const cRect = container.getBoundingClientRect();
-        if (window.innerWidth - cRect.right < 240) {
-          menu.style.left = 'auto';
-          menu.style.right = '0';
-        } else {
-          menu.style.left = '0';
-          menu.style.right = 'auto';
-        }
-      }
-    });
-
-    // Close menu when clicking outside
-    document.addEventListener('click', () => {
-      menu.classList.remove('fd-show');
-      container.classList.remove('fd-menu-open');
-    });
-
-    // Menu Item Selection
-    menu.querySelectorAll('.fd-menu-item').forEach((item) => {
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        menu.classList.remove('fd-show');
-        container.classList.remove('fd-menu-open');
-
-        const action = item.getAttribute('data-action');
-        if (action === 'copy') {
-          const videoSrc = detectBestMediaUrl(targetElement);
-          navigator.clipboard.writeText(videoSrc);
-          showToast('📋 Video link copied to clipboard!');
-          return;
-        }
-
-        if (action === 'dismiss-once') {
-          dismissButton();
-          return;
-        }
-
-        if (action === 'disable-all') {
-          if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-            chrome.storage.local.set({ videoButtonEnabled: false }, () => {
-              document.querySelectorAll('.fd-download-btn-container').forEach(el => el.remove());
-              const ytBtn = document.getElementById('fd-yt-action-container');
-              if (ytBtn) ytBtn.remove();
-              showToast('Video download buttons disabled. Re-enable anytime in the extension popup.');
-            });
-          }
-          return;
-        }
-
-        if (action === 'dashboard') {
-          try {
-            chrome.runtime.sendMessage({ type: 'FD_OPEN_APP' });
-          } catch (err) {}
-          return;
-        }
-
+      if (requestBusy) return;
+      requestBusy = true;
+      try {
         if (isCanvas) {
-          const sec = action === 'rec-60' ? 60000 : action === 'rec-30' ? 30000 : 15000;
-          recordCanvasStream(targetElement, sec);
-        } else {
-          const quality = item.getAttribute('data-quality') || 'best';
-          triggerDownload(e, quality);
+          recordCanvasStream(targetElement, quality === '30s' ? 30000 : 15000);
+          return;
         }
-      });
-    });
+        let url = detectBestMediaUrl(targetElement);
+        // Never autoplay or change video volume when detecting a download.
+        if (!url || url === window.location.href || url.startsWith('blob:'))
+          url = findSocialPostPermalink(targetElement) || window.location.href;
+        await sendToFastDownloader(url, document.title, 'video', quality, pill);
+      } catch (err) {
+        showToast('Could not prepare the download.', true);
+      } finally {
+        requestBusy = false;
+      }
+    }
+
+    // Bind exactly one handler per button. Parent click previously doubled requests.
+    mainAction.addEventListener('click', e => startDownload(e, isCanvas ? '15s' : 'best'));
+    audioBtn.addEventListener('click', e => startDownload(e, isCanvas ? '30s' : 'audio'));
 
     container.appendChild(pill);
-    container.appendChild(menu);
     anchor.appendChild(container);
   }
 
