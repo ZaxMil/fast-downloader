@@ -2904,7 +2904,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.18";
+        public const string CurrentAppVersion = "0.1.19";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -5526,7 +5526,7 @@ namespace FastDownloader
             {
                 if (c < 32 || "\\/:*?\"<>|".IndexOf(c) >= 0 ||
                     Array.IndexOf(Path.GetInvalidFileNameChars(), c) >= 0)
-                    safe.Append('-');
+                    safe.Append(c == ':' ? " -" : "-");
                 else
                     safe.Append(c);
             }
