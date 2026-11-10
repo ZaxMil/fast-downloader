@@ -13,5 +13,14 @@ assert(!launch.includes('CleanProfileLocks(profileDir)'), 'Never remove lock fil
 assert(launch.includes('--app=\\\"http://127.0.0.1:6801/\\\"'), 'Launch standalone application mode');
 assert(launch.includes('--new-window'), 'Explicitly launch a new standalone window');
 assert(launch.includes('--user-data-dir='), 'Use independent per-user browser profile');
-assert(source.includes('!title.Contains(" - Microsoft Edge")'), 'Do not misidentify normal Edge tabs as a dashboard window');
+const windowMgr = source.slice(source.indexOf('public static class WindowManager'), source.indexOf('// Minimal pre-download sheet:', source.indexOf('public static class WindowManager')));
+assert.match(windowMgr, /IsDashboardBrowserProcess\(Process p\)/, 'Dashboard must verify the owning process');
+assert.match(windowMgr, /name == "msedge" \|\| name == "chrome" \|\| name == "brave"/, 'Known browser process allowlist');
+assert.match(windowMgr, /IsDashboardTitle\(title\.ToString\(\)\.Trim\(\)\)/, 'Exact app window title required');
+assert.doesNotMatch(windowMgr, /title\.StartsWith\("FastDownloader"/, 'Never focus similarly titled editor windows');
+assert.doesNotMatch(windowMgr, /if \(procName != "code"/, 'Old weak process exclusion must be removed');
+assert.match(source, /IsExpectedBrowserPath\(string path\)/, 'Browser path must be verified');
+assert.match(source, /Path\.GetFileName\(path\)\.Equals\(name/, 'Registry overrides must match expected browser executable');
+assert.doesNotMatch(launch, /Process\.Start\("http:\/\/127\.0\.0\.1:6801\/"\)/, 'Never open default URL handler (may be AGY)');
+assert.match(launch, /No supported browser found for dashboard/, 'Show actionable error instead of launching unrelated software');
 console.log('PASS: dashboard app window launch, writable per-user profile, and Edge tab detection');
