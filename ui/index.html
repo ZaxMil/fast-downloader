@@ -4298,6 +4298,13 @@
       currentTheme = theme;
       document.documentElement.setAttribute('data-theme', theme);
       localStorage.setItem('fast_theme', theme);
+      // Keep the native WinForms download dialog in sync with the dashboard.
+      // Local storage is not shared with the separate Windows process.
+      fetch(API_BASE + '/api/preferences/theme', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme })
+      }).catch(() => {});
       
       const meta = document.getElementById('themeColorMeta');
       if (meta) {
