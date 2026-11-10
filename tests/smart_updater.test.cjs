@@ -42,7 +42,7 @@ assert(cs.includes('DownloadAssetWithResume('),'Updater must resume downloads');
 assert(cs.includes('VerifyReleaseHashes(tag, packages)'),'Updater must verify SHA256');
 assert(cs.includes('QueueAppUpdate(out string message)'),'HTTP updater should not block for file transfers');
 
-assert.match(cs, /CurrentAppVersion = "0\.1\.17"/, 'Version bump is required for installed app updates');
+assert.match(cs, /CurrentAppVersion = "0\.1\.18"/, 'Version bump is required for installed app updates');
 assert.match(cs, /this\.CachedYtDlpVersion = "Not checked";/, 'No yt-dlp binary executed on startup');
 assert.match(cs, /this\.CachedAria2Version = "Not checked";/, 'No aria2 version process during startup');
 assert.match(cs, /var res = UpdateYtDlp\(false\);/, 'Automatic engine updates must check upstream version first');
@@ -54,5 +54,17 @@ assert.doesNotMatch(cs, /this\.CachedYtDlpVersion = GetYtDlpVersion\(\);/, 'No s
 assert(cs.includes('dict["installation"] = ReadInstallStatus()'),'UI needs helper status after restart');
 assert(ps.includes('Stop-Process -Id $TargetPid -Force'),'Updater may terminate only the verified hung parent');
 assert(ps.includes('[IO.Path]::GetFullPath($actualPath)'),'Verify process path before force stopping');
+assert.match(cs, /appInfo\["processId"\] = Process\.GetCurrentProcess\(\)\.Id/, 'API must expose process identity');
+assert.match(ps, /Confirm-UpdatedApp \$started\.Id/, 'Helper must verify the newly launched process');
+assert.match(ps, /\$reportedPid -eq \$newPid/, 'Restart must reject a stale API process');
+assert.match(ps, /\$runningVersion -eq \$ExpectedVersion/, 'Restart must verify version and PID');
+assert.match(ps, /Wait-BridgeRelease/, 'Update must check port ownership before replacement');
+assert.match(ps, /Assert-UpdateBinaryVersion/, 'Executable version must be validated before installation');
+assert.match(ps, /RestartTimeoutSeconds = 120/, 'Allow real first-start latency with finite timeout');
+assert.match(ps, /Get-BridgeOwner/, 'Process-aware port diagnostics required');
+assert.match(ps, /Restore-OldVersion/, 'Failed upgrade must preserve rollback');
+assert.match(cs, /Active file downloads detected/, 'Active downloads must block shutdown');
+assert.match(cs, /Active video download detected/, 'Video processing must block shutdown');
+assert.match(html, /stage\.status === 'success' && installed === expected/, 'UI must not signal success before the helper verifies restart');
 assert(!ps.includes('Get-Process FastDownloader | Stop-Process'),'Never terminate all processes by name');
 console.log('PASS: smart updater state, progress, failure/fallback, yt-dlp button, resume/hash, scoped restart');
