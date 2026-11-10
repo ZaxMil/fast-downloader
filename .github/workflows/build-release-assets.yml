@@ -103,6 +103,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $appVersion = [regex]::Match((Get-Content 'src/Program.cs' -Raw), 'CurrentAppVersion = "([^"]+)"').Groups[1].Value
+          if (-not $appVersion) { throw "Application version missing" }
           $testRoot = Join-Path $env:RUNNER_TEMP 'updater-rehearsal'
           $appDir = Join-Path $testRoot 'installed-app'
           New-Item -ItemType Directory -Force -Path $appDir | Out-Null
