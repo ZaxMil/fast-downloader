@@ -73,23 +73,58 @@ function Assert-UpdateBinaryVersion {
     Log "Verified staged executable version $actualVersion."
 }
 function Wait-BridgeRelease {
-    # Closing the PID must also release the old API listener. ReuseAddress can
-    # otherwise allow the new dashboard to reach a stale/wrong process.
+    # Once the target process is gone, its old PID may briefly remain in the
+    # TCP table. Do not wait on that stale row; the new app's API PID/version
+    # verification and rollback below are the final authority.
     $deadline = [DateTime]::UtcNow.AddSeconds(18)
+    $lastOwnerDescription = 'No listener observed'
+    $lastLogged = ''
     do {
         $owner = Get-BridgeOwner
-        if ($owner -eq 0) { return }
+        if ($owner -eq 0) {
+            Log 'Port 6801 is free for the updated app.'
+            return
+        }
         if ($owner -eq -2) {
             Log 'TCP listener ownership unavailable; continuing with strict API process identity verification.'
             return
         }
         if ($owner -eq -1) { throw 'Multiple processes listen on port 6801. Refusing update.' }
-        if ($owner -ne $TargetPid) {
-            throw "Port 6801 belongs to unrelated process PID $owner. Update aborted before replacement."
+
+        $ownerProcess = Get-Process -Id $owner -ErrorAction SilentlyContinue
+        $ownerPath = $null
+        if ($ownerProcess) { try { $ownerPath = $ownerProcess.Path } catch { } }
+        $lastOwnerDescription = "PID $owner; path " + $(if ($ownerPath) { $ownerPath } else { '<process not found or path unavailable>' })
+        if ($lastOwnerDescription -ne $lastLogged) {
+            Log "Port 6801 listener observed: $lastOwnerDescription"
+            $lastLogged = $lastOwnerDescription
         }
-        Start-Sleep -Milliseconds 450
+
+        if ($owner -eq $TargetPid) {
+            if (-not $ownerProcess) {
+                Log "TCP table still reports stopped target PID $TargetPid; proceeding to strict updated API verification."
+                return
+            }
+            if ($ownerPath -and -not [string]::Equals(
+                [IO.Path]::GetFullPath($ownerPath),
+                [IO.Path]::GetFullPath($TargetExe),
+                [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Target PID $TargetPid was reused by '$ownerPath'; refusing to replace files."
+            }
+            Start-Sleep -Milliseconds 450
+            continue
+        }
+
+        if ($ownerPath -and [string]::Equals(
+            [IO.Path]::GetFullPath($ownerPath),
+            [IO.Path]::GetFullPath($TargetExe),
+            [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Another FastDownloader process PID $owner still owns port 6801."
+        }
+        throw "Port 6801 is owned by unrelated process PID $owner ($lastOwnerDescription). Refusing update."
     } while ([DateTime]::UtcNow -lt $deadline)
-    throw 'Old FastDownloader process exited but port 6801 is still in use.'
+
+    throw "Port 6801 remained active after the old app exited. Last listener: $lastOwnerDescription."
 }
 function Confirm-UpdatedApp([int]$newPid) {
     $deadline = [DateTime]::UtcNow.AddSeconds($RestartTimeoutSeconds)
