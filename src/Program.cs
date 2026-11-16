@@ -2904,7 +2904,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.21";
+        public const string CurrentAppVersion = "0.1.22";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -2912,6 +2912,9 @@ namespace FastDownloader
         private Action<string> onNotification;
         private Thread backgroundThread;
         private bool isRunning;
+        private System.Action stopBridgeForUpdate;
+        private DateTime lastAutoUpdateAttemptUtc = DateTime.MinValue;
+        private string lastAutoUpdateNoticeVersion = "";
 
         public bool AppUpdateAvailable { get; private set; }
         public string LatestAppVersion { get; private set; }
@@ -3087,6 +3090,11 @@ namespace FastDownloader
             catch { }
         }
 
+        public void SetBridgeStopAction(System.Action stopAction)
+        {
+            stopBridgeForUpdate = stopAction;
+        }
+
         public void StartBackgroundScheduler()
         {
             isRunning = true;
@@ -3103,10 +3111,30 @@ namespace FastDownloader
             isRunning = false;
         }
 
+        private bool HasActiveDownloads(out string reason)
+        {
+            reason = "";
+            var runningFileTasks = engine.GetActiveAriaTasks();
+            if (runningFileTasks != null && runningFileTasks.Count > 0)
+            {
+                reason = "Active file downloads detected.";
+                return true;
+            }
+            foreach (var video in engine.GetYtTasksSnapshot())
+            {
+                if (video.Status == "downloading" || video.Status == "processing")
+                {
+                    reason = "Active video download detected.";
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private void BackgroundLoop()
         {
-            // Leave startup CPU/disk to the actual app, not update scans.
-            // Automatic update checks are deferred, run at most once daily.
+            // Keep startup light, then check often enough to notice a release
+            // published shortly after the previous check.
             Thread.Sleep(120000);
 
             while (isRunning)
@@ -3114,66 +3142,90 @@ namespace FastDownloader
                 try
                 {
                     if (!isRunning) break;
-                    DateTime lastCheckUtc;
-                    if (!string.IsNullOrEmpty(engine.LastUpdateCheck) &&
-                        DateTime.TryParse(engine.LastUpdateCheck, CultureInfo.InvariantCulture,
-                            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-                            out lastCheckUtc) &&
-                        lastCheckUtc <= DateTime.UtcNow &&
-                        DateTime.UtcNow - lastCheckUtc < TimeSpan.FromHours(24))
+                    DateTime lastCheckUtc = DateTime.MinValue;
+                    bool hasLastCheck = DateTime.TryParse(engine.LastUpdateCheck,
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                        out lastCheckUtc);
+                    bool checkDue = !hasLastCheck || lastCheckUtc > DateTime.UtcNow ||
+                        DateTime.UtcNow - lastCheckUtc >= TimeSpan.FromMinutes(30);
+
+                    if (checkDue)
                     {
-                        // Settings persist across restarts; don't spawn the updater again.
-                        for (int m = 0; m < 60 && isRunning; m++) Thread.Sleep(60000);
-                        continue;
-                    }
-                    // 1. Check and auto-update engines (yt-dlp) if enabled
-                    if (engine.AutoUpdateEngines)
-                    {
-                        // Compare published version first; never run yt-dlp -U
-                        // on every daily update check when already up to date.
-                        var res = UpdateYtDlp(false);
-                        if (res != null && res.updated)
+                        if (engine.AutoUpdateEngines)
                         {
-                            CachedYtDlpVersion = res.latestVersion;
-                            if (engine.NotifyOnUpdate && onNotification != null)
+                            var res = UpdateYtDlp(false);
+                            if (res != null && res.updated)
                             {
-                                onNotification("🚀 yt-dlp auto-updated to " + res.latestVersion);
+                                CachedYtDlpVersion = res.latestVersion;
+                                if (engine.NotifyOnUpdate && onNotification != null)
+                                    onNotification("yt-dlp auto-updated to " + res.latestVersion);
                             }
+                        }
+
+                        if (engine.AutoUpdateApp)
+                        {
+                            var appRes = CheckAppUpdate();
+                            if (appRes != null && appRes.hasUpdate)
+                            {
+                                AppUpdateAvailable = true;
+                                LatestAppVersion = appRes.latestVersion;
+                                AppReleaseUrl = appRes.releaseUrl;
+                                AppReleaseNotes = appRes.releaseNotes;
+                                AppDownloadUrl = appRes.downloadUrl;
+
+                                if (engine.NotifyOnUpdate && onNotification != null &&
+                                    lastAutoUpdateNoticeVersion != appRes.latestVersion)
+                                {
+                                    lastAutoUpdateNoticeVersion = appRes.latestVersion;
+                                    onNotification("FastDownloader " + appRes.latestVersion +
+                                        " found. It will install automatically when downloads are idle.");
+                                }
+                            }
+                        }
+
+                        if (engine.AutoUpdateEngines || engine.AutoUpdateApp)
+                        {
+                            engine.LastUpdateCheck = DateTime.UtcNow.ToString("s") + "Z";
+                            engine.SaveSettings();
                         }
                     }
 
-                    // 2. Check for FastDownloader app release if enabled
-                    if (engine.AutoUpdateApp)
+                    // Auto-install only when enabled and no transfers are active.
+                    // Pending updates are retried after activity ends, with a backoff
+                    // after failures so an unsafe shutdown is never forced repeatedly.
+                    if (engine.AutoUpdateApp && AppUpdateAvailable &&
+                        DateTime.UtcNow - lastAutoUpdateAttemptUtc >= TimeSpan.FromMinutes(30))
                     {
-                        var appRes = CheckAppUpdate();
-                        if (appRes != null && appRes.hasUpdate)
+                        string activeReason;
+                        if (HasActiveDownloads(out activeReason))
                         {
-                            AppUpdateAvailable = true;
-                            LatestAppVersion = appRes.latestVersion;
-                            AppReleaseUrl = appRes.releaseUrl;
-                            AppReleaseNotes = appRes.releaseNotes;
-                            AppDownloadUrl = appRes.downloadUrl;
-
-                            if (engine.NotifyOnUpdate && onNotification != null)
+                            if (engine.NotifyOnUpdate && onNotification != null &&
+                                lastAutoUpdateNoticeVersion != LatestAppVersion)
                             {
-                                onNotification("✨ FastDownloader " + appRes.latestVersion + " is available! Click Updates to install.");
+                                lastAutoUpdateNoticeVersion = LatestAppVersion;
+                                onNotification("FastDownloader " + LatestAppVersion +
+                                    " is ready. Installation is waiting for active downloads to finish.");
                             }
                         }
-                    }
-
-                    if (engine.AutoUpdateEngines || engine.AutoUpdateApp)
-                    {
-                        engine.LastUpdateCheck = DateTime.UtcNow.ToString("s") + "Z";
-                        engine.SaveSettings();
+                        else
+                        {
+                            lastAutoUpdateAttemptUtc = DateTime.UtcNow;
+                            string autoUpdateMessage;
+                            if (QueueAppUpdate(out autoUpdateMessage) &&
+                                engine.NotifyOnUpdate && onNotification != null)
+                                onNotification("Installing FastDownloader " + LatestAppVersion + " automatically.");
+                        }
                     }
                 }
-                catch { }
-
-                // Sleep in 1-minute increments for 24 hours (1440 minutes)
-                for (int m = 0; m < 1440 && isRunning; m++)
+                catch (Exception ex)
                 {
-                    Thread.Sleep(60000);
+                    try { WriteInstallStatus("check-failed", "Automatic update check failed: " + ex.Message); } catch { }
                 }
+
+                int waitMinutes = engine.AutoUpdateApp && AppUpdateAvailable ? 5 : 30;
+                for (int m = 0; m < waitMinutes && isRunning; m++)
+                    Thread.Sleep(60000);
             }
         }
 
@@ -3646,9 +3698,12 @@ namespace FastDownloader
                     WindowStyle = ProcessWindowStyle.Hidden
                 };
 
+                if (stopBridgeForUpdate == null)
+                    throw new InvalidOperationException("Local API bridge shutdown was not registered.");
                 Process helper = Process.Start(psi);
                 if (helper == null) throw new InvalidOperationException("Could not launch update helper.");
                 updaterStarted = true;
+                stopBridgeForUpdate();
 
                 // Send HTTP acknowledgement before exiting. Release the singleton mutex
                 // naturally on process exit; it is owned by the application thread.
@@ -7253,10 +7308,10 @@ namespace FastDownloader
             };
 
             updateManager = new UpdateManager(engine, notifyAction);
-            updateManager.StartBackgroundScheduler();
-
             bridge = new HttpBridgeServer(engine, notifyAction, updateManager);
             bridge.Start();
+            updateManager.SetBridgeStopAction(bridge.Stop);
+            updateManager.StartBackgroundScheduler();
 
             // Setup Clipboard Listener
             try

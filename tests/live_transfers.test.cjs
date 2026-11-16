@@ -72,7 +72,7 @@ assert.match(backend, /!automatic && !MediaUrlHelper\.IsMediaPlatformUrl\(url\)/
 assert.doesNotMatch(backend, /16x Multi-Thread Acceleration/);
 assert.match(backend, /schedulerTimer\.Interval = 5000/);
 assert.match(backend, /Interlocked\.Exchange\(ref completionScanInFlight, 1\)/);
-assert.match(backend, /DateTime\.UtcNow - lastCheckUtc < TimeSpan\.FromHours\(24\)/);
+assert.match(backend, /DateTime\.UtcNow - lastCheckUtc >= TimeSpan\.FromMinutes\(30\)/);
 assert.match(backend, /Thread\.Sleep\(120000\)/);
 assert.doesNotMatch(backend, /--disable-http-cache/);
 assert.match(html, /dashboardHasActiveTransfers \? 1200 : 5000/);
