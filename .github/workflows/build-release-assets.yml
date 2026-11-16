@@ -148,7 +148,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($source in @('scripts/apply-update.ps1','scripts/recover-in-place.ps1','tests/updater_restart_rehearsal.ps1')) {
+          foreach ($source in @('scripts/apply-update.ps1','scripts/recover-in-place.ps1','scripts/bootstrap-inplace-update.ps1','tests/updater_restart_rehearsal.ps1')) {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $source).Path, [ref]$tokens, [ref]$errors) | Out-Null
@@ -238,6 +238,7 @@ jobs:
             fast-downloader-ui.zip
             scripts/apply-update.ps1
             scripts/recover-in-place.ps1
+            scripts/bootstrap-inplace-update.ps1
           if-no-files-found: error
           retention-days: 14
 
@@ -286,6 +287,7 @@ jobs:
           done
           test -s release/scripts/apply-update.ps1
           test -s release/scripts/recover-in-place.ps1
+          test -s release/scripts/bootstrap-inplace-update.ps1
           gh release create "$TAG" \
             "release/FastDownloader.exe" \
             "release/FastDownloader-Setup.exe" \
@@ -293,6 +295,7 @@ jobs:
             "release/fast-downloader-ui.zip" \
             "release/scripts/apply-update.ps1" \
             "release/scripts/recover-in-place.ps1" \
+            "release/scripts/bootstrap-inplace-update.ps1" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "FastDownloader Pro $TAG" \
@@ -315,11 +318,12 @@ jobs:
                     .name == "fast-downloader-extension.zip" or
                     .name == "fast-downloader-ui.zip" or
                     .name == "apply-update.ps1" or
-                    .name == "recover-in-place.ps1"
+                    .name == "recover-in-place.ps1" or
+                    .name == "bootstrap-inplace-update.ps1"
                   ) |
                   select(.digest != null and (.digest | startswith("sha256:")))
-                ] | length == 6' >/dev/null; then
-              echo "All six release assets have SHA-256 digests."
+                ] | length == 7' >/dev/null; then
+              echo "All seven release assets have SHA-256 digests."
               exit 0
             fi
             sleep 5
