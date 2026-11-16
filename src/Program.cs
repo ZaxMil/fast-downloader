@@ -5806,9 +5806,11 @@ namespace FastDownloader
                 else if (category == "Music") initialName += ".mp3";
             }
             string safeName = WindowsSafeFileName.Normalize(initialName);
-            Controls.Add(Caption("FILE NAME", 26, 108, 540));
-            var nameBox = InputBox(24, 130, 592, 46);
-            txtFileName = Input(safeName, 550);
+            // Keep the edit fields in a focused left column and use the right
+            // column for the source and category details already needed here.
+            Controls.Add(Caption("FILE NAME", 26, 108, 330));
+            var nameBox = InputBox(24, 130, 350, 46);
+            txtFileName = Input(safeName, 324);
             txtFileName.Location = new Point(14, 13);
             txtFileName.TabIndex = 0;
             if (Regex.IsMatch(safeName, @"[\u0600-\u06FF]")) txtFileName.RightToLeft = RightToLeft.Yes;
@@ -5818,7 +5820,7 @@ namespace FastDownloader
             fileHint = DisplayText(safeName != initialName ?
                 "Filename cleaned for Windows: unsupported characters replaced." :
                 "Filename is editable. Unsupported Windows characters are corrected automatically.",
-                27, 178, 574, 20, 8F, false, palette.Muted);
+                27, 178, 344, 20, 8F, false, palette.Muted);
             Controls.Add(fileHint);
             txtFileName.TextChanged += (s, e) => {
                 string current = txtFileName.Text;
@@ -5828,13 +5830,13 @@ namespace FastDownloader
             };
             txtFileName.Leave += (s, e) => NormalizeFilename();
 
-            Controls.Add(Caption("SAVE LOCATION", 26, 213, 480));
-            var pathBox = InputBox(24, 233, 592, 44);
-            txtSaveDir = Input(baseDownloadsFolder ?? "", 448);
+            Controls.Add(Caption("SAVE LOCATION", 26, 213, 330));
+            var pathBox = InputBox(24, 233, 350, 44);
+            txtSaveDir = Input(baseDownloadsFolder ?? "", 222);
             txtSaveDir.Location = new Point(14, 12);
             txtSaveDir.TabIndex = 1;
             pathBox.Controls.Add(txtSaveDir);
-            var browse = Button("Browse", 493, 6, 90, 32, false);
+            var browse = Button("Browse", 237, 6, 101, 32, false);
             browse.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
             browse.TabIndex = 2;
             browse.Click += (s, e) => {
@@ -5850,11 +5852,38 @@ namespace FastDownloader
             pathBox.Controls.Add(browse);
             Controls.Add(pathBox);
 
-            Controls.Add(Caption("CATEGORY", 26, 295, 192));
-            Controls.Add(Caption("SOURCE", 261, 295, 320));
-            var categoryBox = InputBox(24, 314, 216, 42);
+            var detailsCard = new Surface {
+                Location = new Point(390, 108), Size = new Size(226, 248),
+                Fill = palette.Panel, Stroke = palette.Border, Corner = 13
+            };
+            Controls.Add(detailsCard);
+            detailsCard.Controls.Add(DisplayText("DOWNLOAD DETAILS", 14, 12, 196, 22, 8F, true, palette.Muted));
+
+            string host = "Direct link";
+            try {
+                var uri = new Uri(sourceUrl);
+                host = uri.Host.StartsWith("www.") ? uri.Host.Substring(4) : uri.Host;
+            } catch { }
+            detailsCard.Controls.Add(DisplayText("SOURCE", 14, 43, 196, 17, 8F, true, palette.Muted));
+            var sourceBox = InputBox(12, 63, 202, 42);
+            var sourceName = DisplayText(host, 10, 5, 182, 31, 9F, true, palette.Text);
+            sourceName.AutoEllipsis = true;
+            sourceBox.Controls.Add(sourceName);
+            detailsCard.Controls.Add(sourceBox);
+            var copy = DisplayText("Copy source link", 14, 108, 196, 23, 8.5F, true, palette.Accent);
+            copy.Cursor = Cursors.Hand;
+            tooltip.SetToolTip(copy, sourceUrl);
+            copy.Click += (s, e) => {
+                if (string.IsNullOrEmpty(sourceUrl)) return;
+                try { Clipboard.SetText(sourceUrl); copy.Text = "Copied ✓"; }
+                catch { copy.Text = "Unavailable"; }
+            };
+            detailsCard.Controls.Add(copy);
+
+            detailsCard.Controls.Add(DisplayText("CATEGORY", 14, 145, 196, 17, 8F, true, palette.Muted));
+            var categoryBox = InputBox(12, 165, 202, 42);
             cmbCategory = new ComboBox {
-                Location = new Point(10, 10), Size = new Size(195, 24),
+                Location = new Point(10, 9), Size = new Size(182, 24),
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 FlatStyle = FlatStyle.Flat, BackColor = palette.Input,
                 ForeColor = palette.Text,
@@ -5877,36 +5906,23 @@ namespace FastDownloader
             int index = cmbCategory.Items.IndexOf(category);
             cmbCategory.SelectedIndex = index < 0 ? 0 : index;
             categoryBox.Controls.Add(cmbCategory);
-            Controls.Add(categoryBox);
+            detailsCard.Controls.Add(categoryBox);
 
-            string host = "Direct link";
-            try {
-                var uri = new Uri(sourceUrl);
-                host = uri.Host.StartsWith("www.") ? uri.Host.Substring(4) : uri.Host;
-            } catch { }
-            var sourceBox = InputBox(258, 314, 358, 42);
-            var sourceName = DisplayText(host, 12, 5, 245, 31, 9F, true, palette.Text);
-            var copy = DisplayText("Copy link", 269, 5, 78, 31, 8.5F, true, palette.Accent);
-            copy.Cursor = Cursors.Hand;
-            sourceBox.Controls.Add(sourceName);
-            sourceBox.Controls.Add(copy);
-            tooltip.SetToolTip(copy, sourceUrl);
-            copy.Click += (s, e) => {
-                if (string.IsNullOrEmpty(sourceUrl)) return;
-                try { Clipboard.SetText(sourceUrl); copy.Text = "Copied ✓"; }
-                catch { copy.Text = "Unavailable"; }
-            };
-            Controls.Add(sourceBox);
+            string extension = Path.GetExtension(safeName);
+            detailsCard.Controls.Add(DisplayText("FILE TYPE", 14, 211, 196, 17, 8F, true, palette.Muted));
+            detailsCard.Controls.Add(DisplayText(
+                string.IsNullOrWhiteSpace(extension) ? "Detected from the file" : extension.ToUpperInvariant(),
+                14, 228, 196, 18, 9F, true, palette.Text));
 
             var rule = new Panel { Location = new Point(24, 375), Size = new Size(592, 1), BackColor = palette.Border };
             Controls.Add(rule);
-            btnCancel = Button("Cancel", 26, 392, 105, 40, false, true);
+            btnCancel = Button("Cancel", 24, 392, 132, 40, false, true);
             btnCancel.TabIndex = 6;
             btnCancel.Click += (s, e) => CancelDownload();
-            btnLater = Button("Save for later", 287, 392, 151, 40, false);
+            btnLater = Button("Save for later", 170, 392, 190, 40, false);
             btnLater.TabIndex = 5;
             btnLater.Click += (s, e) => ConfirmDownload(false);
-            btnStart = Button("↓  Start download", 448, 392, 168, 40, true);
+            btnStart = Button("↓  Start download", 374, 392, 242, 40, true);
             btnStart.TabIndex = 4;
             btnStart.Click += (s, e) => ConfirmDownload(true);
             Controls.Add(btnCancel);
