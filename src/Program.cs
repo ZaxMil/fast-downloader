@@ -2904,7 +2904,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.20";
+        public const string CurrentAppVersion = "0.1.21";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -5599,8 +5599,9 @@ namespace FastDownloader
 
         private sealed class Action : Button
         {
-            public Color Fill, TextInk, BorderInk;
+            public Color Fill, TextInk, BorderInk, CornerInk;
             public int Corner = 11;
+            public bool AccentCorners;
             private bool hovered;
             public Action()
             {
@@ -5623,6 +5624,19 @@ namespace FastDownloader
                 using (var border = new Pen(BorderInk.IsEmpty ? bg : BorderInk, 1)) {
                     e.Graphics.FillPath(brush, path);
                     e.Graphics.DrawPath(border, path);
+                }
+                if (AccentCorners) {
+                    using (var cornerPen = new Pen(CornerInk.IsEmpty ? TextInk : CornerInk, 1.5F)) {
+                        const int inset = 2, leg = 8;
+                        e.Graphics.DrawLine(cornerPen, inset, inset + leg, inset, inset);
+                        e.Graphics.DrawLine(cornerPen, inset, inset, inset + leg, inset);
+                        e.Graphics.DrawLine(cornerPen, Width - inset - leg, inset, Width - inset, inset);
+                        e.Graphics.DrawLine(cornerPen, Width - inset, inset, Width - inset, inset + leg);
+                        e.Graphics.DrawLine(cornerPen, Width - inset, Height - inset - leg, Width - inset, Height - inset);
+                        e.Graphics.DrawLine(cornerPen, Width - inset - leg, Height - inset, Width - inset, Height - inset);
+                        e.Graphics.DrawLine(cornerPen, inset, Height - inset - leg, inset, Height - inset);
+                        e.Graphics.DrawLine(cornerPen, inset, Height - inset, inset + leg, Height - inset);
+                    }
                 }
                 TextRenderer.DrawText(e.Graphics, Text, Font,
                     new Rectangle(5, 1, Width - 10, Height - 2), Enabled ? TextInk : ControlPaint.Dark(TextInk),
@@ -5711,7 +5725,9 @@ namespace FastDownloader
                 Corner = 10,
                 Fill = primary ? palette.Accent : quiet ? palette.Base : palette.Secondary,
                 TextInk = primary ? palette.AccentText : quiet ? palette.Muted : palette.SecondaryText,
-                BorderInk = quiet ? palette.Border : Color.Empty
+                BorderInk = quiet ? palette.Border : Color.Empty,
+                CornerInk = palette.Accent,
+                AccentCorners = !quiet
             };
         }
 
@@ -5737,7 +5753,7 @@ namespace FastDownloader
             StartPosition = FormStartPosition.CenterScreen;
             TopMost = true;
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(640, 450);
+            ClientSize = new Size(700, 500);
             BackColor = palette.Base;
             ForeColor = palette.Text;
             Font = new Font("Segoe UI", 9F);
@@ -5756,19 +5772,28 @@ namespace FastDownloader
             iconTile.Controls.Add(arrow);
             Controls.Add(iconTile);
 
-            var headline = DisplayText("New download", 88, 20, 445, 32, 15F, true, palette.Text);
-            var tagline = DisplayText("Choose how and where to save this file", 89, 51, 445, 22, 9F, false, palette.Muted);
+            var headline = DisplayText("New download", 88, 18, 400, 32, 16F, true, palette.Text);
+            var tagline = DisplayText("Choose how and where to save this file", 89, 50, 400, 22, 9.5F, false, palette.Muted);
             Controls.Add(headline);
             Controls.Add(tagline);
 
-            var exit = Button("×", 582, 24, 34, 34, false, true);
+            var readyChip = new Surface {
+                Location = new Point(526, 29), Size = new Size(104, 27),
+                Fill = palette.Panel, Stroke = palette.Border, Corner = 13
+            };
+            var readyLabel = DisplayText("●  READY", 8, 1, 88, 24, 8F, true, palette.Accent);
+            readyLabel.TextAlign = ContentAlignment.MiddleCenter;
+            readyChip.Controls.Add(readyLabel);
+            Controls.Add(readyChip);
+
+            var exit = Button("×", 652, 25, 32, 32, false, true);
             exit.Font = new Font("Segoe UI", 13F);
             exit.TabStop = false;
             exit.Click += (s, e) => CancelDownload();
             Controls.Add(exit);
 
             // A thin separator is a lighter, more precise visual structure.
-            var divider = new Panel { Location = new Point(24, 90), Size = new Size(592, 1), BackColor = palette.Border };
+            var divider = new Panel { Location = new Point(24, 90), Size = new Size(652, 1), BackColor = palette.Border };
             Controls.Add(divider);
             foreach (Control headerPart in new Control[] { iconTile, headline, tagline }) {
                 headerPart.MouseDown += (s, e) => {
@@ -5808,9 +5833,9 @@ namespace FastDownloader
             string safeName = WindowsSafeFileName.Normalize(initialName);
             // Keep the edit fields in a focused left column and use the right
             // column for the source and category details already needed here.
-            Controls.Add(Caption("FILE NAME", 26, 108, 330));
-            var nameBox = InputBox(24, 130, 350, 46);
-            txtFileName = Input(safeName, 324);
+            Controls.Add(Caption("FILE NAME", 26, 108, 380));
+            var nameBox = InputBox(24, 130, 400, 46);
+            txtFileName = Input(safeName, 374);
             txtFileName.Location = new Point(14, 13);
             txtFileName.TabIndex = 0;
             if (Regex.IsMatch(safeName, @"[\u0600-\u06FF]")) txtFileName.RightToLeft = RightToLeft.Yes;
@@ -5820,7 +5845,7 @@ namespace FastDownloader
             fileHint = DisplayText(safeName != initialName ?
                 "Filename cleaned for Windows: unsupported characters replaced." :
                 "Filename is editable. Unsupported Windows characters are corrected automatically.",
-                27, 178, 344, 20, 8F, false, palette.Muted);
+                27, 178, 390, 20, 8F, false, palette.Muted);
             Controls.Add(fileHint);
             txtFileName.TextChanged += (s, e) => {
                 string current = txtFileName.Text;
@@ -5830,13 +5855,13 @@ namespace FastDownloader
             };
             txtFileName.Leave += (s, e) => NormalizeFilename();
 
-            Controls.Add(Caption("SAVE LOCATION", 26, 213, 330));
-            var pathBox = InputBox(24, 233, 350, 44);
-            txtSaveDir = Input(baseDownloadsFolder ?? "", 222);
+            Controls.Add(Caption("SAVE LOCATION", 26, 213, 380));
+            var pathBox = InputBox(24, 233, 400, 44);
+            txtSaveDir = Input(baseDownloadsFolder ?? "", 272);
             txtSaveDir.Location = new Point(14, 12);
             txtSaveDir.TabIndex = 1;
             pathBox.Controls.Add(txtSaveDir);
-            var browse = Button("Browse", 237, 6, 101, 32, false);
+            var browse = Button("Browse", 287, 6, 101, 32, false);
             browse.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
             browse.TabIndex = 2;
             browse.Click += (s, e) => {
@@ -5853,24 +5878,24 @@ namespace FastDownloader
             Controls.Add(pathBox);
 
             var detailsCard = new Surface {
-                Location = new Point(390, 108), Size = new Size(226, 248),
+                Location = new Point(444, 108), Size = new Size(232, 260),
                 Fill = palette.Panel, Stroke = palette.Border, Corner = 13
             };
             Controls.Add(detailsCard);
-            detailsCard.Controls.Add(DisplayText("DOWNLOAD DETAILS", 14, 12, 196, 22, 8F, true, palette.Muted));
+            detailsCard.Controls.Add(DisplayText("DOWNLOAD DETAILS", 14, 12, 204, 22, 8F, true, palette.Muted));
 
             string host = "Direct link";
             try {
                 var uri = new Uri(sourceUrl);
                 host = uri.Host.StartsWith("www.") ? uri.Host.Substring(4) : uri.Host;
             } catch { }
-            detailsCard.Controls.Add(DisplayText("SOURCE", 14, 43, 196, 17, 8F, true, palette.Muted));
-            var sourceBox = InputBox(12, 63, 202, 42);
-            var sourceName = DisplayText(host, 10, 5, 182, 31, 9F, true, palette.Text);
+            detailsCard.Controls.Add(DisplayText("SOURCE", 14, 43, 204, 17, 8F, true, palette.Muted));
+            var sourceBox = InputBox(12, 63, 208, 42);
+            var sourceName = DisplayText(host, 10, 5, 188, 31, 9F, true, palette.Text);
             sourceName.AutoEllipsis = true;
             sourceBox.Controls.Add(sourceName);
             detailsCard.Controls.Add(sourceBox);
-            var copy = DisplayText("Copy source link", 14, 108, 196, 23, 8.5F, true, palette.Accent);
+            var copy = DisplayText("Copy source link", 14, 108, 204, 23, 8.5F, true, palette.Accent);
             copy.Cursor = Cursors.Hand;
             tooltip.SetToolTip(copy, sourceUrl);
             copy.Click += (s, e) => {
@@ -5880,10 +5905,10 @@ namespace FastDownloader
             };
             detailsCard.Controls.Add(copy);
 
-            detailsCard.Controls.Add(DisplayText("CATEGORY", 14, 145, 196, 17, 8F, true, palette.Muted));
-            var categoryBox = InputBox(12, 165, 202, 42);
+            detailsCard.Controls.Add(DisplayText("CATEGORY", 14, 145, 204, 17, 8F, true, palette.Muted));
+            var categoryBox = InputBox(12, 165, 208, 42);
             cmbCategory = new ComboBox {
-                Location = new Point(10, 9), Size = new Size(182, 24),
+                Location = new Point(10, 9), Size = new Size(188, 24),
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 FlatStyle = FlatStyle.Flat, BackColor = palette.Input,
                 ForeColor = palette.Text,
@@ -5909,20 +5934,20 @@ namespace FastDownloader
             detailsCard.Controls.Add(categoryBox);
 
             string extension = Path.GetExtension(safeName);
-            detailsCard.Controls.Add(DisplayText("FILE TYPE", 14, 211, 196, 17, 8F, true, palette.Muted));
+            detailsCard.Controls.Add(DisplayText("FILE TYPE", 14, 211, 204, 17, 8F, true, palette.Muted));
             detailsCard.Controls.Add(DisplayText(
                 string.IsNullOrWhiteSpace(extension) ? "Detected from the file" : extension.ToUpperInvariant(),
-                14, 228, 196, 18, 9F, true, palette.Text));
+                14, 228, 204, 18, 9F, true, palette.Text));
 
-            var rule = new Panel { Location = new Point(24, 375), Size = new Size(592, 1), BackColor = palette.Border };
+            var rule = new Panel { Location = new Point(24, 419), Size = new Size(652, 1), BackColor = palette.Border };
             Controls.Add(rule);
-            btnCancel = Button("Cancel", 24, 392, 132, 40, false, true);
+            btnCancel = Button("Cancel", 24, 435, 132, 40, false, true);
             btnCancel.TabIndex = 6;
             btnCancel.Click += (s, e) => CancelDownload();
-            btnLater = Button("Save for later", 170, 392, 190, 40, false);
+            btnLater = Button("Save for later", 168, 435, 186, 40, false);
             btnLater.TabIndex = 5;
             btnLater.Click += (s, e) => ConfirmDownload(false);
-            btnStart = Button("↓  Start download", 374, 392, 242, 40, true);
+            btnStart = Button("↓  Start download", 366, 435, 310, 40, true);
             btnStart.TabIndex = 4;
             btnStart.Click += (s, e) => ConfirmDownload(true);
             Controls.Add(btnCancel);
