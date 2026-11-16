@@ -41,8 +41,13 @@ assert.equal(nodes.get('btnUpdateYtdlp').disabled,true);
 assert(cs.includes('DownloadAssetWithResume('),'Updater must resume downloads');
 assert(cs.includes('VerifyReleaseHashes(tag, packages)'),'Updater must verify SHA256');
 assert(cs.includes('QueueAppUpdate(out string message)'),'HTTP updater should not block for file transfers');
+assert.match(cs, /QueueAppUpdate\(out autoUpdateMessage\)/, 'Automatic app updates must install, not only notify');
+assert.match(cs, /TimeSpan\.FromMinutes\(30\)/, 'Automatic release checks and retry backoff must be bounded');
+assert.match(cs, /HasActiveDownloads\(out activeReason\)/, 'Automatic installs must wait for active transfers');
+assert.match(cs, /SetBridgeStopAction\(bridge\.Stop\)/, 'App update must explicitly stop the local API bridge');
+assert.match(cs, /stopBridgeForUpdate\(\)/, 'Update handoff must release the bridge before exiting');
 
-assert.match(cs, /CurrentAppVersion = "0\.1\.21"/, 'Version bump is required for installed app updates');
+assert.match(cs, /CurrentAppVersion = "0\.1\.22"/, 'Version bump is required for installed app updates');
 assert.match(cs, /this\.CachedYtDlpVersion = "Not checked";/, 'No yt-dlp binary executed on startup');
 assert.match(cs, /this\.CachedAria2Version = "Not checked";/, 'No aria2 version process during startup');
 assert.match(cs, /var res = UpdateYtDlp\(false\);/, 'Automatic engine updates must check upstream version first');
@@ -62,6 +67,8 @@ assert.match(ps, /Wait-BridgeRelease/, 'Update must check port ownership before 
 assert.match(ps, /Assert-UpdateBinaryVersion/, 'Executable version must be validated before installation');
 assert.match(ps, /RestartTimeoutSeconds = 120/, 'Allow real first-start latency with finite timeout');
 assert.match(ps, /Get-BridgeOwner/, 'Process-aware port diagnostics required');
+assert.match(ps, /TCP table still reports stopped target PID/, 'Stale listener rows must not block a verified restart');
+assert.match(ps, /Last listener: \$lastOwnerDescription/, 'Port failures must record the last owner');
 assert.match(ps, /Restore-OldVersion/, 'Failed upgrade must preserve rollback');
 assert.match(cs, /Active file downloads detected/, 'Active downloads must block shutdown');
 assert.match(cs, /Active video download detected/, 'Video processing must block shutdown');
