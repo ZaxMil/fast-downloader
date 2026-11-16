@@ -5786,8 +5786,8 @@ namespace FastDownloader
             readyChip.Controls.Add(readyLabel);
             Controls.Add(readyChip);
 
-            var exit = Button("×", 652, 25, 32, 32, false, true);
-            exit.Font = new Font("Segoe UI", 13F);
+            var exit = Button("×", 646, 25, 38, 32, false, true);
+            exit.Font = new Font("Segoe UI", 11F);
             exit.TabStop = false;
             exit.Click += (s, e) => CancelDownload();
             Controls.Add(exit);
@@ -5833,9 +5833,9 @@ namespace FastDownloader
             string safeName = WindowsSafeFileName.Normalize(initialName);
             // Keep the edit fields in a focused left column and use the right
             // column for the source and category details already needed here.
-            Controls.Add(Caption("FILE NAME", 26, 108, 380));
-            var nameBox = InputBox(24, 130, 400, 46);
-            txtFileName = Input(safeName, 374);
+            Controls.Add(Caption("FILE NAME", 26, 108, 640));
+            var nameBox = InputBox(24, 130, 652, 46);
+            txtFileName = Input(safeName, 626);
             txtFileName.Location = new Point(14, 13);
             txtFileName.TabIndex = 0;
             if (Regex.IsMatch(safeName, @"[\u0600-\u06FF]")) txtFileName.RightToLeft = RightToLeft.Yes;
@@ -5845,7 +5845,7 @@ namespace FastDownloader
             fileHint = DisplayText(safeName != initialName ?
                 "Filename cleaned for Windows: unsupported characters replaced." :
                 "Filename is editable. Unsupported Windows characters are corrected automatically.",
-                27, 178, 390, 20, 8F, false, palette.Muted);
+                27, 178, 640, 20, 8F, false, palette.Muted);
             Controls.Add(fileHint);
             txtFileName.TextChanged += (s, e) => {
                 string current = txtFileName.Text;
@@ -5855,13 +5855,13 @@ namespace FastDownloader
             };
             txtFileName.Leave += (s, e) => NormalizeFilename();
 
-            Controls.Add(Caption("SAVE LOCATION", 26, 213, 380));
-            var pathBox = InputBox(24, 233, 400, 44);
-            txtSaveDir = Input(baseDownloadsFolder ?? "", 272);
+            Controls.Add(Caption("SAVE LOCATION", 26, 213, 640));
+            var pathBox = InputBox(24, 233, 652, 44);
+            txtSaveDir = Input(baseDownloadsFolder ?? "", 510);
             txtSaveDir.Location = new Point(14, 12);
             txtSaveDir.TabIndex = 1;
             pathBox.Controls.Add(txtSaveDir);
-            var browse = Button("Browse", 287, 6, 101, 32, false);
+            var browse = Button("Browse", 539, 6, 101, 32, false);
             browse.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
             browse.TabIndex = 2;
             browse.Click += (s, e) => {
@@ -5877,38 +5877,18 @@ namespace FastDownloader
             pathBox.Controls.Add(browse);
             Controls.Add(pathBox);
 
-            var detailsCard = new Surface {
-                Location = new Point(444, 108), Size = new Size(232, 260),
-                Fill = palette.Panel, Stroke = palette.Border, Corner = 13
-            };
-            Controls.Add(detailsCard);
-            detailsCard.Controls.Add(DisplayText("DOWNLOAD DETAILS", 14, 12, 204, 22, 8F, true, palette.Muted));
-
             string host = "Direct link";
             try {
                 var uri = new Uri(sourceUrl);
                 host = uri.Host.StartsWith("www.") ? uri.Host.Substring(4) : uri.Host;
             } catch { }
-            detailsCard.Controls.Add(DisplayText("SOURCE", 14, 43, 204, 17, 8F, true, palette.Muted));
-            var sourceBox = InputBox(12, 63, 208, 42);
-            var sourceName = DisplayText(host, 10, 5, 188, 31, 9F, true, palette.Text);
-            sourceName.AutoEllipsis = true;
-            sourceBox.Controls.Add(sourceName);
-            detailsCard.Controls.Add(sourceBox);
-            var copy = DisplayText("Copy source link", 14, 108, 204, 23, 8.5F, true, palette.Accent);
-            copy.Cursor = Cursors.Hand;
-            tooltip.SetToolTip(copy, sourceUrl);
-            copy.Click += (s, e) => {
-                if (string.IsNullOrEmpty(sourceUrl)) return;
-                try { Clipboard.SetText(sourceUrl); copy.Text = "Copied ✓"; }
-                catch { copy.Text = "Unavailable"; }
-            };
-            detailsCard.Controls.Add(copy);
 
-            detailsCard.Controls.Add(DisplayText("CATEGORY", 14, 145, 204, 17, 8F, true, palette.Muted));
-            var categoryBox = InputBox(12, 165, 208, 42);
+            // Use the full dialog width for the two editable fields, then place
+            // category and source side by side to keep the form balanced.
+            Controls.Add(Caption("CATEGORY", 26, 291, 218));
+            var categoryBox = InputBox(24, 315, 220, 42);
             cmbCategory = new ComboBox {
-                Location = new Point(10, 9), Size = new Size(188, 24),
+                Location = new Point(10, 9), Size = new Size(200, 24),
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 FlatStyle = FlatStyle.Flat, BackColor = palette.Input,
                 ForeColor = palette.Text,
@@ -5931,13 +5911,25 @@ namespace FastDownloader
             int index = cmbCategory.Items.IndexOf(category);
             cmbCategory.SelectedIndex = index < 0 ? 0 : index;
             categoryBox.Controls.Add(cmbCategory);
-            detailsCard.Controls.Add(categoryBox);
+            Controls.Add(categoryBox);
 
-            string extension = Path.GetExtension(safeName);
-            detailsCard.Controls.Add(DisplayText("FILE TYPE", 14, 211, 204, 17, 8F, true, palette.Muted));
-            detailsCard.Controls.Add(DisplayText(
-                string.IsNullOrWhiteSpace(extension) ? "Detected from the file" : extension.ToUpperInvariant(),
-                14, 228, 204, 18, 9F, true, palette.Text));
+            Controls.Add(Caption("SOURCE", 266, 291, 410));
+            var sourceBox = InputBox(264, 315, 412, 42);
+            var sourceName = DisplayText(host, 10, 5, 268, 31, 9F, true, palette.Text);
+            sourceName.AutoEllipsis = true;
+            tooltip.SetToolTip(sourceName, sourceUrl);
+            sourceBox.Controls.Add(sourceName);
+            var copy = Button("Copy link", 286, 6, 116, 30, false);
+            copy.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
+            copy.TabIndex = 4;
+            tooltip.SetToolTip(copy, sourceUrl);
+            copy.Click += (s, e) => {
+                if (string.IsNullOrEmpty(sourceUrl)) return;
+                try { Clipboard.SetText(sourceUrl); copy.Text = "Copied ✓"; }
+                catch { copy.Text = "Unavailable"; }
+            };
+            sourceBox.Controls.Add(copy);
+            Controls.Add(sourceBox);
 
             var rule = new Panel { Location = new Point(24, 419), Size = new Size(652, 1), BackColor = palette.Border };
             Controls.Add(rule);
