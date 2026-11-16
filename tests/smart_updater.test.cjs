@@ -42,7 +42,7 @@ assert(cs.includes('DownloadAssetWithResume('),'Updater must resume downloads');
 assert(cs.includes('VerifyReleaseHashes(tag, packages)'),'Updater must verify SHA256');
 assert(cs.includes('QueueAppUpdate(out string message)'),'HTTP updater should not block for file transfers');
 
-assert.match(cs, /CurrentAppVersion = "0\.1\.20"/, 'Version bump is required for installed app updates');
+assert.match(cs, /CurrentAppVersion = "0\.1\.21"/, 'Version bump is required for installed app updates');
 assert.match(cs, /this\.CachedYtDlpVersion = "Not checked";/, 'No yt-dlp binary executed on startup');
 assert.match(cs, /this\.CachedAria2Version = "Not checked";/, 'No aria2 version process during startup');
 assert.match(cs, /var res = UpdateYtDlp\(false\);/, 'Automatic engine updates must check upstream version first');
