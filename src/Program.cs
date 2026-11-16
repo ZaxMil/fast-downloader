@@ -5753,7 +5753,7 @@ namespace FastDownloader
             StartPosition = FormStartPosition.CenterScreen;
             TopMost = true;
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(700, 500);
+            ClientSize = new Size(700, 450);
             BackColor = palette.Base;
             ForeColor = palette.Text;
             Font = new Font("Segoe UI", 9F);
@@ -5931,15 +5931,15 @@ namespace FastDownloader
             sourceBox.Controls.Add(copy);
             Controls.Add(sourceBox);
 
-            var rule = new Panel { Location = new Point(24, 419), Size = new Size(652, 1), BackColor = palette.Border };
+            var rule = new Panel { Location = new Point(24, 375), Size = new Size(652, 1), BackColor = palette.Border };
             Controls.Add(rule);
-            btnCancel = Button("Cancel", 24, 435, 132, 40, false, true);
+            btnCancel = Button("Cancel", 24, 392, 132, 40, false, true);
             btnCancel.TabIndex = 6;
             btnCancel.Click += (s, e) => CancelDownload();
-            btnLater = Button("Save for later", 168, 435, 186, 40, false);
+            btnLater = Button("Save for later", 168, 392, 186, 40, false);
             btnLater.TabIndex = 5;
             btnLater.Click += (s, e) => ConfirmDownload(false);
-            btnStart = Button("↓  Start download", 366, 435, 310, 40, true);
+            btnStart = Button("↓  Start download", 366, 392, 310, 40, true);
             btnStart.TabIndex = 4;
             btnStart.Click += (s, e) => ConfirmDownload(true);
             Controls.Add(btnCancel);
