@@ -5,6 +5,7 @@ const assert = require('assert').strict;
 const html = fs.readFileSync('ui/index.html','utf8').replace(/\r\n/g,'\n');
 const cs = fs.readFileSync('src/Program.cs','utf8');
 const ps = fs.readFileSync('scripts/apply-update.ps1','utf8');
+const bootstrap = fs.readFileSync('scripts/bootstrap-inplace-update.ps1','utf8');
 const start = html.indexOf('    function showInstallStage(install) {');
 const end = html.indexOf('    function updateHeaderUpdatePill(', start);
 assert(start !== -1 && end > start);
@@ -74,6 +75,9 @@ assert.match(cs, /Active file downloads detected/, 'Active downloads must block 
 assert.match(cs, /Active video download detected/, 'Video processing must block shutdown');
 assert.match(html, /stage\.status === 'success' && installed === expected/, 'UI must not signal success before the helper verifies restart');
 assert(!ps.includes('Get-Process FastDownloader | Stop-Process'),'Never terminate all processes by name');
+assert.match(bootstrap, /Get-VerifiedReleaseAsset/, 'Recovery bootstrap must verify release asset hashes');
+assert.match(bootstrap, /api\/tasks/, 'Recovery bootstrap must refuse active downloads');
+assert.match(bootstrap, /apply-update\.ps1/, 'Recovery bootstrap must use the verified in-place updater');
 
 assert.match(cs, /class WindowsSafeFileName/, 'Native dialog must normalize browser titles before saving');
 assert.match(cs, /class NativeDialogTheme/, 'Native dialogs must honor dashboard theme');
