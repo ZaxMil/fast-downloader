@@ -2904,7 +2904,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.22";
+        public const string CurrentAppVersion = "0.1.23";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -4937,10 +4937,7 @@ namespace FastDownloader
                         {
                             try
                             {
-                                if (!WindowManager.FocusExistingWindow())
-                                {
-                                    DownloaderAppContext.LaunchDashboard(engine.AppDir);
-                                }
+                                DownloaderAppContext.LaunchDashboard(engine.AppDir);
                             }
                             catch { }
                         });
@@ -5025,10 +5022,7 @@ namespace FastDownloader
                             {
                                 try
                                 {
-                                    if (!WindowManager.FocusExistingWindow())
-                                    {
-                                        DownloaderAppContext.LaunchDashboard(engine.AppDir);
-                                    }
+                                    DownloaderAppContext.LaunchDashboard(engine.AppDir);
                                 }
                                 catch { }
                             });
@@ -7207,8 +7201,8 @@ namespace FastDownloader
                     Visible = true
                 };
                 trayIcon.MouseClick += (s, e) => { if (e.Button == MouseButtons.Left) ToggleTrayDownloads(); };
-                trayIcon.DoubleClick += (s, e) => { if (trayDownloadsForm != null) trayDownloadsForm.Hide(); LaunchEdgeApp(); };
-                trayIcon.BalloonTipClicked += (s, e) => LaunchEdgeApp();
+                trayIcon.DoubleClick += (s, e) => { if (trayDownloadsForm != null) trayDownloadsForm.Hide(); LaunchDefaultBrowser(); };
+                trayIcon.BalloonTipClicked += (s, e) => LaunchDefaultBrowser();
             }
             catch { }
 
@@ -7229,8 +7223,8 @@ namespace FastDownloader
             ContextMenu trayMenu = new ContextMenu();
             trayMenu.Popup += (s, e) => UpdateTrayNotificationText();
             trayMenu.MenuItems.Add("📊 Active Downloads", (s, e) => ToggleTrayDownloads());
-            trayMenu.MenuItems.Add("⚡ Open Dashboard", (s, e) => LaunchEdgeApp());
-            trayMenu.MenuItems.Add("➕ Add Download...", (s, e) => LaunchEdgeApp());
+            trayMenu.MenuItems.Add("⚡ Open Dashboard", (s, e) => LaunchDefaultBrowser());
+            trayMenu.MenuItems.Add("➕ Add Download...", (s, e) => LaunchDefaultBrowser());
             trayMenu.MenuItems.Add("-");
             trayMenu.MenuItems.Add("▶ Resume All Downloads", (s, e) =>
             {
@@ -7329,7 +7323,7 @@ namespace FastDownloader
             schedulerTimer.Start();
 
             // Auto-launch Edge in App Mode
-            LaunchEdgeApp();
+            LaunchDefaultBrowser();
             } catch (Exception ex) { try { File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "startup.log"), "[DownloaderAppContext CTOR CRASH] " + ex.ToString() + "\r\n"); } catch {} throw; }
         }
 
@@ -7363,7 +7357,7 @@ namespace FastDownloader
         private void ToggleTrayDownloads()
         {
             if (trayDownloadsForm == null || trayDownloadsForm.IsDisposed)
-                trayDownloadsForm = new TrayDownloadsForm(engine, LaunchEdgeApp);
+                trayDownloadsForm = new TrayDownloadsForm(engine, LaunchDefaultBrowser);
             if (trayDownloadsForm.Visible) trayDownloadsForm.Hide();
             else trayDownloadsForm.ShowNearTray();
         }
@@ -7569,151 +7563,41 @@ namespace FastDownloader
             t.Start();
         }
 
-        public void LaunchEdgeApp()
+        public void LaunchDefaultBrowser()
         {
-            if (WindowManager.FocusExistingWindow()) return;
             LaunchDashboard(engine.AppDir);
-        }
-
-        // Do not trust a browser App Paths registration without checking its executable.
-        // A misconfigured registry key can otherwise open an unrelated app.
-        private static bool IsExpectedBrowserPath(string path)
-        {
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return false;
-            string name = Path.GetFileName(path).ToLowerInvariant();
-            return name == "msedge.exe" || name == "chrome.exe" || name == "brave.exe";
-        }
-
-        public static string FindChromiumBrowser()
-        {
-            // Prefer actual installed browser executable paths over App Paths overrides.
-            string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-            string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
-            string[] paths = {
-                Path.Combine(programFilesX86, @"Microsoft\Edge\Application\msedge.exe"),
-                Path.Combine(programFiles, @"Microsoft\Edge\Application\msedge.exe"),
-                Path.Combine(local, @"Microsoft\Edge\Application\msedge.exe"),
-                Path.Combine(programFiles, @"Google\Chrome\Application\chrome.exe"),
-                Path.Combine(programFilesX86, @"Google\Chrome\Application\chrome.exe"),
-                Path.Combine(local, @"Google\Chrome\Application\chrome.exe"),
-                Path.Combine(programFiles, @"BraveSoftware\Brave-Browser\Application\brave.exe"),
-                Path.Combine(programFilesX86, @"BraveSoftware\Brave-Browser\Application\brave.exe"),
-                Path.Combine(local, @"BraveSoftware\Brave-Browser\Application\brave.exe")
-            };
-            foreach (string path in paths)
-                if (IsExpectedBrowserPath(path)) return path;
-
-            foreach (string name in new string[] { "msedge.exe", "chrome.exe", "brave.exe" })
-            {
-                string key = @"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\" + name;
-                foreach (Microsoft.Win32.RegistryKey root in new Microsoft.Win32.RegistryKey[] {
-                    Microsoft.Win32.Registry.LocalMachine, Microsoft.Win32.Registry.CurrentUser
-                })
-                {
-                    try
-                    {
-                        using (var entry = root.OpenSubKey(key))
-                        {
-                            string path = entry != null ? Convert.ToString(entry.GetValue("")) : "";
-                            path = (path ?? "").Trim('"', ' ');
-                            // An App Paths key for Edge cannot silently point at AGY.
-                            if (IsExpectedBrowserPath(path) &&
-                                Path.GetFileName(path).Equals(name, StringComparison.OrdinalIgnoreCase))
-                                return path;
-                        }
-                    }
-                    catch { }
-                }
-            }
-            return null;
-        }
-
-        private static void CleanProfileLocks(string profileDir)
-        {
-            try
-            {
-                if (!Directory.Exists(profileDir)) return;
-                string[] lockFiles = new string[] { "SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile" };
-                foreach (string lf in lockFiles)
-                {
-                    try
-                    {
-                        string p = Path.Combine(profileDir, lf);
-                        if (File.Exists(p)) File.Delete(p);
-                    }
-                    catch { }
-                }
-                try
-                {
-                    string cacheDir = Path.Combine(profileDir, "Default", "Cache");
-                    if (Directory.Exists(cacheDir)) Directory.Delete(cacheDir, true);
-                    string codeCacheDir = Path.Combine(profileDir, "Default", "Code Cache");
-                    if (Directory.Exists(codeCacheDir)) Directory.Delete(codeCacheDir, true);
-                }
-                catch { }
-            }
-            catch { }
         }
 
         public static void LaunchDashboard(string appDir)
         {
-            // Chromium needs a per-user, writable, independent profile. The installation
-            // directory can be read-only (e.g. Program Files); deleting profile lock
-            // files on each dashboard click can also steal an existing app session.
-            string profileDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "FastDownloader", "DashboardProfile");
+            // Let Windows open the dashboard with the user's configured default browser.
+            // This reuses the normal browser profile and avoids a dedicated Edge process/profile.
+            const string dashboardUrl = "http://127.0.0.1:6801/";
             try
             {
-                Directory.CreateDirectory(profileDir);
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = dashboardUrl,
+                    UseShellExecute = true,
+                    CreateNoWindow = false
+                });
             }
             catch (Exception ex)
             {
-                try { File.AppendAllText(Path.Combine(appDir, "startup.log"), "Dashboard profile error: " + ex.Message + "\r\n"); } catch { }
-                // Still avoid the (possibly read-only) installation folder.
-                profileDir = Path.Combine(Path.GetTempPath(), "FastDownloader", "DashboardProfile");
-                Directory.CreateDirectory(profileDir);
-            }
-
-            string targetBrowser = FindChromiumBrowser();
-
-            if (targetBrowser != null)
-            {
                 try
                 {
-                    ProcessStartInfo psi = new ProcessStartInfo
-                    {
-                        FileName = targetBrowser,
-                        // Use a separate user profile and explicitly request a standalone app window.
-                        Arguments = string.Format("--user-data-dir=\"{0}\" --app=\"http://127.0.0.1:6801/\" --new-window --window-size=1240,800 --no-first-run --no-default-browser-check --disable-features=Translate,OptimizationHints --disable-extensions --disable-background-mode", profileDir),
-                        CreateNoWindow = false,
-                        UseShellExecute = true
-                    };
-                    Process p = Process.Start(psi);
-                    if (p != null)
-                    {
-                        try { WindowManager.DashboardPid = p.Id; } catch { }
-                    }
-                    return;
+                    File.AppendAllText(Path.Combine(appDir, "startup.log"),
+                        DateTime.Now.ToString("o") + " Default browser launch error: " + ex + "\r\n");
                 }
-                catch (Exception ex)
+                catch { }
+                try
                 {
-                    try { File.AppendAllText(Path.Combine(appDir, "startup.log"), DateTime.Now.ToString() + " LaunchDashboard error: " + ex.Message + "\r\n"); } catch {}
+                    MessageBox.Show("FastDownloader could not open the dashboard in your default browser.\n" +
+                        "Check that a default browser is configured in Windows.",
+                        "FastDownloader - Dashboard", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
+                catch { }
             }
-
-            // Do not launch the system's default URL handler here. It may be
-            // Antigravity or another editor instead of a web browser.
-            try
-            {
-                File.AppendAllText(Path.Combine(appDir, "startup.log"),
-                    DateTime.Now.ToString("o") + " No supported browser found for dashboard.\r\n");
-                MessageBox.Show("FastDownloader could not find Microsoft Edge, Google Chrome or Brave.\n" +
-                    "Install or repair a supported browser to open the dashboard.",
-                    "FastDownloader - Dashboard", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
-            catch { }
         }
 
         private void CheckSchedulerTick()
@@ -7874,10 +7758,7 @@ namespace FastDownloader
                     {
                         try
                         {
-                            if (!WindowManager.FocusExistingWindow())
-                            {
-                                DownloaderAppContext.LaunchDashboard(appDir);
-                            }
+                            DownloaderAppContext.LaunchDashboard(appDir);
                         }
                         catch { }
                     });
@@ -8068,10 +7949,7 @@ namespace FastDownloader
             try { File.AppendAllText(Path.Combine(appDir, "startup.log"), DateTime.Now.ToString() + " createdNew=" + createdNew + "\r\n"); } catch {}
             if (!createdNew)
             {
-                if (!WindowManager.FocusExistingWindow())
-                {
-                    DownloaderAppContext.LaunchDashboard(appDir);
-                }
+                DownloaderAppContext.LaunchDashboard(appDir);
                 return;
             }
 
