@@ -2425,7 +2425,7 @@ namespace FastDownloader
                             sb.AppendLine(string.Format("{0}\tTRUE\t/\tTRUE\t2147483647\t{1}\t{2}", domain, k, v));
                         }
                     }
-                    File.WriteAllText(cookieFile, sb.ToString(), Encoding.UTF8);
+                    File.WriteAllText(cookieFile, sb.ToString(), new UTF8Encoding(false));
                     extraHeaders += " --cookies \"" + cookieFile + "\"";
                 }
                 catch { }
@@ -2904,7 +2904,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.23";
+        public const string CurrentAppVersion = "0.1.24";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
