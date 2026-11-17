@@ -10,6 +10,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -2904,7 +2905,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.25";
+        public const string CurrentAppVersion = "0.1.26";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -3589,7 +3590,7 @@ namespace FastDownloader
 
         private int updateInProgress = 0;
 
-        private static void VerifyReleaseHashes(string tag, Dictionary<string, string> files)
+        private static Dictionary<string, string> GetReleaseAssetHashes(string tag)
         {
             string releaseApi = "https://api.github.com/repos/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases/tags/" + tag;
             Dictionary<string, object> release;
@@ -3614,6 +3615,79 @@ namespace FastDownloader
                 if (!string.IsNullOrEmpty(digest) && digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
                     expected[name] = digest.Substring(7).Trim();
             }
+
+            return expected;
+        }
+
+        private static Dictionary<string, string> ReadInstalledAssetHashes()
+        {
+            var hashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FastDownloader", "installed-assets.json");
+                if (!File.Exists(path)) return hashes;
+                Dictionary<string, object> state = JsonHelper.ParseDict(File.ReadAllText(path));
+                if (state == null || !state.ContainsKey("files")) return hashes;
+                Dictionary<string, object> files = state["files"] as Dictionary<string, object>;
+                if (files == null) return hashes;
+                foreach (var item in files)
+                {
+                    string digest = Convert.ToString(item.Value);
+                    if (!string.IsNullOrWhiteSpace(digest)) hashes[item.Key] = digest;
+                }
+            }
+            catch { }
+            return hashes;
+        }
+
+        private static Dictionary<string, string> ReadInstalledTreeHashes()
+        {
+            var hashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FastDownloader", "installed-assets.json");
+                if (!File.Exists(path)) return hashes;
+                Dictionary<string, object> state = JsonHelper.ParseDict(File.ReadAllText(path));
+                if (state == null || !state.ContainsKey("installedTrees")) return hashes;
+                Dictionary<string, object> trees = state["installedTrees"] as Dictionary<string, object>;
+                if (trees == null) return hashes;
+                foreach (var item in trees)
+                {
+                    string digest = Convert.ToString(item.Value);
+                    if (!string.IsNullOrWhiteSpace(digest)) hashes[item.Key] = digest;
+                }
+            }
+            catch { }
+            return hashes;
+        }
+
+        private static string ComputeDirectoryHash(string directory)
+        {
+            if (!Directory.Exists(directory)) return "";
+            try
+            {
+                var files = Directory.GetFiles(directory, "*", SearchOption.AllDirectories);
+                Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+                var material = new StringBuilder();
+                foreach (string file in files)
+                {
+                    string relative = file.Substring(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Length)
+                        .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace('\\', '/');
+                    string digest;
+                    using (SHA256 sha = SHA256.Create())
+                    using (FileStream stream = File.OpenRead(file))
+                        digest = BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "");
+                    material.Append(relative).Append('\0').Append(digest).Append('\n');
+                }
+                using (SHA256 sha = SHA256.Create())
+                    return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(material.ToString()))).Replace("-", "");
+            }
+            catch { return ""; }
+        }
+
+        private static void VerifyReleaseHashes(Dictionary<string, string> expected, Dictionary<string, string> files)
+        {
+            if (expected == null) throw new InvalidOperationException("Release asset fingerprints are missing.");
 
             foreach (var file in files)
             {
@@ -3656,21 +3730,35 @@ namespace FastDownloader
                 string releaseBase = "https://github.com/" + GitHubRepoOwner + "/" + GitHubRepoName + "/releases/download/" + tag + "/";
                 string tempDir = Path.Combine(Path.GetTempPath(), "FastDownloader_Update_" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(tempDir);
+                Dictionary<string, string> releaseHashes = GetReleaseAssetHashes(tag);
+                Dictionary<string, string> installedHashes = ReadInstalledAssetHashes();
+                Dictionary<string, string> installedTrees = ReadInstalledTreeHashes();
+                string appDirectory = Path.GetDirectoryName(Process.GetCurrentProcess().MainModule.FileName);
+                string currentExtensionTree = ComputeDirectoryHash(Path.Combine(appDirectory, "extension"));
+                string currentUiTree = ComputeDirectoryHash(Path.Combine(appDirectory, "ui"));
 
                 var packages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 {
-                    { "FastDownloader.exe", Path.Combine(tempDir, "FastDownloader.exe") },
-                    { "fast-downloader-extension.zip", Path.Combine(tempDir, "extension.zip") },
-                    { "fast-downloader-ui.zip", Path.Combine(tempDir, "ui.zip") }
+                    { "FastDownloader.exe", Path.Combine(tempDir, "FastDownloader.exe") }
                 };
+                bool downloadExtension = !installedHashes.ContainsKey("fast-downloader-extension.zip") ||
+                    !releaseHashes.ContainsKey("fast-downloader-extension.zip") ||
+                    !installedTrees.ContainsKey("extension") || !string.Equals(installedTrees["extension"], currentExtensionTree, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(installedHashes["fast-downloader-extension.zip"], releaseHashes["fast-downloader-extension.zip"], StringComparison.OrdinalIgnoreCase);
+                bool downloadUi = !installedHashes.ContainsKey("fast-downloader-ui.zip") ||
+                    !releaseHashes.ContainsKey("fast-downloader-ui.zip") ||
+                    !installedTrees.ContainsKey("ui") || !string.Equals(installedTrees["ui"], currentUiTree, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(installedHashes["fast-downloader-ui.zip"], releaseHashes["fast-downloader-ui.zip"], StringComparison.OrdinalIgnoreCase);
+                if (downloadExtension) packages.Add("fast-downloader-extension.zip", Path.Combine(tempDir, "extension.zip"));
+                if (downloadUi) packages.Add("fast-downloader-ui.zip", Path.Combine(tempDir, "ui.zip"));
                 int index = 0;
                 foreach (var package in packages)
                 {
                     DownloadAssetWithResume(releaseBase + package.Key, package.Value, version, index, packages.Count);
                     index++;
                 }
-                WriteInstallStatus("verifying", "Verifying SHA-256 checksums for all update files", version, 100);
-                VerifyReleaseHashes(tag, packages);
+                WriteInstallStatus("verifying", "Verifying SHA-256 checksums for changed update files", version, 100);
+                VerifyReleaseHashes(releaseHashes, packages);
 
                 // Never terminate an active file/video transfer for an app update.
                 // Paused and completed tasks can safely survive the restart.
@@ -3686,6 +3774,12 @@ namespace FastDownloader
                 WriteInstallStatus("verified", "All assets verified. Preparing safe restart", version, 100);
 
                 string scriptPath = Path.Combine(tempDir, "apply-update.ps1");
+                string assetStateFile = Path.Combine(tempDir, "installed-assets.json");
+                var assetState = new Dictionary<string, object> {
+                    { "version", version },
+                    { "files", releaseHashes }
+                };
+                File.WriteAllText(assetStateFile, JsonHelper.Serialize(assetState), new UTF8Encoding(false));
                 using (Stream resource = Assembly.GetExecutingAssembly().GetManifestResourceStream("FastDownloader.updater.ps1"))
                 {
                     if (resource == null) throw new InvalidOperationException("Embedded update helper is missing.");
@@ -3702,10 +3796,11 @@ namespace FastDownloader
                         "\" -TargetPid " + Process.GetCurrentProcess().Id +
                         " -TargetExe \"" + currentExe +
                         "\" -NewExe \"" + packages["FastDownloader.exe"] +
-                        "\" -ExtensionZip \"" + packages["fast-downloader-extension.zip"] +
-                        "\" -UiZip \"" + packages["fast-downloader-ui.zip"] +
+                        "\" -ExtensionZip \"" + (downloadExtension ? packages["fast-downloader-extension.zip"] : "") +
+                        "\" -UiZip \"" + (downloadUi ? packages["fast-downloader-ui.zip"] : "") +
                         "\" -ExpectedVersion \"" + version +
-                        "\" -StatusFile \"" + statusFile + "\"",
+                        "\" -StatusFile \"" + statusFile +
+                        "\" -AssetStateFile \"" + assetStateFile + "\"",
                     WorkingDirectory = tempDir,
                     CreateNoWindow = true,
                     UseShellExecute = false,
