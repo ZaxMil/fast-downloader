@@ -131,6 +131,23 @@ jobs:
           if ($manifest.version -ne $appVersion) { throw 'Extension package was not applied' }
           if (-not (Test-Path (Join-Path $appDir 'ui/index.html'))) { throw 'UI package was not applied' }
 
+          # Verify an executable-only update leaves installed components untouched.
+          $uiMarker = Join-Path $appDir 'ui/index.html'
+          $extensionMarker = Join-Path $appDir 'extension/manifest.json'
+          $uiHash = (Get-FileHash $uiMarker).Hash
+          $extensionHash = (Get-FileHash $extensionMarker).Hash
+          $selectiveArgs = @(
+            '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+            '-File',$helper,'-TargetPid','999999',
+            '-TargetExe',$targetExe,'-NewExe',$newExe,
+            '-ExtensionZip','','-UiZip','',
+            '-StatusFile',$statusFile,'-SkipRestart','-ExpectedVersion',$appVersion
+          )
+          & powershell.exe @selectiveArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Executable-only selective update failed' }
+          if ((Get-FileHash $uiMarker).Hash -ne $uiHash) { throw 'Selective update changed the UI folder without a UI package' }
+          if ((Get-FileHash $extensionMarker).Hash -ne $extensionHash) { throw 'Selective update changed the extension folder without an extension package' }
+
           # Mismatched extension package must fail without overwriting an installed executable.
           $originalHash = (Get-FileHash $targetExe).Hash
           & powershell.exe @argsCommon '-ExpectedVersion' '9.9.9'
