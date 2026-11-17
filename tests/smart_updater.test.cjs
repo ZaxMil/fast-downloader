@@ -79,6 +79,11 @@ assert.match(bootstrap, /Get-VerifiedReleaseAsset/, 'Recovery bootstrap must ver
 assert.match(bootstrap, /api\/tasks/, 'Recovery bootstrap must refuse active downloads');
 assert.match(bootstrap, /apply-update\.ps1/, 'Recovery bootstrap must use the verified in-place updater');
 
+assert.match(cs, /CurrentAppVersion = "0\\.1\\.23"/, 'Updater release version is advanced');
+const dashboardLauncher = cs.slice(cs.indexOf('public static void LaunchDashboard(string appDir)'), cs.indexOf('private void CheckSchedulerTick()'));
+assert.match(dashboardLauncher, /FileName = dashboardUrl/, 'Dashboard opens through Windows URL association');
+assert.match(dashboardLauncher, /UseShellExecute = true/, 'Dashboard uses the configured default browser');
+assert.doesNotMatch(dashboardLauncher, /FindChromiumBrowser|msedge\\.exe|--app=/, 'No dedicated Edge app process or profile');
 assert.match(cs, /class WindowsSafeFileName/, 'Native dialog must normalize browser titles before saving');
 assert.match(cs, /class NativeDialogTheme/, 'Native dialogs must honor dashboard theme');
 assert.match(cs, /NativeDialogTheme.Read\(\)/, 'Download form reads shared theme');
