@@ -455,6 +455,30 @@
     .footer a:hover {
       color: #FF5E5B;
     }
+    .quick-actions-settings {
+      margin: 8px 0 3px;
+      border: 1px solid var(--card-border);
+      border-radius: 9px;
+      background: rgba(255,255,255,.025);
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+    .quick-actions-settings summary {
+      padding: 8px 10px;
+      cursor: pointer;
+      color: var(--text-muted);
+      font-weight: 650;
+      user-select: none;
+    }
+    .quick-actions-settings[open] summary { color: var(--text); }
+    .quick-actions-options {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px 10px;
+      padding: 0 10px 10px;
+    }
+    .quick-actions-options label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    .quick-actions-options input { accent-color: #10b981; margin: 0; }
     .footer button:hover {
       color: var(--text);
     }
@@ -504,6 +528,16 @@
       </label>
     </div>
   </div>
+
+  <details class="quick-actions-settings">
+    <summary>Customize the in-page menu</summary>
+    <div class="quick-actions-options">
+      <label><input type="checkbox" data-quick-action="audio"> Audio download</label>
+      <label><input type="checkbox" data-quick-action="quality720"> 720p</label>
+      <label><input type="checkbox" data-quick-action="quality480"> 480p</label>
+      <label><input type="checkbox" data-quick-action="speed"> Speed limits</label>
+    </div>
+  </details>
 
   <!-- FOUND ON PAGE CARD (Auto-detects active tab video / media) -->
   <section id="mediaCard" class="media-card" style="display: none;">
