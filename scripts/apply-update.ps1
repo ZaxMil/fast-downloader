@@ -7,7 +7,8 @@ param(
     [Parameter(Mandatory=$true)][string]$ExpectedVersion,
     [Parameter(Mandatory=$true)][string]$StatusFile,
     [ValidateRange(5, 300)][int]$RestartTimeoutSeconds = 120,
-    [switch]$SkipRestart
+    [switch]$SkipRestart,
+    [switch]$RestartOnly
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -164,6 +165,26 @@ function Confirm-UpdatedApp([int]$newPid) {
     }
     throw "Restart validation timed out after $RestartTimeoutSeconds seconds. $lastObservation"
 }
+function Confirm-RestoredApp([int]$restoredPid) {
+    $deadline = [DateTime]::UtcNow.AddSeconds($RestartTimeoutSeconds)
+    $lastObservation = 'No response from restored FastDownloader HTTP bridge'
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $p = Get-Process -Id $restoredPid -ErrorAction SilentlyContinue
+        if (-not $p -or $p.HasExited) { throw "Restored process PID $restoredPid exited before its API was ready." }
+        try {
+            $reply = Invoke-RestMethod -Uri 'http://127.0.0.1:6801/api/update/status' -TimeoutSec 3 -ErrorAction Stop
+            $reportedPid = [int]$reply.app.processId
+            $runningVersion = [string]$reply.app.currentVersion
+            if ($reportedPid -eq $restoredPid -and -not [string]::IsNullOrWhiteSpace($runningVersion)) {
+                Log "Verified restored app version $runningVersion on PID $reportedPid."
+                return
+            }
+            $lastObservation = "Restored API reported PID $reportedPid and version '$runningVersion'; expected PID $restoredPid."
+        } catch { $lastObservation = "Restored API not ready: $($_.Exception.Message)" }
+        Start-Sleep -Milliseconds 900
+    }
+    throw "Restored app validation timed out. $lastObservation"
+}
 function Restore-OldVersion {
     if ($started -and -not $started.HasExited) {
         if (-not (Test-ExpectedProcess $started.Id $TargetExe)) {
@@ -173,6 +194,7 @@ function Restore-OldVersion {
         Start-Sleep -Milliseconds 800
         $started.Refresh()
         if (-not $started.HasExited) { throw 'Rollback aborted: updated process could not be stopped.' }
+        Wait-BridgeRelease
     }
     if ($originalExe -and (Test-Path (Join-Path $backup 'FastDownloader.exe'))) {
         Copy-Item (Join-Path $backup 'FastDownloader.exe') $TargetExe -Force
@@ -221,6 +243,17 @@ try {
         }
         Start-Sleep -Milliseconds 300
     }
+    if ($RestartOnly) {
+        if (-not (Test-Path $TargetExe)) { throw "Installed executable is missing: $TargetExe" }
+        Wait-BridgeRelease
+        Status 'restarting' 'Launching the installed app and verifying its process and local API'
+        $started = TryRestart $TargetExe
+        if (-not $started) { throw 'Failed to launch the installed application.' }
+        Confirm-UpdatedApp $started.Id
+        Status 'success' "FastDownloader $ExpectedVersion restarted and API verified (PID $($started.Id))"
+        exit 0
+    }
+
     if (-not (Test-Path $NewExe) -or (Get-Item $NewExe).Length -lt 50000) { throw 'Missing or incomplete application executable.' }
     Assert-UpdateBinaryVersion
     if (-not $SkipRestart) { Wait-BridgeRelease }
@@ -285,7 +318,9 @@ catch {
             Restore-OldVersion
             if (-not $SkipRestart) {
                 $restored = TryRestart $TargetExe
-                if ($restored) { Log "Previous application restarted as PID $($restored.Id)." }
+                if (-not $restored) { throw 'Previous application could not be relaunched after rollback.' }
+                Confirm-RestoredApp $restored.Id
+                Log "Previous application API verified on PID $($restored.Id)."
             }
         }
     } catch {
