@@ -98,7 +98,37 @@ try {
     $manifest = Get-Content (Join-Path $installedDir 'extension/manifest.json') -Raw | ConvertFrom-Json
     if ($manifest.version -ne $version) { throw 'Verified extension version mismatch.' }
     if (-not (Test-Path (Join-Path $installedDir 'ui/index.html'))) { throw 'UI package missing after restart.' }
-    Write-Host "PASS: Verified update to $version and live PID $ownerPid after delayed startup."
+    $firstPid = $ownerPid
+    $restartArgs = @(
+        '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+        '-File',$helper,
+        '-TargetPid',[string]$firstPid,
+        '-TargetExe',$targetExe,
+        '-NewExe',$targetExe,
+        '-ExtensionZip',$extensionZip,
+        '-UiZip',$uiZip,
+        '-ExpectedVersion',$version,
+        '-StatusFile',$statusFile,
+        '-RestartTimeoutSeconds','28',
+        '-RestartOnly'
+    )
+    & powershell.exe @restartArgs
+    if ($LASTEXITCODE -ne 0) {
+        $report = if (Test-Path $statusFile) { Get-Content $statusFile -Raw } else { '<none>' }
+        $log = if (Test-Path (Join-Path $work 'update.log')) { (Get-Content (Join-Path $work 'update.log') -Tail 20) -join [Environment]::NewLine } else { '<none>' }
+        throw ("Restart-only rehearsal failed: " + $report + [Environment]::NewLine + $log)
+    }
+    $restartStatus = Get-Content $statusFile -Raw | ConvertFrom-Json
+    if ($restartStatus.status -ne 'success') { throw "Restart-only helper did not verify success: $($restartStatus.message)" }
+    $restartApi = Invoke-RestMethod -Uri 'http://127.0.0.1:6801/api/update/status' -TimeoutSec 4
+    $restartPid = [int]$restartApi.app.processId
+    if ($restartPid -eq $firstPid) { throw 'Restart-only helper did not replace the old process.' }
+    $restartProc = Get-Process -Id $restartPid -ErrorAction Stop
+    if ($restartProc.HasExited -or [IO.Path]::GetFullPath($restartProc.Path) -ne [IO.Path]::GetFullPath($targetExe)) {
+        throw 'Restart-only API is not served by the installed executable.'
+    }
+    Write-Host "PASS: Full update and standalone restart both verified (PID $firstPid -> $restartPid)."
+
 }
 finally {
     # Only kill our test host, never a production FastDownloader instance.
