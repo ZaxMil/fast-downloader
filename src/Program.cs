@@ -5321,8 +5321,8 @@ namespace FastDownloader
                                 using (Stream resource = Assembly.GetExecutingAssembly().GetManifestResourceStream("FastDownloader.updater.ps1"))
                                 {
                                     if (resource == null) throw new InvalidOperationException("Embedded restart helper is missing.");
-                                    using (StreamReader reader = new StreamReader(resource, Encoding.UTF8))
-                                        File.WriteAllText(scriptPath, reader.ReadToEnd(), new UTF8Encoding(false));
+                                    using (StreamReader restartResourceReader = new StreamReader(resource, Encoding.UTF8))
+                                        File.WriteAllText(scriptPath, restartResourceReader.ReadToEnd(), new UTF8Encoding(false));
                                 }
 
                                 if (updateManager != null)
