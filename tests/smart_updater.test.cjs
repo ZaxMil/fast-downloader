@@ -48,7 +48,7 @@ assert.match(cs, /HasActiveDownloads\(out activeReason\)/, 'Automatic installs m
 assert.match(cs, /SetBridgeStopAction\(bridge\.Stop\)/, 'App update must explicitly stop the local API bridge');
 assert.match(cs, /stopBridgeForUpdate\(\)/, 'Update handoff must release the bridge before exiting');
 
-assert.match(cs, /CurrentAppVersion = "0\.1\.22"/, 'Version bump is required for installed app updates');
+assert.match(cs, /CurrentAppVersion = "0\\.1\\.23"/, 'Version bump is required for installed app updates');
 assert.match(cs, /this\.CachedYtDlpVersion = "Not checked";/, 'No yt-dlp binary executed on startup');
 assert.match(cs, /this\.CachedAria2Version = "Not checked";/, 'No aria2 version process during startup');
 assert.match(cs, /var res = UpdateYtDlp\(false\);/, 'Automatic engine updates must check upstream version first');
