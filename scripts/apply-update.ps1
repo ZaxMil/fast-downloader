@@ -2,10 +2,11 @@ param(
     [Parameter(Mandatory=$true)][int]$TargetPid,
     [Parameter(Mandatory=$true)][string]$TargetExe,
     [Parameter(Mandatory=$true)][string]$NewExe,
-    [Parameter(Mandatory=$true)][string]$ExtensionZip,
-    [Parameter(Mandatory=$true)][string]$UiZip,
+    [Parameter(Mandatory=$true)][AllowEmptyString()][string]$ExtensionZip,
+    [Parameter(Mandatory=$true)][AllowEmptyString()][string]$UiZip,
     [Parameter(Mandatory=$true)][string]$ExpectedVersion,
     [Parameter(Mandatory=$true)][string]$StatusFile,
+    [string]$AssetStateFile = '',
     [ValidateRange(5, 300)][int]$RestartTimeoutSeconds = 120,
     [switch]$SkipRestart,
     [switch]$RestartOnly
@@ -32,6 +33,21 @@ function Status([string]$state, [string]$message) {
     $record = @{ status = $state; message = $message; expectedVersion = $ExpectedVersion; timestamp = [DateTime]::UtcNow.ToString('o') }
     $record | ConvertTo-Json -Compress | Set-Content -Path $StatusFile -Encoding UTF8
     Log "$state - $message"
+}
+function Get-TreeFingerprint([string]$directory) {
+    if (-not (Test-Path $directory)) { return '' }
+    $rootPath = [IO.Path]::GetFullPath($directory).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $material = New-Object Text.StringBuilder
+    $files = @(Get-ChildItem -LiteralPath $rootPath -File -Recurse | Sort-Object FullName)
+    foreach ($file in $files) {
+        $relative = $file.FullName.Substring($rootPath.Length).TrimStart([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar).Replace('\', '/')
+        $digest = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+        [void]$material.Append($relative).Append([char]0).Append($digest).Append([char]10)
+    }
+    $bytes = [Text.Encoding]::UTF8.GetBytes($material.ToString())
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '') }
+    finally { $sha.Dispose() }
 }
 function TryRestart([string]$program) {
     if ($SkipRestart -or -not (Test-Path $program)) { return $null }
@@ -131,31 +147,57 @@ function Confirm-UpdatedApp([int]$newPid) {
     $deadline = [DateTime]::UtcNow.AddSeconds($RestartTimeoutSeconds)
     $lastObservation = 'No response from FastDownloader HTTP bridge'
     $lastLogged = ''
+    $staleApiObservations = 0
     while ([DateTime]::UtcNow -lt $deadline) {
         $p = Get-Process -Id $newPid -ErrorAction SilentlyContinue
-        if (-not $p -or $p.HasExited) {
-            throw "New FastDownloader process PID $newPid exited before the API was ready. $lastObservation"
-        }
         $owner = Get-BridgeOwner
-        if ($owner -gt 0 -and $owner -ne $newPid) {
-            throw "Port 6801 is held by PID $owner, not the newly started FastDownloader PID $newPid."
-        }
         if ($owner -eq -1) { throw 'Ambiguous listeners on port 6801 while verifying restart.' }
+        $ownerProcess = if ($owner -gt 0) { Get-Process -Id $owner -ErrorAction SilentlyContinue } else { $null }
+        $ownerPath = $null
+        if ($ownerProcess) { try { $ownerPath = $ownerProcess.Path } catch { } }
+        if ($ownerPath -and -not [string]::Equals(
+            [IO.Path]::GetFullPath($ownerPath),
+            [IO.Path]::GetFullPath($TargetExe),
+            [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Port 6801 is owned by unrelated PID $owner ($ownerPath). Refusing to treat it as FastDownloader."
+        }
         try {
             $reply = Invoke-RestMethod -Uri 'http://127.0.0.1:6801/api/update/status' -TimeoutSec 3 -ErrorAction Stop
             $runningVersion = [string]$reply.app.currentVersion
             $reportedPid = [int]$reply.app.processId
-            if ($runningVersion -eq $ExpectedVersion -and $reportedPid -eq $newPid) {
-                Log "Verified updated API version $runningVersion on PID $reportedPid."
+            $reportedProcess = Get-Process -Id $reportedPid -ErrorAction SilentlyContinue
+            $reportedPath = $null
+            if ($reportedProcess) { try { $reportedPath = $reportedProcess.Path } catch { } }
+            $reportedPathMatches = $reportedPath -and [string]::Equals(
+                [IO.Path]::GetFullPath($reportedPath),
+                [IO.Path]::GetFullPath($TargetExe),
+                [StringComparison]::OrdinalIgnoreCase)
+            if ($runningVersion -eq $ExpectedVersion -and $reportedPid -eq $newPid -and $reportedPathMatches) {
+                Log "Verified updated API version $runningVersion on launched PID $reportedPid."
                 return
             }
-            $lastObservation = "API returned version '$runningVersion' and PID $reportedPid; expected $ExpectedVersion from PID $newPid."
+            # Starting a second copy can be redirected by the app's single-instance
+            # mutex. Accept that only when the API itself reports the expected
+            # version and its live process is the verified installed executable.
+            if ($runningVersion -eq $ExpectedVersion -and $reportedPid -ne $newPid -and $reportedPathMatches) {
+                Log "Verified expected version $runningVersion through existing installed PID $reportedPid; launch PID $newPid was redirected by the single-instance guard."
+                return
+            }
+            $lastObservation = "API returned version '$runningVersion' and PID $reportedPid; expected $ExpectedVersion from installed executable '$TargetExe'. Launch PID $newPid is " + $(if ($p -and -not $p.HasExited) { 'still running' } else { 'no longer running' }) + '.'
+            if ($reportedPid -gt 0 -and $reportedPid -ne $newPid -and $reportedPathMatches) {
+                $staleApiObservations++
+                if ($staleApiObservations -ge 5) { throw "A different FastDownloader process PID $reportedPid is still serving version '$runningVersion'. $lastObservation" }
+            } else { $staleApiObservations = 0 }
         } catch {
+            if ($_.Exception.Message -like 'A different FastDownloader process PID*') { throw }
             $lastObservation = "API not ready: $($_.Exception.Message)"
         }
         if ($lastObservation -ne $lastLogged) {
             Log $lastObservation
             $lastLogged = $lastObservation
+        }
+        if ((-not $p -or $p.HasExited) -and $owner -eq 0) {
+            throw "Launched FastDownloader PID $newPid exited and no local API is listening. $lastObservation"
         }
         Start-Sleep -Milliseconds 900
     }
@@ -258,25 +300,29 @@ try {
     Assert-UpdateBinaryVersion
     if (-not $SkipRestart) { Wait-BridgeRelease }
     foreach ($zip in @($ExtensionZip, $UiZip)) {
-        if (-not (Test-Path $zip) -or (Get-Item $zip).Length -lt 500) { throw "Missing or incomplete update package: $zip" }
+        if (-not [string]::IsNullOrWhiteSpace($zip) -and (-not (Test-Path $zip) -or (Get-Item $zip).Length -lt 500)) { throw "Missing or incomplete update package: $zip" }
     }
     New-Item -ItemType Directory -Path $stage -Force | Out-Null
-    Expand-Archive -Path $ExtensionZip -DestinationPath (Join-Path $stage 'extension') -Force
-    Expand-Archive -Path $UiZip -DestinationPath (Join-Path $stage 'ui') -Force
-    $extManifest = Join-Path $stage 'extension/manifest.json'
-    if (-not (Test-Path $extManifest)) { throw 'Extension manifest missing from package.' }
-    $manifest = Get-Content $extManifest -Raw | ConvertFrom-Json
-    if ($manifest.version -ne $ExpectedVersion) { throw 'Extension version does not match the application release.' }
-    if (-not (Test-Path (Join-Path $stage 'extension/background.js'))) { throw 'Extension background.js missing.' }
-    if (-not (Test-Path (Join-Path $stage 'ui/index.html'))) { throw 'Application interface missing.' }
+    if (-not [string]::IsNullOrWhiteSpace($ExtensionZip)) {
+        Expand-Archive -Path $ExtensionZip -DestinationPath (Join-Path $stage 'extension') -Force
+        $extManifest = Join-Path $stage 'extension/manifest.json'
+        if (-not (Test-Path $extManifest)) { throw 'Extension manifest missing from package.' }
+        $manifest = Get-Content $extManifest -Raw | ConvertFrom-Json
+        if ($manifest.version -ne $ExpectedVersion) { throw 'Extension version does not match the application release.' }
+        if (-not (Test-Path (Join-Path $stage 'extension/background.js'))) { throw 'Extension background.js missing.' }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($UiZip)) {
+        Expand-Archive -Path $UiZip -DestinationPath (Join-Path $stage 'ui') -Force
+        if (-not (Test-Path (Join-Path $stage 'ui/index.html'))) { throw 'Application interface missing.' }
+    }
 
     New-Item -ItemType Directory -Force -Path $backup | Out-Null
     $originalExe = Test-Path $TargetExe
     $originalExtension = Test-Path (Join-Path $root 'extension')
     $originalUi = Test-Path (Join-Path $root 'ui')
     if ($originalExe) { Copy-Item $TargetExe (Join-Path $backup 'FastDownloader.exe') -Force }
-    if ($originalExtension) { Copy-Item (Join-Path $root 'extension') (Join-Path $backup 'extension') -Recurse -Force }
-    if ($originalUi) { Copy-Item (Join-Path $root 'ui') (Join-Path $backup 'ui') -Recurse -Force }
+    if ($originalExtension -and -not [string]::IsNullOrWhiteSpace($ExtensionZip)) { Copy-Item (Join-Path $root 'extension') (Join-Path $backup 'extension') -Recurse -Force }
+    if ($originalUi -and -not [string]::IsNullOrWhiteSpace($UiZip)) { Copy-Item (Join-Path $root 'ui') (Join-Path $backup 'ui') -Recurse -Force }
 
     Status 'installing' 'Applying verified update files'
     $copied = $false
@@ -292,6 +338,7 @@ try {
     }
     if (-not $copied) { throw 'Unable to replace the application executable after 12 attempts.' }
     foreach ($folder in @('extension','ui')) {
+        if (($folder -eq 'extension' -and [string]::IsNullOrWhiteSpace($ExtensionZip)) -or ($folder -eq 'ui' -and [string]::IsNullOrWhiteSpace($UiZip))) { continue }
         $targetFolder = Join-Path $root $folder
         if (-not (Test-Path $targetFolder)) { New-Item -ItemType Directory $targetFolder | Out-Null }
         Copy-Item (Join-Path $stage "$folder/*") $targetFolder -Recurse -Force -ErrorAction Stop
@@ -306,6 +353,24 @@ try {
     $started = TryRestart $TargetExe
     if (-not $started) { throw 'Failed to launch updated application.' }
     Confirm-UpdatedApp $started.Id
+    if (-not [string]::IsNullOrWhiteSpace($AssetStateFile) -and (Test-Path $AssetStateFile)) {
+        try {
+            $stateDir = Join-Path $env:LOCALAPPDATA 'FastDownloader'
+            New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+            $stateTarget = Join-Path $stateDir 'installed-assets.json'
+            $stateTemp = $stateTarget + '.tmp'
+            $state = Get-Content -LiteralPath $AssetStateFile -Raw | ConvertFrom-Json
+            $installedTrees = @{
+                extension = Get-TreeFingerprint (Join-Path $root 'extension')
+                ui = Get-TreeFingerprint (Join-Path $root 'ui')
+            }
+            if ($state.PSObject.Properties.Name -contains 'installedTrees') { $state.installedTrees = $installedTrees }
+            else { $state | Add-Member -NotePropertyName installedTrees -NotePropertyValue $installedTrees }
+            $state | ConvertTo-Json -Depth 8 -Compress | Set-Content -LiteralPath $stateTemp -Encoding UTF8
+            Move-Item $stateTemp $stateTarget -Force
+            Log 'Committed installed asset fingerprints after successful restart verification.'
+        } catch { Log "Could not save optional asset fingerprints: $($_.Exception.Message)" }
+    }
     Status 'success' "FastDownloader $ExpectedVersion running and API verified (PID $($started.Id))"
     exit 0
 }
