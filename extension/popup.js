@@ -82,10 +82,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  chrome.storage.local.get({ autoIntercept: true, videoButtonEnabled: true }, (items) => {
+  const defaultQuickActions = ['audio', 'quality720', 'quality480', 'speed'];
+  const quickActionInputs = Array.from(document.querySelectorAll('[data-quick-action]'));
+  chrome.storage.local.get({ autoIntercept: true, videoButtonEnabled: true, videoButtonActions: defaultQuickActions }, (items) => {
     if (interceptToggle) interceptToggle.checked = !!items.autoIntercept;
     if (videoBtnToggle) videoBtnToggle.checked = !!items.videoButtonEnabled;
+    const selected = new Set(Array.isArray(items.videoButtonActions) ? items.videoButtonActions : defaultQuickActions);
+    quickActionInputs.forEach(input => { input.checked = selected.has(input.dataset.quickAction); });
   });
+
+  quickActionInputs.forEach(input => input.addEventListener('change', () => {
+    const actions = quickActionInputs.filter(item => item.checked).map(item => item.dataset.quickAction);
+    chrome.storage.local.set({ videoButtonActions: actions });
+  }));
 
   if (videoBtnToggle) {
     videoBtnToggle.addEventListener('change', () => {
