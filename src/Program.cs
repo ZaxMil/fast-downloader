@@ -4937,7 +4937,7 @@ namespace FastDownloader
                         {
                             try
                             {
-                                DownloaderAppContext.LaunchDashboard(engine.AppDir));
+                                DownloaderAppContext.LaunchDashboard(engine.AppDir);
                             }
                             catch { }
                         });
@@ -5022,7 +5022,7 @@ namespace FastDownloader
                             {
                                 try
                                 {
-                                    DownloaderAppContext.LaunchDashboard(engine.AppDir));
+                                    DownloaderAppContext.LaunchDashboard(engine.AppDir);
                                 }
                                 catch { }
                             });
@@ -7758,7 +7758,7 @@ namespace FastDownloader
                     {
                         try
                         {
-                            DownloaderAppContext.LaunchDashboard(appDir));
+                            DownloaderAppContext.LaunchDashboard(appDir);
                         }
                         catch { }
                     });
@@ -7949,7 +7949,7 @@ namespace FastDownloader
             try { File.AppendAllText(Path.Combine(appDir, "startup.log"), DateTime.Now.ToString() + " createdNew=" + createdNew + "\r\n"); } catch {}
             if (!createdNew)
             {
-                DownloaderAppContext.LaunchDashboard(appDir));
+                DownloaderAppContext.LaunchDashboard(appDir);
                 return;
             }
 
