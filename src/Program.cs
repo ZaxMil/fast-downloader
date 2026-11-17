@@ -2904,7 +2904,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.24";
+        public const string CurrentAppVersion = "0.1.25";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -2954,6 +2954,20 @@ namespace FastDownloader
                 }
                 catch { /* The helper also maintains status; never fail an install solely on telemetry. */ }
             }
+        }
+
+        public bool IsAppUpdateInProgress
+        {
+            get
+            {
+                return Interlocked.CompareExchange(ref updateInProgress, 0, 0) != 0 ||
+                    Interlocked.CompareExchange(ref updateRequestQueued, 0, 0) != 0;
+            }
+        }
+
+        public void ReportRestartStatus(string state, string message)
+        {
+            WriteInstallStatus(state, message, CurrentAppVersion);
         }
 
         private Dictionary<string, object> ReadInstallStatus()
@@ -5243,7 +5257,49 @@ namespace FastDownloader
                     // 24. RESTART APPLICATION API (POST)
                     if (urlPath == "/api/restart" && method == "POST")
                     {
-                        var okResp = new { ok = true, message = "Restarting..." };
+                        if (updateManager != null && updateManager.IsAppUpdateInProgress)
+                        {
+                            string busy = "{\"ok\":false,\"message\":\"An app update is already running. Wait for it to finish before restarting.\"}";
+                            byte[] busyBytes = Encoding.UTF8.GetBytes(busy);
+                            SendHeaders(writer, 409, "Conflict", "application/json; charset=utf-8", busyBytes.Length);
+                            writer.Write(busy);
+                            writer.Flush();
+                            return;
+                        }
+
+                        string blockedReason = "";
+                        if (engine != null)
+                        {
+                            try
+                            {
+                                var activeFiles = engine.GetActiveAriaTasks();
+                                if (activeFiles != null && activeFiles.Count > 0)
+                                    blockedReason = "Finish or pause active file downloads before restarting.";
+                                if (string.IsNullOrEmpty(blockedReason))
+                                {
+                                    foreach (var task in engine.GetYtTasksSnapshot())
+                                    {
+                                        if (task.Status == "downloading" || task.Status == "processing")
+                                        {
+                                            blockedReason = "Finish or pause active video downloads before restarting.";
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            catch (Exception ex) { blockedReason = "Could not verify active downloads: " + ex.Message; }
+                        }
+                        if (!string.IsNullOrEmpty(blockedReason))
+                        {
+                            string blocked = JsonHelper.Serialize(new { ok = false, message = blockedReason });
+                            byte[] blockedBytes = Encoding.UTF8.GetBytes(blocked);
+                            SendHeaders(writer, 409, "Conflict", "application/json; charset=utf-8", blockedBytes.Length);
+                            writer.Write(blocked);
+                            writer.Flush();
+                            return;
+                        }
+
+                        var okResp = new { ok = true, message = "Restarting and verifying the app process..." };
                         string json = JsonHelper.Serialize(okResp);
                         byte[] bytes = Encoding.UTF8.GetBytes(json);
                         SendHeaders(writer, 200, "OK", "application/json; charset=utf-8", bytes.Length);
@@ -5252,27 +5308,61 @@ namespace FastDownloader
 
                         ThreadPool.QueueUserWorkItem(_ =>
                         {
-                            Thread.Sleep(200);
                             try
                             {
                                 string currentExe = Process.GetCurrentProcess().MainModule.FileName;
-                                if (engine != null) engine.StopAria2();
-                                Program.ReleaseSingleInstanceMutex();
-
                                 string appDir = engine != null ? engine.AppDir : Path.GetDirectoryName(currentExe);
+                                string localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                                string statusDir = Path.Combine(localData, "FastDownloader");
+                                Directory.CreateDirectory(statusDir);
+                                string statusFile = Path.Combine(statusDir, "last-update.json");
+                                string scriptPath = Path.Combine(Path.GetTempPath(), "FastDownloader_Restart_" + Guid.NewGuid().ToString("N") + ".ps1");
+
+                                using (Stream resource = Assembly.GetExecutingAssembly().GetManifestResourceStream("FastDownloader.updater.ps1"))
+                                {
+                                    if (resource == null) throw new InvalidOperationException("Embedded restart helper is missing.");
+                                    using (StreamReader reader = new StreamReader(resource, Encoding.UTF8))
+                                        File.WriteAllText(scriptPath, reader.ReadToEnd(), new UTF8Encoding(false));
+                                }
+
+                                if (updateManager != null)
+                                    updateManager.ReportRestartStatus("restarting", "Waiting for the app to close before restarting.");
+
+                                int currentPid = Process.GetCurrentProcess().Id;
                                 ProcessStartInfo psi = new ProcessStartInfo
                                 {
                                     FileName = "powershell.exe",
-                                    Arguments = "-NoProfile -WindowStyle Hidden -Command \"Start-Sleep -Milliseconds 1200; Start-Process -FilePath '" + currentExe.Replace("'", "''") + "' -WorkingDirectory '" + appDir.Replace("'", "''") + "'\"",
+                                    Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + scriptPath +
+                                        "\" -RestartOnly -TargetPid " + currentPid +
+                                        " -TargetExe \"" + currentExe +
+                                        "\" -NewExe \"" + currentExe +
+                                        "\" -ExtensionZip \"" + scriptPath +
+                                        "\" -UiZip \"" + scriptPath +
+                                        "\" -ExpectedVersion \"" + UpdateManager.CurrentAppVersion +
+                                        "\" -StatusFile \"" + statusFile + "\"",
+                                    WorkingDirectory = appDir,
                                     CreateNoWindow = true,
-                                    UseShellExecute = false
+                                    UseShellExecute = false,
+                                    WindowStyle = ProcessWindowStyle.Hidden
                                 };
-                                Process.Start(psi);
-                            }
-                            catch { }
-                            finally
-                            {
+                                Process helper = Process.Start(psi);
+                                if (helper == null) throw new InvalidOperationException("Could not start the restart verifier.");
+
+                                if (engine != null) engine.StopAria2();
+                                Thread.Sleep(350);
                                 Environment.Exit(0);
+                            }
+                            catch (Exception ex)
+                            {
+                                try
+                                {
+                                    string logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FastDownloader");
+                                    Directory.CreateDirectory(logDir);
+                                    File.AppendAllText(Path.Combine(logDir, "restart.log"),
+                                        DateTime.UtcNow.ToString("o") + " Restart launch failed: " + ex + "\\r\\n");
+                                }
+                                catch { }
+                                try { if (updateManager != null) updateManager.ReportRestartStatus("failed", "Restart failed: " + ex.Message); } catch { }
                             }
                         });
                         return;
