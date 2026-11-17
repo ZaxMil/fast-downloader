@@ -132,16 +132,18 @@ const overlay = fs.readFileSync(path.join(__dirname, "..", "extension", "content
 const overlayCss = fs.readFileSync(path.join(__dirname, "..", "extension", "content.css"), "utf8");
 new vm.Script(overlay, { filename: "content.js" });
 assert.match(overlay, /mainAction\.addEventListener\('click'/);
-assert.match(overlay, /audioBtn\.addEventListener\('click'/);
+assert.match(overlay, /menuToggle\.addEventListener\('click'/);
+assert.match(overlay, /'audio', 'Download audio'/);
+assert.match(overlay, /videoButtonActions/);
 assert.match(overlay, /let requestBusy = false/);
 assert.match(overlay, /if \(requestBusy\) return/);
-assert.match(overlay, /dragHandle\.addEventListener\('pointerdown'/);
 assert.match(overlay, /accepted = !!\(result && result\.ok === true\)/);
 assert.doesNotMatch(overlay, /pill\.addEventListener\('click'/);
+assert.doesNotMatch(overlay, /dragHandle/);
 assert.doesNotMatch(overlay, /arrowBtn/);
-assert.doesNotMatch(overlay, /menu\.classList/);
 assert.doesNotMatch(overlay, /32x Turbo/);
-assert.match(overlayCss, /\.fd-pill-audio/);
+assert.match(overlayCss, /\.fd-quick-menu/);
+assert.match(overlayCss, /width: 30px !important/);
 assert.doesNotMatch(overlayCss, /\.fd-download-menu/);
 
 })().catch(err => { console.error(err); process.exitCode = 1; });

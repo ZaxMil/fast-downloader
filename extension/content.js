@@ -1,4 +1,4 @@
-// FastDownloader Pro - Floating Video Download Bar & In-Page Media Interceptor
+// FastDownloader Pro - Compact Video Download Control & In-Page Media Interceptor
 
 (function () {
 
@@ -20,9 +20,15 @@
   // User Setting: Floating Video Button Enabled & Remembered Custom Position
   let videoButtonEnabled = true;
   let globalButtonPos = null;
+  let videoButtonActions = ['audio', 'quality720', 'quality480', 'speed'];
+  let activeQuickMenu = null;
+
+  document.addEventListener('pointerdown', e => {
+    if (activeQuickMenu && !activeQuickMenu.container.contains(e.target)) activeQuickMenu.close();
+  }, true);
 
   if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-    chrome.storage.local.get({ videoButtonEnabled: true, savedButtonPos: null }, (items) => {
+    chrome.storage.local.get({ videoButtonEnabled: true, savedButtonPos: null, videoButtonActions }, (items) => {
       if (items) {
         if (typeof items.videoButtonEnabled === 'boolean') {
           videoButtonEnabled = items.videoButtonEnabled;
@@ -35,6 +41,7 @@
         if (items.savedButtonPos) {
           globalButtonPos = items.savedButtonPos;
         }
+        if (Array.isArray(items.videoButtonActions)) videoButtonActions = items.videoButtonActions;
       }
     });
 
@@ -52,6 +59,11 @@
         }
         if (changes.savedButtonPos !== undefined) {
           globalButtonPos = changes.savedButtonPos.newValue;
+        }
+        if (changes.videoButtonActions !== undefined) {
+          videoButtonActions = Array.isArray(changes.videoButtonActions.newValue) ? changes.videoButtonActions.newValue : [];
+          document.querySelectorAll('.fd-download-btn-container').forEach(el => el.remove());
+          scanMedia();
         }
       }
     });
@@ -776,134 +788,150 @@
       }, false);
     });
 
-    // Minimal, functional player overlay; no misleading quality menu.
+    // Compact single-icon control. Options appear only after the user opens the menu.
     const pill = document.createElement('div');
     pill.className = 'fd-download-pill';
     pill.setAttribute('role', 'group');
     pill.setAttribute('aria-label', isCanvas ? 'Canvas recorder' : 'Video download');
 
-    const dragHandle = document.createElement('span');
-    dragHandle.className = 'fd-pill-drag';
-    dragHandle.title = 'Drag to reposition';
-    dragHandle.innerHTML = '<svg viewBox="0 0 12 20" width="12" height="20" aria-hidden="true" fill="currentColor"><circle cx="3" cy="5" r="1.3"/><circle cx="9" cy="5" r="1.3"/><circle cx="3" cy="10" r="1.3"/><circle cx="9" cy="10" r="1.3"/><circle cx="3" cy="15" r="1.3"/><circle cx="9" cy="15" r="1.3"/></svg>';
-
     const mainAction = document.createElement('button');
     mainAction.type = 'button';
     mainAction.className = 'fd-pill-action';
-    mainAction.title = isCanvas ? 'Record 15 seconds' : 'Download video with FastDownloader';
+    mainAction.title = isCanvas ? 'Record 15 seconds' : 'Download video';
     mainAction.setAttribute('aria-label', mainAction.title);
-    mainAction.innerHTML = fdLightningSvg + '<span class="fd-pill-text">' +
-      (isCanvas ? 'Record 15s' : 'Download') + '</span>';
+    mainAction.innerHTML = fdLightningSvg;
 
-    const audioBtn = document.createElement('button');
-    audioBtn.type = 'button';
-    audioBtn.className = 'fd-pill-audio';
-    audioBtn.textContent = isCanvas ? '30s' : 'Audio';
-    audioBtn.title = isCanvas ? 'Record for 30 seconds' : 'Download audio if the source supports it';
-    audioBtn.setAttribute('aria-label', audioBtn.title);
+    const menuToggle = document.createElement('button');
+    menuToggle.type = 'button';
+    menuToggle.className = 'fd-pill-menu-toggle';
+    menuToggle.title = 'Download options';
+    menuToggle.setAttribute('aria-label', 'Download options');
+    menuToggle.setAttribute('aria-haspopup', 'menu');
+    menuToggle.setAttribute('aria-expanded', 'false');
+    menuToggle.innerHTML = '<svg width="10" height="10" viewBox="0 0 12 12" aria-hidden="true"><path d="m2 4 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-    const closeBtn = document.createElement('button');
-    closeBtn.type = 'button';
-    closeBtn.className = 'fd-pill-close';
-    closeBtn.title = 'Hide on this player';
-    closeBtn.setAttribute('aria-label', closeBtn.title);
-    closeBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6 18 18M18 6 6 18"/></svg>';
+    const menu = document.createElement('div');
+    menu.className = 'fd-quick-menu';
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', 'FastDownloader options');
+    menu.hidden = true;
+    function closeMenu() {
+      menu.hidden = true;
+      menuToggle.setAttribute('aria-expanded', 'false');
+      pill.classList.remove('fd-menu-open');
+      if (activeQuickMenu && activeQuickMenu.menu === menu) activeQuickMenu = null;
+    }
 
-    pill.appendChild(dragHandle);
     pill.appendChild(mainAction);
-    pill.appendChild(audioBtn);
-    pill.appendChild(closeBtn);
-
-    // Dragging is exclusive to the grip; action buttons stay clickable.
-    let isDragging = false;
-    let hasDragged = false;
-    let startX = 0, startY = 0, leftAtStart = 0, topAtStart = 0;
-
-    function onPointerMove(e) {
-      if (!isDragging) return;
-      const dx = e.clientX - startX, dy = e.clientY - startY;
-      if (!hasDragged && Math.abs(dx) <= 4 && Math.abs(dy) <= 4) return;
-      hasDragged = true;
-      container.classList.add('fd-dragging');
-      e.preventDefault();
-      e.stopPropagation();
-      const rect = anchor.getBoundingClientRect();
-      const x = Math.min(Math.max(4, rect.width - container.offsetWidth - 4),
-        Math.max(4, leftAtStart + dx));
-      const y = Math.min(Math.max(4, rect.height - container.offsetHeight - 4),
-        Math.max(4, topAtStart + dy));
-      container.style.setProperty('left', x + 'px', 'important');
-      container.style.setProperty('top', y + 'px', 'important');
-      container.style.setProperty('right', 'auto', 'important');
-    }
-    function onPointerUp(e) {
-      window.removeEventListener('pointermove', onPointerMove, true);
-      window.removeEventListener('pointerup', onPointerUp, true);
-      window.removeEventListener('pointercancel', onPointerUp, true);
-      if (!isDragging) return;
-      isDragging = false;
-      container.classList.remove('fd-dragging');
-      if (hasDragged) {
-        e.preventDefault();
-        e.stopPropagation();
-        const pos = { left: container.style.left, top: container.style.top };
-        anchor._fdCustomPos = pos;
-        globalButtonPos = pos;
-        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local)
-          chrome.storage.local.set({ savedButtonPos: pos });
-      }
-    }
-    dragHandle.addEventListener('pointerdown', e => {
-      if (e.button !== 0) return;
-      e.stopPropagation();
-      e.preventDefault();
-      isDragging = true;
-      hasDragged = false;
-      startX = e.clientX;
-      startY = e.clientY;
-      const current = container.getBoundingClientRect();
-      const parent = anchor.getBoundingClientRect();
-      leftAtStart = current.left - parent.left;
-      topAtStart = current.top - parent.top;
-      window.addEventListener('pointermove', onPointerMove, { capture: true, passive: false });
-      window.addEventListener('pointerup', onPointerUp, true);
-      window.addEventListener('pointercancel', onPointerUp, true);
-    });
-
-    closeBtn.addEventListener('click', e => {
-      e.stopPropagation();
-      e.preventDefault();
-      targetElement._fdDismissed = true;
-      anchor._fdDismissed = true;
-      container.remove();
-    });
+    pill.appendChild(menuToggle);
+    pill.appendChild(menu);
 
     let requestBusy = false;
     async function startDownload(e, quality) {
-      e.stopPropagation();
-      e.preventDefault();
+      if (e) { e.stopPropagation(); e.preventDefault(); }
       if (requestBusy) return;
       requestBusy = true;
+      pill.classList.add('fd-busy');
       try {
         if (isCanvas) {
           recordCanvasStream(targetElement, quality === '30s' ? 30000 : 15000);
           return;
         }
         let url = detectBestMediaUrl(targetElement);
-        // Never autoplay or change video volume when detecting a download.
         if (!url || url === window.location.href || url.startsWith('blob:'))
           url = findSocialPostPermalink(targetElement) || window.location.href;
         await sendToFastDownloader(url, document.title, 'video', quality, pill);
+        closeMenu();
       } catch (err) {
         showToast('Could not prepare the download.', true);
       } finally {
         requestBusy = false;
+        pill.classList.remove('fd-busy');
       }
     }
 
-    // Bind exactly one handler per button. Parent click previously doubled requests.
+    function addMenuAction(label, action, icon) {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'fd-quick-menu-item';
+      item.setAttribute('role', 'menuitem');
+      item.innerHTML = '<span class="fd-quick-menu-icon">' + icon + '</span><span>' + label + '</span>';
+      item.addEventListener('click', e => {
+        e.stopPropagation();
+        if (action === 'speed0' || action === 'speed5M' || action === 'speed10M') {
+          const limit = action === 'speed0' ? '0' : action === 'speed5M' ? '5M' : '10M';
+          fetch('http://127.0.0.1:6801/api/speedlimit', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit })
+          }).then(res => {
+            if (!res.ok) throw new Error('Speed setting failed');
+            showToast(limit === '0' ? 'Unlimited speed set' : 'Speed limit set to ' + limit + '/s');
+          }).catch(() => showToast('Open FastDownloader to change speed.', true));
+          closeMenu();
+          return;
+        }
+        startDownload(e, action);
+      });
+      menu.appendChild(item);
+    }
+
+    if (isCanvas) {
+      addMenuAction('Record 30 seconds', '30s', '◷');
+    } else {
+      const available = [
+        ['audio', 'Download audio', '♫'],
+        ['quality720', 'Video · up to 720p', '720'],
+        ['quality480', 'Video · up to 480p', '480'],
+        ['speed', 'Speed controls', '⚡']
+      ];
+      const selected = new Set(Array.isArray(videoButtonActions) ? videoButtonActions : []);
+      available.forEach(([key, label, icon]) => {
+        if (!selected.has(key)) return;
+        if (key === 'speed') {
+          addMenuAction('Unlimited speed', 'speed0', '∞');
+          addMenuAction('Limit to 5 MB/s', 'speed5M', '5');
+          addMenuAction('Limit to 10 MB/s', 'speed10M', '10');
+        } else if (key === 'audio') addMenuAction(label, 'audio', icon);
+        else if (key === 'quality720') addMenuAction(label, '720p', icon);
+        else if (key === 'quality480') addMenuAction(label, '480p', icon);
+      });
+      const separator = document.createElement('div');
+      separator.className = 'fd-quick-menu-separator';
+      menu.appendChild(separator);
+      const hideItem = document.createElement('button');
+      hideItem.type = 'button';
+      hideItem.className = 'fd-quick-menu-item fd-quick-menu-muted';
+      hideItem.setAttribute('role', 'menuitem');
+      hideItem.textContent = 'Hide on this player';
+      hideItem.addEventListener('click', e => {
+        e.stopPropagation();
+        targetElement._fdDismissed = true;
+        anchor._fdDismissed = true;
+        container.remove();
+      });
+      menu.appendChild(hideItem);
+    }
+
     mainAction.addEventListener('click', e => startDownload(e, isCanvas ? '15s' : 'best'));
-    audioBtn.addEventListener('click', e => startDownload(e, isCanvas ? '30s' : 'audio'));
+    menuToggle.addEventListener('click', e => {
+      e.stopPropagation();
+      e.preventDefault();
+      menu.hidden = !menu.hidden;
+      const expanded = !menu.hidden;
+      menuToggle.setAttribute('aria-expanded', String(expanded));
+      pill.classList.toggle('fd-menu-open', expanded);
+      if (expanded) {
+        if (activeQuickMenu && activeQuickMenu.menu !== menu) activeQuickMenu.close();
+        activeQuickMenu = { menu, container, close: closeMenu };
+        const firstAction = menu.querySelector('[role="menuitem"]');
+        if (firstAction) firstAction.focus();
+      } else closeMenu();
+    });
+    menu.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        closeMenu();
+        menuToggle.focus();
+      }
+    });
 
     container.appendChild(pill);
     anchor.appendChild(container);
@@ -954,13 +982,8 @@
 
     btn.title = 'Download video with FastDownloader';
 
-    btn.innerHTML = `
-
-      ${fdLightningSvg}
-
-      <span>Download</span>
-
-    `;
+    btn.setAttribute('aria-label', btn.title);
+    btn.innerHTML = fdLightningSvg;
 
 
 
