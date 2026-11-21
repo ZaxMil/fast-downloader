@@ -50,6 +50,14 @@ jobs:
               if ($img.Width -lt 900 -or $img.Height -lt 580) { throw "Invalid screenshot dimensions: $theme" }
               Write-Host "$theme WPF captured: $($img.Width)x$($img.Height), $((Get-Item $output).Length) bytes"
             } finally { $img.Dispose() }
+            $dialogPath = Join-Path $dir ("new-download-" + $theme + ".png")
+            $dialog = Start-Process -FilePath $app -ArgumentList @('--theme=' + $theme, '--capture-dialog', '"' + $dialogPath + '"') -PassThru
+            if (-not $dialog.WaitForExit(30000)) {
+              try { $dialog.Kill() } catch {}
+              throw "WPF native dialog screenshot timed out: $theme"
+            }
+            if (-not (Test-Path $dialogPath)) { throw "Native New Download dialog image missing: $theme" }
+            if ((Get-Item $dialogPath).Length -lt 5000) { throw "Native New Download dialog image blank: $theme" }
           }
       - name: Package Windows desktop preview without installer
         shell: pwsh
