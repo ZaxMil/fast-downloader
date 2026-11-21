@@ -1,0 +1,72 @@
+name: Native WPF Windows preview
+
+on:
+  pull_request:
+    paths:
+      - 'native-wpf/**'
+      - '.github/workflows/native-wpf-preview.yml'
+  push:
+    branches: ['prototype/native-wpf-shell']
+    paths:
+      - 'native-wpf/**'
+      - '.github/workflows/native-wpf-preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    name: Build native WPF and capture real interface
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Compile native Windows desktop project
+        run: dotnet build native-wpf/NativePreview.csproj -c Release --nologo
+      - name: Publish standalone native preview
+        run: dotnet publish native-wpf/NativePreview.csproj -c Release -r win-x64 --self-contained true --nologo -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o native-wpf/dist
+      - name: Capture real WPF screenshots in dark and light themes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $app = (Resolve-Path 'native-wpf/dist/FastDownloader.NativePreview.exe').Path
+          $dir = (New-Item -ItemType Directory -Force 'native-wpf/screenshots').FullName
+          foreach ($theme in @('dark','light')) {
+            $output = Join-Path $dir ("native-" + $theme + ".png")
+            $process = Start-Process -FilePath $app -ArgumentList @('--theme=' + $theme, '--capture', '"' + $output + '"') -PassThru
+            if (-not $process.WaitForExit(30000)) {
+              try { $process.Kill() } catch {}
+              throw "WPF screenshot timed out: $theme"
+            }
+            if (-not (Test-Path $output)) { throw "Missing native WPF screenshot: $theme" }
+            if ((Get-Item $output).Length -lt 7000) { throw "Blank or empty native WPF screenshot: $theme" }
+            Add-Type -AssemblyName System.Drawing
+            $img = [Drawing.Image]::FromFile($output)
+            try {
+              if ($img.Width -lt 900 -or $img.Height -lt 580) { throw "Invalid screenshot dimensions: $theme" }
+              Write-Host "$theme WPF captured: $($img.Width)x$($img.Height), $((Get-Item $output).Length) bytes"
+            } finally { $img.Dispose() }
+          }
+      - name: Package Windows desktop preview without installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $destination = 'native-wpf/FastDownloader-Native-WPF-Preview.zip'
+          Compress-Archive -Path 'native-wpf/dist/*' -DestinationPath $destination -CompressionLevel Optimal
+          if ((Get-Item $destination).Length -lt 1000000) { throw 'Native preview package unexpectedly small' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fastdownloader-wpf-native-preview
+          path: native-wpf/FastDownloader-Native-WPF-Preview.zip
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fastdownloader-wpf-real-screenshots
+          path: native-wpf/screenshots/*.png
+          if-no-files-found: error
+          retention-days: 14
