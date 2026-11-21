@@ -37,7 +37,7 @@
               <TextBlock Text="FastDownloader" FontSize="14" FontWeight="Bold"
                          Foreground="{DynamicResource MainTextBrush}"/>
               <TextBlock Text="NATIVE PREVIEW" FontSize="9.5" FontWeight="SemiBold"
-                         Foreground="{DynamicResource AccentBrush}" Margin="0,2,0,0" CharacterSpacing="0"/>
+                         Foreground="{DynamicResource AccentBrush}" Margin="0,2,0,0"/>
             </StackPanel>
           </StackPanel>
 
