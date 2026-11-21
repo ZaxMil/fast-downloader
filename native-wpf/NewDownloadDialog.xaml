@@ -1,0 +1,77 @@
+<Window x:Class="FastDownloader.Native.NewDownloadDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" ResizeMode="NoResize"
+        Width="530" Height="501" WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False" Background="{DynamicResource CanvasBrush}"
+        Title="New download" UseLayoutRounding="True">
+  <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+          Background="{DynamicResource CanvasBrush}" CornerRadius="12">
+    <Grid Margin="27,21,27,23">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="67"/>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="58"/>
+      </Grid.RowDefinitions>
+      <Grid Grid.Row="0" MouseLeftButtonDown="Header_Drag">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="36"/></Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Text="NEW TRANSFER" Foreground="{DynamicResource AccentBrush}"
+                     FontWeight="Bold" FontSize="10"/>
+          <TextBlock Text="Add a download" FontWeight="Bold" FontSize="20"
+                     Foreground="{DynamicResource MainTextBrush}" Margin="0,3,0,0"/>
+        </StackPanel>
+        <Button Grid.Column="1" Content="×" Click="Cancel_Click" Height="33"
+                FontSize="19" Style="{StaticResource TextButton}"/>
+      </Grid>
+      <StackPanel Grid.Row="1" Margin="0,15,0,0">
+        <TextBlock Text="SOURCE LINK" FontSize="11" FontWeight="Bold"
+                   Foreground="{DynamicResource MutedTextBrush}" Margin="0,0,0,8"/>
+        <TextBox x:Name="UrlBox" Style="{StaticResource InputStyle}" Height="43"
+                 ToolTip="Paste a direct link or supported video page URL"
+                 TextChanged="UrlBox_TextChanged"/>
+        <TextBlock Text="FILE NAME  ·  OPTIONAL" FontSize="11" FontWeight="Bold"
+                   Foreground="{DynamicResource MutedTextBrush}" Margin="0,18,0,8"/>
+        <TextBox x:Name="FileNameBox" Style="{StaticResource InputStyle}" Height="43"
+                 ToolTip="The engine chooses a filename when this is empty"/>
+        <TextBlock Text="FORMAT" FontSize="11" FontWeight="Bold"
+                   Foreground="{DynamicResource MutedTextBrush}" Margin="0,18,0,8"/>
+        <Grid>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="10"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+          <Button x:Name="VideoMode" Grid.Column="0" Content="↓  Best available" Height="37"
+                  Style="{StaticResource PrimaryButton}" Click="VideoMode_Click"/>
+          <Button x:Name="AudioMode" Grid.Column="2" Content="♫  Audio only" Height="37"
+                  Style="{StaticResource QuietButton}" Click="AudioMode_Click"/>
+        </Grid>
+        <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="8"
+                BorderThickness="1" BorderBrush="{DynamicResource LineBrush}"
+                Padding="11,10" Margin="0,18,0,0">
+          <StackPanel>
+            <TextBlock Text="SAVE LOCATION" FontSize="10" FontWeight="Bold"
+                       Foreground="{DynamicResource MutedTextBrush}"/>
+            <TextBlock x:Name="LocationLabel" Text="Configured downloads folder"
+                       FontSize="11.5" TextTrimming="CharacterEllipsis" Margin="0,4,0,0"
+                       Foreground="{DynamicResource MainTextBrush}"/>
+          </StackPanel>
+        </Border>
+        <TextBlock x:Name="InlineStatus" Text="Use a supported download URL. No browser tab will open."
+                   Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap"
+                   FontSize="11" Margin="0,12,0,0"/>
+      </StackPanel>
+      <Grid Grid.Row="2" VerticalAlignment="Bottom">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="95"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="140"/>
+          <ColumnDefinition Width="143"/>
+        </Grid.ColumnDefinitions>
+        <Button Content="Cancel" Grid.Column="0" Click="Cancel_Click"
+                Style="{StaticResource TextButton}" Height="39"/>
+        <Button x:Name="LaterButton" Content="Queue for later" Grid.Column="2" Margin="0,0,9,0"
+                Click="Later_Click" Style="{StaticResource QuietButton}" Height="39"/>
+        <Button x:Name="StartButton" Content="Start download" Grid.Column="3"
+                Click="Start_Click" Style="{StaticResource PrimaryButton}" Height="39"/>
+      </Grid>
+    </Grid>
+  </Border>
+</Window>
