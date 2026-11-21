@@ -7356,7 +7356,7 @@ namespace FastDownloader
         // Prevent overlapping completion scans; never block the tray's UI thread on RPC.
         private int completionScanInFlight;
 
-        public DownloaderAppContext()
+        public DownloaderAppContext(bool openBrowser = true)
         {
             try {
             Instance = this;
@@ -7507,8 +7507,9 @@ namespace FastDownloader
             schedulerTimer.Tick += (s, e) => CheckSchedulerTick();
             schedulerTimer.Start();
 
-            // Auto-launch Edge in App Mode
-            LaunchDefaultBrowser();
+            // Native UI experiments use the same engine with no external browser tab.
+            // Default installed app behavior remains unchanged.
+            if (openBrowser) LaunchDefaultBrowser();
             } catch (Exception ex) { try { File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "startup.log"), "[DownloaderAppContext CTOR CRASH] " + ex.ToString() + "\r\n"); } catch {} throw; }
         }
 
@@ -8105,6 +8106,10 @@ namespace FastDownloader
 
         static void Main(string[] args)
         {
+            // Opt-in browserless engine mode used by the WPF preview. Existing
+            // shortcuts retain their normal behavior unless this flag is passed.
+            bool noBrowser = args != null && args.Any(x =>
+                string.Equals(x, "--no-browser", StringComparison.OrdinalIgnoreCase));
             string appDir = AppDomain.CurrentDomain.BaseDirectory;
             EnsureUiAssets(appDir);
 
@@ -8134,7 +8139,7 @@ namespace FastDownloader
             try { File.AppendAllText(Path.Combine(appDir, "startup.log"), DateTime.Now.ToString() + " createdNew=" + createdNew + "\r\n"); } catch {}
             if (!createdNew)
             {
-                DownloaderAppContext.LaunchDashboard(appDir);
+                if (!noBrowser) DownloaderAppContext.LaunchDashboard(appDir);
                 return;
             }
 
@@ -8160,7 +8165,7 @@ namespace FastDownloader
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 try { File.AppendAllText(Path.Combine(appDir, "startup.log"), "Before new DownloaderAppContext\r\n"); } catch {}
-                var ctx = new DownloaderAppContext();
+                var ctx = new DownloaderAppContext(!noBrowser);
                 try { File.AppendAllText(Path.Combine(appDir, "startup.log"), DateTime.Now.ToString() + " Entering Application.Run\r\n"); } catch {}
                 Application.Run(ctx);
                 try { File.AppendAllText(Path.Combine(appDir, "startup.log"), DateTime.Now.ToString() + " Application.Run exited cleanly\r\n"); } catch {}
