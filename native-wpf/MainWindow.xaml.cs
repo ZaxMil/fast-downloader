@@ -74,6 +74,8 @@ public partial class MainWindow : Window
             FooterStatus.Text = "Live • Existing engine connected • No browser UI running inside this window";
             PauseAllButton.IsEnabled = true;
             ResumeAllButton.IsEnabled = true;
+            PauseAllButton.Visibility = Visibility.Visible;
+            ResumeAllButton.Visibility = Visibility.Visible;
             ActiveCount.Text = allTransfers.Count(t => t.IsActive).ToString();
             CompleteCount.Text = allTransfers.Count(t => t.IsCompleted).ToString();
             QueuedCount.Text = allTransfers.Count(t => t.IsQueued).ToString();
@@ -88,6 +90,8 @@ public partial class MainWindow : Window
             ConnectionDot.Fill = (Brush)Application.Current.Resources["WarningBrush"];
             PauseAllButton.IsEnabled = false;
             ResumeAllButton.IsEnabled = false;
+            PauseAllButton.Visibility = Visibility.Collapsed;
+            ResumeAllButton.Visibility = Visibility.Collapsed;
             ActiveCount.Text = "—";
             CompleteCount.Text = "—";
             QueuedCount.Text = "—";
@@ -191,7 +195,6 @@ public partial class MainWindow : Window
 
     private async void NewDownload_Click(object sender, RoutedEventArgs e)
     {
-        using var ignored = new System.Threading.CancellationTokenSource();
         var dialog = new NewDownloadDialog(bridge, lastSnapshot.DownloadFolder) { Owner = this };
         if (dialog.ShowDialog() == true) await RefreshAsync();
     }
