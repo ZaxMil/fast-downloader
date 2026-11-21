@@ -14,6 +14,36 @@ public partial class App : Application
         var theme = e.Args.FirstOrDefault(x => x.StartsWith("--theme=", StringComparison.OrdinalIgnoreCase));
         RequestedTheme = theme is not null ? theme.Split('=', 2)[1] : LoadSavedTheme();
         SetTheme(RequestedTheme);
+        var dialogIndex = Array.FindIndex(e.Args, x => x == "--capture-dialog");
+        if (dialogIndex >= 0 && dialogIndex + 1 < e.Args.Length)
+        {
+            var api = new BridgeClient();
+            var dialog = new NewDownloadDialog(api, "") {
+                WindowStartupLocation = WindowStartupLocation.CenterScreen
+            };
+            MainWindow = dialog;
+            string imagePath = e.Args[dialogIndex + 1];
+            dialog.ContentRendered += (_, _) =>
+                dialog.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle,
+                    new Action(() => {
+                        try {
+                            dialog.UpdateLayout();
+                            int width = (int)Math.Ceiling(dialog.ActualWidth);
+                            int height = (int)Math.Ceiling(dialog.ActualHeight);
+                            var frame = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                                width, height, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                            frame.Render(dialog);
+                            var png = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                            png.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(frame));
+                            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(imagePath))!);
+                            using (var output = File.Create(imagePath)) png.Save(output);
+                        }
+                        finally { dialog.Close(); }
+                    }));
+            dialog.Closed += (_, _) => api.Dispose();
+            dialog.Show();
+            return;
+        }
         var preview = new MainWindow();
         MainWindow = preview;
         var captureArg = Array.FindIndex(e.Args, x => x == "--capture");
