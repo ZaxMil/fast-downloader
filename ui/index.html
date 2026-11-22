@@ -2381,6 +2381,225 @@
       50% { transform: scale(1.08); opacity: 0.3; }
       100% { transform: scale(0.95); opacity: 0.8; }
     }
+
+/* COMPACT-DESKTOP-CSS-BEGIN */
+/* FastDownloader Pro · Compact desktop design
+   Reference: approved compact concept, 2026-11-22.
+   Keep existing data attributes, API IDs and handlers intact. */
+:root[data-theme="light"] {
+  --bg-base:#f5f8fb; --bg-sidebar:#fcfdff; --bg-surface:#ffffff;
+  --bg-surface-hover:#f7fafc; --bg-input:#f8fafc;
+  --border-color:#e3eaf2; --border-subtle:#edf2f7;
+  --text-main:#203047; --text-muted:#60728a; --text-dim:#8293aa;
+  --emerald:#08a97f; --emerald-glow:rgba(8,169,127,.15);
+  --emerald-dark:#e7f9f2; --cyan:#159bbb; --cyan-glow:rgba(21,155,187,.12);
+  --amber:#d79a36; --rose:#dc5f70; --blue:#438bd9; --purple:#9272bc;
+  --radius-sm:6px; --radius-md:8px; --radius-lg:11px;
+}
+:root[data-theme="dark"], :root[data-theme="zaxcore"] {
+  --bg-base:#111a27; --bg-sidebar:#172233; --bg-surface:#192435;
+  --bg-surface-hover:#203046; --bg-input:#1b293b;
+  --border-color:#2e3c50; --border-subtle:#28374a;
+  --text-main:#eaf2fd; --text-muted:#b0c1d4; --text-dim:#8da1bb;
+  --emerald:#20c69b; --emerald-glow:rgba(32,198,155,.17);
+  --cyan:#5dbcd6; --amber:#e0ac53; --rose:#f08492;
+  --radius-sm:6px; --radius-md:8px; --radius-lg:11px;
+}
+body { font:12.5px/1.4 "Segoe UI",Inter,Arial,sans-serif; }
+header { box-shadow:none; }
+.titlebar {
+  height:43px; min-height:43px; padding:0 15px;
+  border-bottom:1px solid var(--border-color);
+}
+.header-left-zone { gap:12px; min-width:0; }
+.compact-brand {
+  display:flex; align-items:center; gap:9px; width:196px; min-width:196px;
+  color:var(--text-main); font-size:13px; letter-spacing:-.2px;
+  font-weight:750; white-space:nowrap; user-select:none;
+}
+.compact-brand-mark {
+  display:grid; place-items:center; width:26px; height:26px; flex-shrink:0;
+  background:#09ad81; border-radius:7px; color:white;
+  box-shadow:0 2px 7px rgba(9,173,129,.2);
+}
+.compact-brand-mark svg { width:16px; height:16px; }
+.compact-brand-name { overflow:hidden; text-overflow:ellipsis; }
+.compact-brand-name small { font-weight:600; color:var(--text-dim); font-size:10px; }
+.app-menubar { gap:3px; }
+.menu-btn {
+  border-radius:5px; font-size:11.5px; padding:7px 9px;
+  color:var(--text-muted);
+}
+.engine-status-group { gap:7px; flex-shrink:0; }
+.btn-titlebar-pill, .status-pill {
+  min-height:26px; border-radius:16px; font-size:11px;
+  background:var(--bg-surface-hover); border-color:var(--border-color);
+}
+.action-toolbar {
+  height:51px; min-height:51px; max-height:51px; padding:7px 12px;
+  gap:10px; background:var(--bg-surface);
+}
+.action-group { gap:6px; }
+.action-group:last-child { margin-left:auto; }
+.action-toolbar .btn {
+  height:33px; min-height:33px; max-height:33px; padding:0 11px;
+  font-size:11.5px; font-weight:600; background:var(--bg-surface-hover);
+  border:1px solid var(--border-color); box-shadow:0 1px 1px rgba(35,55,80,.025);
+}
+.action-toolbar .btn:hover { background:var(--bg-input); border-color:#a9c9e2; }
+.action-toolbar .btn-add-primary {
+  display:inline-flex !important; background:#09ad81 !important;
+  border-color:#09ad81 !important; color:white !important;
+  box-shadow:0 3px 8px rgba(9,173,129,.16) !important;
+}
+.action-toolbar .btn-add-primary:hover { background:#078e6b !important; }
+.action-toolbar .btn-danger {
+  background:rgba(226,98,115,.07); color:var(--rose);
+  border-color:rgba(226,98,115,.24);
+}
+.action-toolbar .btn-toggle-grab.active {
+  background:rgba(9,173,129,.10); border-color:rgba(9,173,129,.32);
+  color:var(--emerald);
+}
+.toolbar-divider { height:24px; background:var(--border-color); }
+.toolbar-select-box { height:33px; background:var(--bg-surface-hover); border-color:var(--border-color); }
+.toolbar-select { color:var(--emerald); font-size:11.5px; }
+.search-input-wrapper { width:192px; height:33px; }
+.search-input {
+  height:33px; background:var(--bg-surface-hover); border:1px solid var(--border-color);
+  color:var(--text-main); border-radius:6px; font-size:11.5px;
+}
+.search-input::placeholder { color:var(--text-dim); }
+.app-body { background:var(--bg-base); }
+aside {
+  width:211px; min-width:211px; background:var(--bg-sidebar);
+  border-right:1px solid var(--border-color); scrollbar-width:thin;
+}
+.sidebar-section-title {
+  padding:17px 14px 7px; font-size:9.5px; letter-spacing:.9px;
+  color:var(--text-dim);
+}
+.sidebar-item {
+  min-height:34px; padding:7px 11px; margin:1px 8px;
+  border-radius:6px; font-size:12px; color:var(--text-muted);
+}
+.sidebar-item.active {
+  background:rgba(9,173,129,.10); color:var(--emerald); font-weight:700;
+}
+.sidebar-item-left { gap:10px; }
+.sidebar-badge { background:var(--bg-surface-hover); color:var(--text-dim); font-size:10px; }
+.sidebar-item.active .sidebar-badge {
+  background:rgba(9,173,129,.18); color:var(--emerald);
+}
+.queue-status-tag { border-radius:4px; font-size:9.5px; }
+.sidebar-footer {
+  padding:11px; background:var(--bg-sidebar); border-top:1px solid var(--border-color);
+}
+.disk-space-card { background:var(--bg-surface); border-color:var(--border-color); padding:10px; }
+.disk-progress-fill { background:linear-gradient(90deg,#f0bc64,#e47c73); }
+.sidebar-footer .support-card { display:none; }
+main { background:var(--bg-base); }
+.compact-contextbar {
+  height:48px; min-height:48px; display:flex; gap:12px; align-items:center;
+  justify-content:space-between; padding:0 18px; background:var(--bg-surface);
+  border-bottom:1px solid var(--border-color); flex-shrink:0;
+}
+.compact-heading { display:flex; align-items:baseline; gap:12px; min-width:0; }
+.compact-view-title {
+  margin:0; color:var(--text-main); font-size:15px;
+  font-weight:750; letter-spacing:-.25px; white-space:nowrap;
+}
+.compact-view-count { color:var(--text-dim); font-size:11px; white-space:nowrap; }
+.compact-shortcuts { color:var(--text-dim); font-size:10.5px; white-space:nowrap; }
+.compact-shortcuts kbd {
+  padding:2px 5px; color:var(--text-muted); border:1px solid var(--border-color);
+  border-radius:4px; font:10px "Segoe UI",sans-serif; background:var(--bg-surface-hover);
+}
+.table-container {
+  background:var(--bg-base); scrollbar-width:thin; scrollbar-color:var(--border-color) transparent;
+}
+#downloadsTable { width:100%; border-collapse:collapse; font-size:12px; }
+#downloadsTable thead, #downloadsTable th {
+  background:var(--bg-surface-hover); border-color:var(--border-color);
+}
+#downloadsTable th {
+  height:34px; padding:7px 11px; font-size:9.7px; font-weight:750;
+  letter-spacing:.62px; color:var(--text-dim); box-shadow:inset 0 -1px var(--border-color);
+}
+#downloadsTable tbody tr {
+  height:62px; background:var(--bg-surface); border-bottom:1px solid var(--border-color);
+}
+#downloadsTable tbody tr:hover { background:var(--bg-surface-hover); }
+#downloadsTable tbody tr.selected { background:rgba(67,139,217,.10) !important; }
+#downloadsTable td { padding:7px 11px; font-size:11.8px; }
+#downloadsTable .file-cell { gap:11px; max-width:none; }
+#downloadsTable .file-icon-box {
+  width:35px; height:35px; border:1px solid var(--border-color);
+  border-radius:7px; background:var(--bg-surface-hover);
+  font-size:15px;
+}
+#downloadsTable .file-name { font-size:12px; font-weight:700; }
+#downloadsTable .file-subtext { font-size:10px; margin-top:2px; color:var(--text-dim); }
+#downloadsTable .queue-badge {
+  padding:3px 8px; border-radius:4px; font-size:10px;
+}
+#downloadsTable .queue-badge.main-queue {
+  color:#4285ce; border-color:rgba(66,133,206,.20);
+  background:rgba(66,133,206,.08);
+}
+#downloadsTable .progress-cell { width:100%; min-width:96px; }
+#downloadsTable .progress-container { gap:6px; }
+#downloadsTable .progress-track {
+  height:5px; background:var(--border-color); border:0; border-radius:8px;
+}
+#downloadsTable .progress-fill { box-shadow:none; background:linear-gradient(90deg,#05b58a,#1ac5b5); }
+#downloadsTable .progress-labels { color:var(--text-dim); font-size:10px; }
+#downloadsTable .speed-pill {
+  background:transparent; border:0; padding:0; border-radius:0;
+  color:var(--emerald); font-size:11px; font-weight:650;
+}
+#downloadsTable .status-tag { font-size:10.8px; font-weight:650; }
+#downloadsTable .status-tag.completed { color:var(--emerald); }
+#downloadsTable .row-actions { opacity:1; gap:4px; }
+#downloadsTable .icon-action-btn {
+  width:25px; height:25px; border-radius:5px;
+  background:var(--bg-surface-hover); border-color:var(--border-color);
+}
+#downloadsTable .icon-action-btn:hover {
+  color:var(--emerald); border-color:rgba(9,173,129,.4); background:var(--bg-surface);
+}
+#downloadsTable input[type="checkbox"] { accent-color:var(--emerald); }
+.bottom-bar { background:var(--bg-surface); border-top:1px solid var(--border-color); }
+.bottom-info-strip { min-height:33px; padding:7px 14px; font-size:10.5px; }
+.bottom-stats-left { gap:16px; }
+.graph-toggle-btn { font-size:10px; }
+.graph-container { height:40px; background:var(--bg-base); border-color:var(--border-color); }
+[data-theme="light"] .graph-container { background:#f8fafc; border-color:var(--border-color); }
+.modal-card { border-radius:10px; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+  outline:2px solid var(--cyan); outline-offset:2px;
+}
+/* Preserve the application's responsive toolbar and RTL support. */
+@media(max-width:1200px){
+  .compact-brand { width:auto; min-width:0; }
+  .compact-brand-name { display:none; }
+  .header-left-zone { gap:10px; }
+}
+@media(max-width:1200px){
+  .compact-shortcuts { display:none; }
+  .action-toolbar { gap:6px; }
+  .action-toolbar .btn { padding:0 9px; }
+  aside { width:196px; min-width:196px; }
+}
+@media(max-width:1000px){
+  .compact-contextbar { padding:0 12px; }
+  .compact-view-title { font-size:13px; }
+  .bottom-stats-left { gap:9px; }
+  #downloadsTable { min-width:970px; }
+}
+[dir="rtl"] .compact-contextbar { direction:rtl; }
+[dir="rtl"] .compact-heading { direction:rtl; }
+/* COMPACT-DESKTOP-CSS-END */
   </style>
 </head>
 <body>
@@ -2429,6 +2648,12 @@
   <header>
     <div class="titlebar" id="appTitlebar">
       <div class="header-left-zone">
+      <div class="compact-brand" aria-label="FastDownloader Pro">
+        <span class="compact-brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M5 19h14"/></svg>
+        </span>
+        <span class="compact-brand-name">FastDownloader <small>PRO</small></span>
+      </div>
         <nav class="app-menubar" id="appMenubar" role="menubar">
       <!-- Tasks (المهام) -->
       <div class="menu-item" data-menu="tasks">
@@ -2828,6 +3053,13 @@
 
     <!-- MAIN TABLE -->
     <main>
+      <div class="compact-contextbar" aria-label="Download list summary">
+        <div class="compact-heading">
+          <h1 class="compact-view-title" id="compactViewTitle">All downloads</h1>
+          <span class="compact-view-count" id="compactViewCount">0 shown</span>
+        </div>
+        <span class="compact-shortcuts" id="compactShortcutHint">Search <kbd>Ctrl</kbd> + <kbd>F</kbd> · Select a task for actions</span>
+      </div>
       <div class="table-container" oncontextmenu="handleContainerContextMenu(event)">
         <table id="downloadsTable">
           <thead>
@@ -4288,7 +4520,7 @@
       }
     };
 
-    let currentTheme = localStorage.getItem('fast_theme') || 'dark';
+    let currentTheme = localStorage.getItem('fast_theme') || 'light';
     let currentLang = localStorage.getItem('fast_lang') || 'en';
 
     function applyTheme(theme) {
@@ -5501,6 +5733,36 @@
     }
 
     // Render Main Downloads Table
+    // The compact header reflects the real task collection and active filters.
+    // This is read-only UI state; no extra task fetch or download side effects.
+    function updateCompactHeading(visibleCount) {
+      const title = document.getElementById('compactViewTitle');
+      const count = document.getElementById('compactViewCount');
+      const hint = document.getElementById('compactShortcutHint');
+      if (!title || !count) return;
+      const labels = currentLang === 'ar' ? {
+        all:'كل التنزيلات', active:'قيد التنزيل', paused:'المتوقفة والمنتظرة',
+        completed:'المكتملة', videos:'الفيديوهات والبث', archives:'الملفات المضغوطة',
+        torrents:'التورنت'
+      } : {
+        all:'All downloads', active:'Downloading', paused:'Paused / Waiting',
+        completed:'Completed', videos:'Videos & Streams', archives:'Compressed & ISO',
+        torrents:'Torrents'
+      };
+      title.textContent = currentQueueFilter
+        ? (currentQueueFilter === 'NightQueue'
+            ? (currentLang === 'ar' ? 'قائمة التنزيل الليلية' : 'Night Queue')
+            : (currentLang === 'ar' ? 'قائمة التنزيل الرئيسية' : 'Main Queue'))
+        : (labels[currentCategory] || labels.all);
+      const total = Array.isArray(tasks) ? tasks.length : 0;
+      count.textContent = currentLang === 'ar'
+        ? visibleCount + ' ظاهر من ' + total
+        : visibleCount + ' shown · ' + total + ' total';
+      if (hint) {
+        hint.style.display = currentLang === 'ar' ? 'none' : '';
+      }
+    }
+
     function renderTable() {
       const tbody = document.getElementById('tableBody');
       const search = document.getElementById('searchInput').value.toLowerCase().trim();
@@ -5571,6 +5833,7 @@
       }
 
       const tableContainer = document.querySelector('.table-container');
+      updateCompactHeading(filtered.length);
       if (filtered.length === 0) {
         tbody.innerHTML = '';
         emptyState.style.display = 'flex';
@@ -8004,6 +8267,15 @@
 
     // Keyboard Shortcuts
     window.addEventListener('keydown', (e) => {
+      /* COMPACT-SEARCH-SHORTCUT */
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+        const searchBox = document.getElementById('searchInput');
+        if (searchBox && !document.querySelector('.modal-overlay.active')) {
+          e.preventDefault();
+          searchBox.focus();
+          searchBox.select();
+        }
+      }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N') && !e.shiftKey) {
         e.preventDefault();
         showAddModal();
