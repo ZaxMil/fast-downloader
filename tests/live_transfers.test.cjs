@@ -35,7 +35,7 @@ assert.match(html, /if \(taskPollInFlight\) return/);
 assert.match(html, /signal: controller\.signal/);
 assert.match(html, /reconcileLiveRows\(tbody, html\)/);
 assert.match(html, /oldFill\.style\.width = newFill\.style\.width/);
-assert.match(html, /id="notificationToggleBtn" onclick="toggleNotifications\(\)"/);
+assert.match(html, /<button[^>]*id="notificationToggleBtn"[^>]*onclick="toggleNotifications\(\)"/, 'Notification toggle remains functional inside compact More menu');
 assert.match(html, /body: JSON\.stringify\(\{ notificationsEnabled: !notificationsEnabled \}\)/);
 
 assert.match(backend, /public bool NotificationsEnabled \{ get; set; \}/);

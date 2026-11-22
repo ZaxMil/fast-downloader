@@ -21,3 +21,14 @@ When adjusting compact styles, run `python3 scripts/sync-compact-ui.py` before c
 - The main table remains customizable, sortable, and horizontally scrollable on narrow desktop windows.
 - Changes are confined to the dashboard, a small keyboard search shortcut, tests, and documentation.
 - Before merging: verify the Windows CI executable and installer builds, then manually smoke-test an active and resumable download, browser capture, the native download dialog, and updater/restart on Windows.
+
+## Compact Polish V2 (v0.1.29)
+
+The native Windows title already displays FastDownloader Pro, so the inner brand now shows its small mark only. Exactly five compact tools live at top-right: Theme, Language, Engines/Updates, Columns, and More. The More menu contains Notifications, Toolbar customization, and Support while preserving the original settings and function IDs.
+
+- Single-click light/dark theme toggle; existing ZaxCore remains available in the View menu.
+- Theme-aware context menus for columns and toolbar settings.
+- Hover effects are intentionally stationary (color and border only).
+- Source of truth remains `ui/compact-desktop.css`, synchronized with the embedded HTML by `scripts/sync-compact-ui.py`.
+- New visual previews: [Light](compact-polish-v2-light.png) and [Dark](compact-polish-v2-dark.png).
+- New regression test: `tests/compact_polish_v2.test.cjs`, included in `tests/table_columns.test.cjs` and existing CI.
