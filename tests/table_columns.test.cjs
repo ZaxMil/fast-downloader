@@ -69,3 +69,4 @@ console.log("PASS: live table columns, resizing safeguards, date fields, and tra
 // Included in existing GitHub Actions Windows and Linux regression jobs.
 // The UI checks use node:test and require no new workflow permissions.
 require('./compact_ui.test.cjs');
+require('./compact_polish_v2.test.cjs');

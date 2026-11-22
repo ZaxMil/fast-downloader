@@ -214,3 +214,152 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 [dir="rtl"] .compact-contextbar { direction:rtl; }
 [dir="rtl"] .compact-heading { direction:rtl; }
+
+/* COMPACT POLISH V2 — Windows desktop density, two-theme clarity, stable hover.
+   Only presentation. Existing backend controls and IDs are unchanged. */
+:root[data-theme="light"] {
+  --bg-base:#f6f8fb; --bg-sidebar:#ffffff; --bg-surface:#ffffff;
+  --bg-surface-hover:#f1f5f9; --bg-input:#f8fafc;
+  --border-color:#dce5ef; --border-subtle:#e8edf3;
+  --text-main:#17283d; --text-muted:#485e75; --text-dim:#71849a;
+  --emerald:#079b74; --cyan:#087e9b;
+}
+:root[data-theme="dark"], :root[data-theme="zaxcore"] {
+  --bg-base:#131c29; --bg-sidebar:#182436; --bg-surface:#1a2739;
+  --bg-surface-hover:#25344a; --bg-input:#1d2b3e;
+  --border-color:#324158; --border-subtle:#2b3b4f;
+  --text-main:#edf3fa; --text-muted:#b6c7d9; --text-dim:#91a6be;
+  --emerald:#29c49c; --cyan:#63c3dc;
+}
+.titlebar {height:36px;min-height:36px;padding:0 11px;}
+.header-left-zone {gap:7px;flex:1 1 auto;overflow:hidden;}
+/* The Windows native titlebar already names the app; only the mark remains. */
+.compact-brand {width:24px;min-width:24px;flex:0 0 24px;gap:0;}
+.compact-brand-name {display:none !important;}
+.compact-brand-mark {width:24px;height:24px;border-radius:6px;box-shadow:none;}
+.compact-brand-mark svg {width:14px;height:14px;}
+.app-menubar {gap:0;}
+.menu-btn {font-size:11.5px;padding:5px 8px;border-radius:5px;}
+.engine-status-group {gap:4px;flex-shrink:0;}
+/* Exactly five quiet, equal-sized top controls. */
+.engine-status-group > .compact-header-action,
+.engine-status-group > #systemStatusPill {
+  width:28px !important;height:27px !important;min-width:28px !important;min-height:27px !important;
+  max-width:28px !important;max-height:27px !important;padding:0 !important;margin:0 !important;
+  display:inline-flex !important;align-items:center;justify-content:center;
+  gap:0 !important;border:1px solid var(--border-color) !important;
+  background:var(--bg-surface-hover) !important;color:var(--text-muted) !important;
+  border-radius:6px !important;box-shadow:none !important;opacity:1 !important;
+  font-size:12px !important;font-weight:600 !important;line-height:1 !important;
+  transform:none !important;transition:background-color .13s ease,border-color .13s ease,color .13s ease !important;
+}
+.engine-status-group > .compact-header-action:hover,
+.engine-status-group > #systemStatusPill:hover {
+  color:var(--text-main) !important;background:var(--bg-input) !important;
+  border-color:var(--text-dim) !important;transform:none !important;box-shadow:none !important;
+}
+.engine-status-group > .compact-header-action:active,
+.engine-status-group > #systemStatusPill:active {transform:none !important;box-shadow:none !important;}
+#themeToggleBtn .btn-label, #systemStatusText {display:none !important;}
+#systemStatusPill .status-dot {width:6px;height:6px;margin:0;box-shadow:none !important;}
+#systemStatusPill {cursor:pointer;}
+#systemStatusPill:has(#systemStatusDot) {position:relative;}
+#systemStatusPill .compact-status-symbol {font-size:14px;display:inline-flex;line-height:1;margin-left:2px;}
+#langToggleBtn {font-family:Segoe UI,Arial,sans-serif;}
+#langToggleBtn .btn-label {display:none;}
+#headerLayoutBtn svg {width:15px;height:15px;}
+#headerMoreBtn {font-size:18px !important;letter-spacing:1px;}
+/* Header menus are outside header and must match both themes. */
+.context-menu, .system-status-popover, #headerMoreMenu {
+  background:var(--bg-surface) !important;color:var(--text-main) !important;
+  border:1px solid var(--border-color) !important;border-radius:8px !important;
+  box-shadow:0 10px 28px rgba(0,0,0,.14) !important;
+  animation:none !important;overflow:hidden;box-sizing:border-box;
+}
+[data-theme="dark"] .context-menu,[data-theme="zaxcore"] .context-menu,
+[data-theme="dark"] .system-status-popover,[data-theme="zaxcore"] .system-status-popover,
+[data-theme="dark"] #headerMoreMenu,[data-theme="zaxcore"] #headerMoreMenu {
+  box-shadow:0 12px 24px rgba(0,0,0,.32) !important;
+}
+#headerMoreMenu {width:194px;min-width:194px;max-width:194px;padding:5px !important;}
+#headerMoreMenu button.compact-overflow-action {
+  display:flex;width:100%;align-items:center;justify-content:space-between;gap:9px;
+  min-height:31px;padding:5px 9px;text-align:left;cursor:pointer;border:0;
+  border-radius:5px;background:transparent;color:var(--text-main);
+  font-size:11.5px;font-weight:500;transition:background-color .12s,color .12s;
+}
+#headerMoreMenu button.compact-overflow-action:hover {background:var(--bg-surface-hover);color:var(--text-main);}
+#headerMoreMenu .compact-overflow-action > .overflow-left {display:flex;align-items:center;gap:8px;}
+#headerMoreMenu .compact-overflow-action .overflow-icon {min-width:16px;text-align:center;}
+#headerMoreMenu .compact-overflow-divider {height:1px;background:var(--border-color);margin:4px;}
+#headerMoreMenu .overflow-muted {font-size:10px;color:var(--text-dim);}
+#toolbarContextMenu,#headerContextMenu {width:246px !important;min-width:246px !important;padding:0 0 5px !important;}
+#toolbarContextMenu > div:first-child,#headerContextMenu > div:first-child {
+  padding:8px 11px !important;color:var(--text-muted) !important;font-size:10px !important;
+  background:var(--bg-surface-hover) !important;
+}
+#toolbarVisibilityList,#columnVisibilityList {max-height:224px !important;padding:3px !important;scrollbar-width:thin;scrollbar-color:var(--border-color) transparent;}
+#toolbarVisibilityList .menu-action {min-height:29px !important;padding:5px 8px !important;border-radius:5px;}
+#toolbarVisibilityList .menu-action span {font-size:11px !important;color:var(--text-main) !important;}
+#toolbarVisibilityList input[type=checkbox] {accent-color:var(--emerald);}
+#headerContextMenu .col-customizer-row {min-height:29px;padding:4px 7px !important;gap:5px;background:transparent !important;border-bottom:1px solid var(--border-subtle);}
+#headerContextMenu .col-customizer-row:hover {background:var(--bg-surface-hover) !important;}
+#headerContextMenu .col-customizer-row > div > span {font-size:11px !important;color:var(--text-main) !important;}
+#headerContextMenu .col-reorder-btn {height:21px;width:21px;color:var(--text-muted);border-color:var(--border-color);background:var(--bg-surface) !important;box-shadow:none;}
+#headerContextMenu .col-reorder-btn:hover:not(:disabled) {color:var(--text-main);border-color:var(--text-dim);}
+#headerContextMenu .col-toggle-switch input:disabled + .col-switch-slider {opacity:.7;}
+.context-menu .menu-action,.menu-dropdown .menu-action {color:var(--text-main) !important;}
+.context-menu .menu-action:hover,.menu-dropdown .menu-action:hover,.sys-menu-item:hover {
+  background:var(--bg-surface-hover) !important;color:var(--text-main) !important;transform:none !important;box-shadow:none !important;
+}
+.context-menu .menu-action-label,.context-menu .col-customizer-row span,
+.context-menu button {color:var(--text-main);}
+.context-menu .menu-action.disabled {color:var(--text-dim) !important;}
+.system-status-popover {width:284px !important;}
+.system-status-popover .sys-item-title,.system-status-popover .sys-item-desc {color:var(--text-main);}
+.system-status-popover .sys-item-desc {color:var(--text-muted) !important;}
+.system-status-popover .sys-menu-item {padding:7px 10px !important;}
+.system-status-popover .sys-badge {font-size:10px;}
+/* Leave every button stationary. Focus outlines only for keyboard users. */
+.btn:hover,.btn:active,.btn-add-primary:hover,.btn-tb-customize:hover,
+.header-settings-btn:hover,.icon-action-btn:hover,.col-reorder-btn:hover,
+.status-pill-unified:hover,.btn-titlebar-pill:hover,.menu-btn:hover,
+.menu-action:hover {transform:none !important;filter:none !important;}
+.btn-add-primary:hover {background:#078b68 !important;box-shadow:none !important;}
+.btn-tb-customize:hover,.header-settings-btn:hover {box-shadow:none !important;opacity:1;}
+.btn:hover,.icon-action-btn:hover {box-shadow:none !important;}
+.btn-titlebar-pill.btn-support:hover {box-shadow:none !important;}
+button:focus:not(:focus-visible) {outline:0;}
+button:focus-visible,[role="button"]:focus-visible {outline:2px solid var(--cyan);outline-offset:1px;}
+/* Compact the actual content instead of adding another tall horizontal bar. */
+.action-toolbar {height:42px;min-height:42px;max-height:42px;padding:5px 10px;gap:7px;}
+.action-toolbar .btn {height:30px;min-height:30px;max-height:30px;padding:0 9px;}
+.action-toolbar .btn svg {width:13px;height:13px;}
+.toolbar-select-box,.search-input-wrapper,.search-input {height:30px;}
+.search-input-wrapper {width:186px;}
+.toolbar-divider {height:19px;}
+.compact-contextbar {height:33px;min-height:33px;padding:0 13px;}
+.compact-view-title {font-size:13px;}
+.compact-view-count {font-size:10px;}
+.compact-shortcuts {display:none !important;}
+#downloadsTable th {height:31px;}
+#downloadsTable tbody tr {height:55px;}
+#downloadsTable td {padding:5px 10px;}
+#downloadsTable .file-icon-box {height:31px;width:31px;}
+.sidebar-section-title {padding-top:12px;}
+.sidebar-item {min-height:30px;padding:5px 10px;}
+@media(max-width:1200px){
+ .menu-btn {padding:5px 6px;}
+ .engine-status-group {gap:3px;}
+ .search-input-wrapper {width:156px;}
+ .action-toolbar {padding:4px 8px;}
+}
+@media(max-width:980px){
+ .header-left-zone {gap:4px;}
+ .menu-btn {padding:4px 5px;}
+ .titlebar {padding:0 7px;}
+}
+@media(prefers-reduced-motion:reduce){
+ .btn,.btn-tb-customize,.header-settings-btn,.menu-action,.sys-menu-item,
+ .compact-header-action {transition:none !important;animation:none !important;}
+}
