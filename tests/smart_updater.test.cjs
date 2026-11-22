@@ -67,7 +67,7 @@ assert.match(cs, /HasActiveDownloads\(out activeReason\)/, 'Automatic installs m
 assert.match(cs, /SetBridgeStopAction\(bridge\.Stop\)/, 'App update must explicitly stop the local API bridge');
 assert.match(cs, /stopBridgeForUpdate\(\)/, 'Update handoff must release the bridge before exiting');
 
-assert.match(cs, /CurrentAppVersion = "0\.1\.27"/, 'Version bump is required for installed app updates');
+assert.match(cs, /CurrentAppVersion = "0\.1\.28"/, 'Version bump is required for installed app updates');
 assert.match(cs, /this\.CachedYtDlpVersion = "Not checked";/, 'No yt-dlp binary executed on startup');
 assert.match(cs, /this\.CachedAria2Version = "Not checked";/, 'No aria2 version process during startup');
 assert.match(cs, /var res = UpdateYtDlp\(false\);/, 'Automatic engine updates must check upstream version first');
@@ -98,7 +98,7 @@ assert.match(bootstrap, /Get-VerifiedReleaseAsset/, 'Recovery bootstrap must ver
 assert.match(bootstrap, /api\/tasks/, 'Recovery bootstrap must refuse active downloads');
 assert.match(bootstrap, /apply-update\.ps1/, 'Recovery bootstrap must use the verified in-place updater');
 
-assert.match(cs, /CurrentAppVersion = "0\.1\.27"/, 'Updater release version is advanced');
+assert.match(cs, /CurrentAppVersion = "0\.1\.28"/, 'Updater release version is advanced');
 const cookieStart = cs.indexOf('sb.AppendLine("# Netscape HTTP Cookie File")');
 const cookieEnd = cs.indexOf('extraHeaders += " --cookies', cookieStart);
 assert(cookieStart >= 0 && cookieEnd > cookieStart, 'yt-dlp cookie export block must exist');
@@ -107,9 +107,10 @@ assert.match(cookieExport, /File\.WriteAllText\(cookieFile, sb\.ToString\(\), ne
 assert.doesNotMatch(cookieExport, /Encoding\.UTF8\)/, 'Do not write a BOM into Netscape cookie files');
 
 const dashboardLauncher = cs.slice(cs.indexOf('public static void LaunchDashboard(string appDir)'), cs.indexOf('private void CheckSchedulerTick()'));
-assert.match(dashboardLauncher, /FileName = dashboardUrl/, 'Dashboard opens through Windows URL association');
-assert.match(dashboardLauncher, /UseShellExecute = true/, 'Dashboard uses the configured default browser');
-assert.doesNotMatch(dashboardLauncher, /FindChromiumBrowser|msedge\.exe|--app=/, 'No dedicated Edge app process or profile');
+assert.match(dashboardLauncher, /FileName = browser/, 'Dashboard launches a standalone browser app host');
+assert.match(dashboardLauncher, /--app=/, 'Dashboard opens without tabs or a URL bar');
+assert.match(dashboardLauncher, /UseShellExecute = false/, 'Do not open a tab through the URL association');
+assert.doesNotMatch(dashboardLauncher, /FileName = dashboardUrl|--user-data-dir=/, 'Never launch a tab or override the browser profile');
 assert.match(cs, /class WindowsSafeFileName/, 'Native dialog must normalize browser titles before saving');
 assert.match(cs, /class NativeDialogTheme/, 'Native dialogs must honor dashboard theme');
 assert.match(cs, /NativeDialogTheme.Read\(\)/, 'Download form reads shared theme');

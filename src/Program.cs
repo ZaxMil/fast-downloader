@@ -2905,7 +2905,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.27";
+        public const string CurrentAppVersion = "0.1.28";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -7507,7 +7507,7 @@ namespace FastDownloader
             schedulerTimer.Tick += (s, e) => CheckSchedulerTick();
             schedulerTimer.Start();
 
-            // Auto-launch Edge in App Mode
+            // Open the independent FastDownloader desktop dashboard
             LaunchDefaultBrowser();
             } catch (Exception ex) { try { File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "startup.log"), "[DownloaderAppContext CTOR CRASH] " + ex.ToString() + "\r\n"); } catch {} throw; }
         }
@@ -7753,17 +7753,102 @@ namespace FastDownloader
             LaunchDashboard(engine.AppDir);
         }
 
-        public static void LaunchDashboard(string appDir)
+        // Prefer the user's default Chromium-based browser (Brave, Chrome, Edge)
+        // and launch the dashboard as a standalone, chromeless desktop window.
+        // Never open a regular browser tab automatically.
+        private static bool IsSupportedDashboardBrowser(string executablePath)
         {
-            // Let Windows open the dashboard with the user's configured default browser.
-            // This reuses the normal browser profile and avoids a dedicated Edge process/profile.
-            const string dashboardUrl = "http://127.0.0.1:6801/";
+            if (string.IsNullOrWhiteSpace(executablePath)) return false;
+            string fileName = Path.GetFileName(executablePath);
+            return string.Equals(fileName, "brave.exe", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(fileName, "chrome.exe", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(fileName, "msedge.exe", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string ExtractBrowserExecutable(string shellCommand)
+        {
+            if (string.IsNullOrWhiteSpace(shellCommand)) return null;
+            Match match = Regex.Match(shellCommand,
+                @"^\s*(?:""([^""]+\.exe)""|(.+?\.exe)(?=\s|$))",
+                RegexOptions.IgnoreCase);
+            if (!match.Success) return null;
+            string candidate = match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value;
+            candidate = Environment.ExpandEnvironmentVariables(candidate.Trim());
+            return IsSupportedDashboardBrowser(candidate) && Path.IsPathRooted(candidate) &&
+                   File.Exists(candidate) ? candidate : null;
+        }
+
+        private static string FindChromiumAppHost()
+        {
+            // Respect the user's existing default browser whenever it supports
+            // --app. This also reuses that browser's existing profile safely.
             try
             {
+                using (RegistryKey choice = Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice"))
+                {
+                    string progId = choice == null ? null : choice.GetValue("ProgId") as string;
+                    if (!string.IsNullOrWhiteSpace(progId))
+                    {
+                        using (RegistryKey open = Registry.ClassesRoot.OpenSubKey(
+                            progId + @"\shell\open\command"))
+                        {
+                            string cmd = open == null ? null : open.GetValue(null) as string;
+                            string browserPath = ExtractBrowserExecutable(cmd);
+                            if (browserPath != null) return browserPath;
+                        }
+                    }
+                }
+            }
+            catch { /* Registry unavailable; try installed browser paths. */ }
+
+            string[] roots = new string[] {
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+            };
+            string[] subpaths = new string[] {
+                @"BraveSoftware\Brave-Browser\Application\brave.exe",
+                @"Google\Chrome\Application\chrome.exe",
+                @"Microsoft\Edge\Application\msedge.exe"
+            };
+            foreach (string path in subpaths)
+            {
+                foreach (string root in roots)
+                {
+                    if (string.IsNullOrWhiteSpace(root)) continue;
+                    string candidate = Path.Combine(root, path);
+                    if (File.Exists(candidate)) return candidate;
+                }
+            }
+            return null;
+        }
+
+        public static void LaunchDashboard(string appDir)
+        {
+            const string dashboardUrl = "http://127.0.0.1:6801/";
+            if (WindowManager.FocusExistingWindow()) return;
+            try
+            {
+                string browser = FindChromiumAppHost();
+                if (browser == null)
+                {
+                    MessageBox.Show(
+                        "FastDownloader needs a Chromium app window host (Brave, Chrome, or Edge).\n" +
+                        "No supported browser was found. Install or repair your browser, then reopen FastDownloader.",
+                        "FastDownloader - Standalone Window",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                // Launch a real separate application-style window, not a tab.
+                // No private profile, CDP port, or destructive cleanup flags.
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = dashboardUrl,
-                    UseShellExecute = true,
+                    FileName = browser,
+                    Arguments = "--app=\"" + dashboardUrl + "\" --new-window --window-size=1400,880",
+                    WorkingDirectory = Path.GetDirectoryName(browser),
+                    UseShellExecute = false,
                     CreateNoWindow = false
                 });
             }
@@ -7772,14 +7857,15 @@ namespace FastDownloader
                 try
                 {
                     File.AppendAllText(Path.Combine(appDir, "startup.log"),
-                        DateTime.Now.ToString("o") + " Default browser launch error: " + ex + "\r\n");
+                        DateTime.Now.ToString("o") + " Standalone dashboard launch error: " + ex + "\r\n");
                 }
                 catch { }
                 try
                 {
-                    MessageBox.Show("FastDownloader could not open the dashboard in your default browser.\n" +
-                        "Check that a default browser is configured in Windows.",
-                        "FastDownloader - Dashboard", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show("FastDownloader could not open its standalone dashboard.\n" +
+                        "Please verify Brave, Chrome, or Edge is installed and launch the app again.",
+                        "FastDownloader - Standalone Window",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
                 catch { }
             }
