@@ -65,3 +65,7 @@ assert.ok(backend.includes('item["connections"] = liveConnections;'));
 assert.ok(!html.includes("Free: 120 GB"));
 assert.ok(!html.includes("formatBytes(maxVal)"));
 console.log("PASS: live table columns, resizing safeguards, date fields, and transferred-byte totals");
+
+// Included in existing GitHub Actions Windows and Linux regression jobs.
+// The UI checks use node:test and require no new workflow permissions.
+require('./compact_ui.test.cjs');
