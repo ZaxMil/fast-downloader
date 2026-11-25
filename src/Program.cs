@@ -2196,6 +2196,11 @@ namespace FastDownloader
                         yt.Status = "downloading";
                         yt.StatusMessage = "Retrying video download...";
                         yt.FfmpegDir = ResolveFfmpegLocation();
+                        if (VideoUpdateService != null)
+                        {
+                            string preferred = VideoUpdateService.GetPreferredYtDlpExecutable();
+                            if (!string.IsNullOrEmpty(preferred)) yt.YtExe = preferred;
+                        }
                         yt.LastOutputUtc = DateTime.UtcNow;
                         var taskRef = yt;
                         Thread t = new Thread(() =>
@@ -2259,6 +2264,11 @@ namespace FastDownloader
                         yt.Status = "downloading";
                         yt.StatusMessage = "Retrying video download...";
                         yt.FfmpegDir = ResolveFfmpegLocation();
+                        if (VideoUpdateService != null)
+                        {
+                            string preferred = VideoUpdateService.GetPreferredYtDlpExecutable();
+                            if (!string.IsNullOrEmpty(preferred)) yt.YtExe = preferred;
+                        }
                         yt.LastOutputUtc = DateTime.UtcNow;
                         var taskRef = yt;
                         Thread t = new Thread(() =>
@@ -2867,7 +2877,11 @@ namespace FastDownloader
                     {
                         if (string.IsNullOrEmpty(e.Data) ||
                             generation != Interlocked.CompareExchange(ref taskInfo.RunGeneration, 0, 0)) return;
-                        lock (errLog) errLog.AppendLine(e.Data);
+                        lock (errLog)
+                        {
+                            if (errLog.Length > 65536) errLog.Remove(0, errLog.Length - 32768);
+                            errLog.AppendLine(e.Data);
+                        }
                         taskInfo.LastOutputUtc = DateTime.UtcNow;
                         string notice = e.Data;
                         if (notice.IndexOf("challenge", StringComparison.OrdinalIgnoreCase) >= 0 ||
@@ -3155,7 +3169,7 @@ namespace FastDownloader
             lastYtDlpCheck = DateTime.UtcNow;
             try
             {
-                using (WebClient wc = new WebClient())
+                using (WebClient wc = new BoundedOfficialWebClient())
                 {
                     wc.Headers["User-Agent"] = "FastDownloader-App/" + CurrentAppVersion;
                     wc.Headers["Accept"] = "application/vnd.github+json";
@@ -3411,9 +3425,13 @@ namespace FastDownloader
                 };
                 using (Process p = Process.Start(psi))
                 {
+                    if (!p.WaitForExit(6000))
+                    {
+                        try { p.Kill(); } catch { }
+                        return "Unknown";
+                    }
                     string output = p.StandardOutput.ReadToEnd().Trim();
-                    p.WaitForExit(4000);
-                    if (!string.IsNullOrEmpty(output)) return output;
+                    if (p.ExitCode == 0 && !string.IsNullOrEmpty(output)) return output;
                 }
             }
             catch { }
@@ -3740,12 +3758,12 @@ namespace FastDownloader
                     }))
                     {
                         if (proc == null) throw new IOException("FFmpeg could not start.");
-                        string header = proc.StandardOutput.ReadLine();
                         if (!proc.WaitForExit(20000))
                         {
                             try { proc.Kill(); } catch { }
                             throw new IOException("FFmpeg verification timed out.");
                         }
+                        string header = proc.StandardOutput.ReadLine();
                         if (proc.ExitCode != 0 || !((header ?? "").StartsWith("ffmpeg version")))
                             throw new IOException("FFmpeg verification failed.");
                     }
@@ -3790,13 +3808,14 @@ namespace FastDownloader
                 using (Process p = Process.Start(psi))
                 {
                     if (p == null) return null;
-                    // The version output is a single line, never an unbounded pipe.
-                    string output = p.StandardOutput.ReadLine();
+                    // Wait with a deadline BEFORE reading, so a frozen child cannot
+                    // block forever on a missing stdout newline.
                     if (!p.WaitForExit(15000))
                     {
                         try { p.Kill(); } catch { }
                         return null;
                     }
+                    string output = p.StandardOutput.ReadLine();
                     if (p.ExitCode != 0 || !Regex.IsMatch(output ?? "", @"^\d{4}\.\d{1,2}\.\d{1,2}"))
                         return null;
                     return output.Trim();
