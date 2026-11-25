@@ -32,5 +32,8 @@ $assets = New-Object System.Collections.ArrayList
 [void]$assets.Add($asset)
 $release = New-Object 'System.Collections.Generic.Dictionary[string,object]'
 $release.Add('assets', $assets)
-Assert-Equal (Invoke-Helper $updater 'GetOfficialReleaseDigest' @($release)) ('a' * 64) 'Official SHA-256 digest parsed'
+$digestMethod = $updater.GetMethod('GetOfficialReleaseDigest', $flags)
+$digestArgs = New-Object 'System.Object[]' 1
+$digestArgs[0] = $release.PSObject.BaseObject
+Assert-Equal ($digestMethod.Invoke($null, $digestArgs)) ('a' * 64) 'Official SHA-256 digest parsed'
 Write-Host 'PASS runtime logic tests; no network or user files accessed'
