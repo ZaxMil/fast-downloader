@@ -67,7 +67,7 @@ assert.match(cs, /HasActiveDownloads\(out activeReason\)/, 'Automatic installs m
 assert.match(cs, /SetBridgeStopAction\(bridge\.Stop\)/, 'App update must explicitly stop the local API bridge');
 assert.match(cs, /stopBridgeForUpdate\(\)/, 'Update handoff must release the bridge before exiting');
 
-assert.match(cs, /CurrentAppVersion = "0\.1\.29"/, 'Version bump is required for installed app updates');
+assert.match(cs, /CurrentAppVersion = "0\.1\.30"/, 'Version bump is required for installed app updates');
 assert.match(cs, /this\.CachedYtDlpVersion = "Not checked";/, 'No yt-dlp binary executed on startup');
 assert.match(cs, /this\.CachedAria2Version = "Not checked";/, 'No aria2 version process during startup');
 assert.match(cs, /var res = UpdateYtDlp\(false\);/, 'Automatic engine updates must check upstream version first');
@@ -98,7 +98,7 @@ assert.match(bootstrap, /Get-VerifiedReleaseAsset/, 'Recovery bootstrap must ver
 assert.match(bootstrap, /api\/tasks/, 'Recovery bootstrap must refuse active downloads');
 assert.match(bootstrap, /apply-update\.ps1/, 'Recovery bootstrap must use the verified in-place updater');
 
-assert.match(cs, /CurrentAppVersion = "0\.1\.29"/, 'Updater release version is advanced');
+assert.match(cs, /CurrentAppVersion = "0\.1\.30"/, 'Updater release version is advanced');
 const cookieStart = cs.indexOf('sb.AppendLine("# Netscape HTTP Cookie File")');
 const cookieEnd = cs.indexOf('extraHeaders += " --cookies', cookieStart);
 assert(cookieStart >= 0 && cookieEnd > cookieStart, 'yt-dlp cookie export block must exist');
