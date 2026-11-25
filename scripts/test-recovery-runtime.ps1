@@ -6,10 +6,10 @@ $asm = [Reflection.Assembly]::LoadFrom($exe)
 $engine = $asm.GetType('FastDownloader.EngineManager', $true)
 $updater = $asm.GetType('FastDownloader.UpdateManager', $true)
 $flags = [Reflection.BindingFlags]'NonPublic,Static'
-function Invoke-Helper($type, $name, [object[]]$args) {
+function Invoke-Helper($type, $name, [object[]]$parameters) {
     $method = $type.GetMethod($name, $flags)
     if (-not $method) { throw "Helper method missing: $name" }
-    return $method.Invoke($null, $args)
+    return $method.Invoke($null, $parameters)
 }
 function Assert-Equal($actual, $expected, $name) {
     if ($actual -ne $expected) { throw "FAIL $name : expected '$expected', got '$actual'" }
