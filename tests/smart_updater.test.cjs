@@ -73,7 +73,7 @@ assert.match(cs, /this\.CachedAria2Version = "Not checked";/, 'No aria2 version 
 assert.match(cs, /var res = UpdateYtDlp\(false\);/, 'Automatic engine updates must check upstream version first');
 assert.match(cs, /public void RefreshInstalledEngineVersions\(\)/, 'Manual version refresh exists');
 assert.match(cs, /updateManager\.RefreshInstalledEngineVersions\(\);/, 'Manual update check refreshes versions');
-assert.match(cs, /string verifiedVersion = GetYtDlpVersion\(\)/, 'Version reused after update');
+assert.match(cs, /string stagedVersion = ReadYtDlpVersionAtPath\(stage\)/, 'Staged binary is executed for version validation before installation');
 assert.doesNotMatch(cs, /this\.CachedYtDlpVersion = GetYtDlpVersion\(\);/, 'No synchronous Python unpack on constructor');
 
 assert(cs.includes('dict["installation"] = ReadInstallStatus()'),'UI needs helper status after restart');

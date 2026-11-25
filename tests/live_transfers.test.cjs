@@ -73,7 +73,8 @@ assert.doesNotMatch(backend, /16x Multi-Thread Acceleration/);
 assert.match(backend, /schedulerTimer\.Interval = 5000/);
 assert.match(backend, /Interlocked\.Exchange\(ref completionScanInFlight, 1\)/);
 assert.match(backend, /DateTime\.UtcNow - lastCheckUtc >= TimeSpan\.FromMinutes\(30\)/);
-assert.match(backend, /Thread\.Sleep\(120000\)/);
+assert.match(backend, /Thread\.Sleep\(3000\)/, 'Local engine health runs shortly after startup');
+assert.doesNotMatch(backend, /Thread\.Sleep\(120000\)/, 'Two-minute engine blind spot is eliminated');
 assert.doesNotMatch(backend, /--disable-http-cache/);
 assert.match(html, /dashboardHasActiveTransfers \? 1200 : 5000/);
 assert.match(html, /document\.hidden \? 15000/);
@@ -88,3 +89,5 @@ assert.match(html, /speedHistory\.join\(','\)/);
 
 
 console.log("PASS: real byte progress, sequential polling, tray transfers, global notification mute/deduplication and watchdog");
+
+require("./recovery_engine.test.cjs");
