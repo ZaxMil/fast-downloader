@@ -8096,15 +8096,27 @@ button:focus-visible,[role="button"]:focus-visible {outline:2px solid var(--cyan
         if (!expected) throw new Error('Release version could not be confirmed');
         let lastStage = '';
         let restartStarted = 0;
+        let disconnectedPolls = 0;
         // Slow links should not be declared failed after only 90 seconds.
         // The engine has its own bounded retries; allow up to 15 minutes for
         // downloading, but keep the actual restart watchdog much shorter.
         for (let attempt = 0; attempt < 900; attempt++) {
           await new Promise(resolve => setTimeout(resolve, 1000));
           try {
-            const statusRes = await fetch(API_BASE + '/api/update/status?_t=' + Date.now(), {cache:'no-store'});
-            if (!statusRes.ok) continue;
+            const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const timer = ctrl ? setTimeout(() => ctrl.abort(), 4000) : null;
+            let statusRes;
+            try {
+              statusRes = await fetch(API_BASE + '/api/update/status?_t=' + Date.now(), {
+                cache: 'no-store',
+                signal: ctrl ? ctrl.signal : undefined
+              });
+            } finally {
+              if (timer) clearTimeout(timer);
+            }
+            if (!statusRes.ok) throw new Error('HTTP ' + statusRes.status);
             const status = await statusRes.json();
+            disconnectedPolls = 0;
             updateStatusCache = status;
             applyUpdateStatusToUI(status);
             const installed = String(status.app && status.app.currentVersion || '').replace(/^v/i,'');
@@ -8115,8 +8127,6 @@ button:focus-visible,[role="button"]:focus-visible {outline:2px solid var(--cyan
             }
             if (['waiting','closing','installing','restarting'].includes(stage.status) && !restartStarted)
               restartStarted = Date.now();
-            if (restartStarted && Date.now() - restartStarted > 175000)
-              throw new Error('Restart verification exceeded its safety timeout. Check the update log for the precise cause.');
             // Do not report success while the external helper is still
             // validating the new process, its port, and companion assets.
             if (stage.status === 'success' && installed === expected) {
@@ -8132,7 +8142,20 @@ button:focus-visible,[role="button"]:focus-visible {outline:2px solid var(--cyan
             // Connection drops are normal during restart, but an explicit helper
             // failure is a terminal error and must be shown immediately.
             if (err instanceof Error && (err.message.includes('update helper') || err.message.includes('failed') || err.message.includes('Unable') || err.message.includes('did not'))) throw err;
+            disconnectedPolls++;
+            if (!restartStarted && disconnectedPolls >= 2) restartStarted = Date.now();
+            const state = document.getElementById('updateInstallState');
+            const track = document.getElementById('updateProgressTrack');
+            if (state) {
+              state.style.display = 'block';
+              state.style.color = 'var(--text-muted)';
+              state.textContent = 'Reconnecting to updated application...';
+            }
+            if (track) track.style.display = 'none';
+            if (btn) btn.textContent = 'Reconnecting…';
           }
+          if (restartStarted && Date.now() - restartStarted > 175000)
+            throw new Error('Restart verification exceeded its safety timeout. Check the update log for the precise cause.');
         }
         throw new Error('Restart not confirmed. Use the official installer. Details: %LOCALAPPDATA%/FastDownloader/last-update.json');
       } catch (err) {

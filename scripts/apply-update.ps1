@@ -70,7 +70,12 @@ function Get-BridgeOwner {
         $ids = @($listeners | ForEach-Object { [int]$_.OwningProcess } | Where-Object { $_ -gt 0 } | Select-Object -Unique)
         if ($ids.Count -eq 0) { return 0 }
         if ($ids.Count -eq 1) { return $ids[0] }
-        return -1 # Multiple listeners: fail closed rather than verify the wrong app.
+        $liveIds = @($ids | Where-Object {
+            $proc = Get-Process -Id $_ -ErrorAction SilentlyContinue
+            $proc -and -not $proc.HasExited
+        })
+        if ($liveIds.Count -gt 1) { return -1 } # Multiple live listeners: fail closed rather than verify the wrong app.
+        return -3 # Transient overlap with dead/exited PID row(s) in TCP table.
     } catch {
         if ($_.Exception.Message -match 'No MSFT_NetTCPConnection objects found') { return 0 }
         # If network diagnostics are blocked, the API's processId is mandatory.
@@ -107,6 +112,14 @@ function Wait-BridgeRelease {
             return
         }
         if ($owner -eq -1) { throw 'Multiple processes listen on port 6801. Refusing update.' }
+        if ($owner -eq -3) {
+            if ($lastLogged -ne 'transient-dead-listener') {
+                Log 'Port 6801 has transient dead-PID listener row(s); waiting for socket teardown.'
+                $lastLogged = 'transient-dead-listener'
+            }
+            Start-Sleep -Milliseconds 450
+            continue
+        }
 
         $ownerProcess = Get-Process -Id $owner -ErrorAction SilentlyContinue
         $ownerPath = $null
@@ -148,10 +161,25 @@ function Confirm-UpdatedApp([int]$newPid) {
     $lastObservation = 'No response from FastDownloader HTTP bridge'
     $lastLogged = ''
     $staleApiObservations = 0
+    $transientAmbiguousCount = 0
     while ([DateTime]::UtcNow -lt $deadline) {
         $p = Get-Process -Id $newPid -ErrorAction SilentlyContinue
         $owner = Get-BridgeOwner
         if ($owner -eq -1) { throw 'Ambiguous listeners on port 6801 while verifying restart.' }
+        if ($owner -eq -3) {
+            $transientAmbiguousCount++
+            $lastObservation = "Transient stale listener(s) on port 6801 during restart verification ($transientAmbiguousCount/15)."
+            if ($lastObservation -ne $lastLogged) {
+                Log $lastObservation
+                $lastLogged = $lastObservation
+            }
+            if ($transientAmbiguousCount -ge 15) {
+                throw 'Ambiguous listeners on port 6801 while verifying restart.'
+            }
+            Start-Sleep -Milliseconds 900
+            continue
+        }
+        $transientAmbiguousCount = 0
         $ownerProcess = if ($owner -gt 0) { Get-Process -Id $owner -ErrorAction SilentlyContinue } else { $null }
         $ownerPath = $null
         if ($ownerProcess) { try { $ownerPath = $ownerProcess.Path } catch { } }

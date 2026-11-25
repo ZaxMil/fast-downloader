@@ -131,4 +131,89 @@ assert.match(cs, /IsAppUpdateInProgress/, 'Manual restart is blocked during an a
 assert.match(cs, /GetActiveAriaTasks\(\)/, 'Manual restart preserves active file downloads');
 assert.match(cs, /ReportRestartStatus\("failed"/, 'Manual restart launch errors are reported instead of swallowed');
 
-console.log('PASS: smart updater and restart lifecycle, rollback, status, and cookie encoding');
+// Regression: apply-update.ps1 distinguishes live competing listeners (-1) from transient dead-PID overlap (-3) with bounded retries
+assert.match(ps, /\$liveIds\.Count -gt 1/, 'Get-BridgeOwner must check live PIDs before declaring ambiguous listeners');
+assert.match(ps, /return -3/, 'Get-BridgeOwner must distinguish transient dead-PID overlap');
+assert.match(ps, /\$transientAmbiguousCount -ge 15/, 'Confirm-UpdatedApp must retry transient dead-PID overlap boundedly');
+
+// Regression: UI applyAppUpdate shows reconnecting state on temporary API disconnect instead of stale 0%
+const applyStart = html.indexOf('    async function applyAppUpdate() {');
+const applyEnd = html.indexOf('    async function saveUpdateAutomationSettings()', applyStart);
+assert(applyStart !== -1 && applyEnd > applyStart, 'applyAppUpdate must exist');
+assert.match(html.slice(applyStart, applyEnd), /Reconnecting to updated application\.\.\./, 'UI must display reconnecting message on API disconnect');
+assert.match(html.slice(applyStart, applyEnd), /AbortController/, 'UI status polling must use bounded fetch timeout');
+
+(async () => {
+  let pollCount = 0;
+  const uiNodes = new Map();
+  const uiDoc = {
+    getElementById(id) {
+      if (!uiNodes.has(id)) uiNodes.set(id, {
+        textContent: '', disabled: false,
+        style: { display: 'none', width: '', color: '' }
+      });
+      return uiNodes.get(id);
+    }
+  };
+  const uiCtx = vm.createContext({
+    document: uiDoc,
+    API_BASE: 'http://127.0.0.1:6801',
+    AbortController,
+    setTimeout: (fn) => { fn(); return 0; },
+    clearTimeout: () => {},
+    Date,
+    Number,
+    Math,
+    updateStatusCache: null,
+    logToUpdateConsole: () => {},
+    showToast: () => {},
+    applyUpdateStatusToUI: (d) => {
+      uiDoc.getElementById('updateInstallState').style.display = 'block';
+      uiDoc.getElementById('updateInstallState').textContent = d.installation.message;
+      uiDoc.getElementById('updateProgressTrack').style.display = 'block';
+      uiDoc.getElementById('updateProgressFill').style.width = d.installation.progress + '%';
+    },
+    window: { location: { reload: () => {} } },
+    fetch: async (url) => {
+      if (url.endsWith('/api/update/app')) {
+        return { ok: true, json: async () => ({ ok: true, targetVersion: '0.1.30' }) };
+      }
+      pollCount++;
+      if (pollCount === 1) {
+        return {
+          ok: true,
+          json: async () => ({
+            app: { currentVersion: '0.1.29' },
+            installation: { status: 'downloading', message: 'Downloading FastDownloader.exe (0%)', progress: 0 }
+          })
+        };
+      }
+      if (pollCount === 2) {
+        throw new Error('Failed to fetch');
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          app: { currentVersion: '0.1.30' },
+          installation: { status: 'success', message: 'Verified', expectedVersion: '0.1.30' }
+        })
+      };
+    }
+  });
+  vm.runInContext(html.slice(applyStart, applyEnd), uiCtx);
+  // Capture intermediate state right after poll 2 throws by wrapping applyAppUpdate check
+  let sawReconnecting = false;
+  const origFetch = uiCtx.fetch;
+  pollCount = 0;
+  uiCtx.fetch = async (url) => {
+    if (pollCount === 2) {
+      assert.equal(uiNodes.get('updateInstallState').textContent, 'Reconnecting to updated application...');
+      assert.equal(uiNodes.get('updateProgressTrack').style.display, 'none');
+      sawReconnecting = true;
+    }
+    return origFetch(url);
+  };
+  await uiCtx.applyAppUpdate();
+  assert(sawReconnecting, 'UI must transition from 0% to Reconnecting state when API disconnects');
+  console.log('PASS: smart updater and restart lifecycle, rollback, status, and cookie encoding');
+})().catch((err) => { console.error(err); process.exit(1); });
