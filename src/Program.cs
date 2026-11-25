@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -1085,6 +1086,8 @@ namespace FastDownloader
         public long Eta { get; set; }
         public Process Process { get; set; }
         public int RunGeneration;
+        public int WatchdogTimedOutGeneration;
+        public DateTime LastProgressUtc;
         public string YtExe { get; set; }
         public string FfmpegDir { get; set; }
         public string FormatArg { get; set; }
@@ -1151,6 +1154,9 @@ namespace FastDownloader
         public string DownloadsFolder { get; private set; }
         public string AppDir { get; private set; }
         private readonly object ytLock = new object();
+        // Assigned after construction; the updater does not own the download engine.
+        public UpdateManager VideoUpdateService { get; set; }
+
         private readonly object queueLock = new object();
         public List<YtTaskInfo> YtTasks { get; private set; }
         public Dictionary<string, QueueConfig> Queues { get; private set; }
@@ -2189,6 +2195,12 @@ namespace FastDownloader
                         Interlocked.Increment(ref yt.RunGeneration);
                         yt.Status = "downloading";
                         yt.StatusMessage = "Retrying video download...";
+                        yt.FfmpegDir = ResolveFfmpegLocation();
+                        if (VideoUpdateService != null)
+                        {
+                            string preferred = VideoUpdateService.GetPreferredYtDlpExecutable();
+                            if (!string.IsNullOrEmpty(preferred)) yt.YtExe = preferred;
+                        }
                         yt.LastOutputUtc = DateTime.UtcNow;
                         var taskRef = yt;
                         Thread t = new Thread(() =>
@@ -2251,6 +2263,12 @@ namespace FastDownloader
                         Interlocked.Increment(ref yt.RunGeneration);
                         yt.Status = "downloading";
                         yt.StatusMessage = "Retrying video download...";
+                        yt.FfmpegDir = ResolveFfmpegLocation();
+                        if (VideoUpdateService != null)
+                        {
+                            string preferred = VideoUpdateService.GetPreferredYtDlpExecutable();
+                            if (!string.IsNullOrEmpty(preferred)) yt.YtExe = preferred;
+                        }
                         yt.LastOutputUtc = DateTime.UtcNow;
                         var taskRef = yt;
                         Thread t = new Thread(() =>
@@ -2367,12 +2385,34 @@ namespace FastDownloader
             return assignedGid;
         }
 
+        public string ResolveFfmpegLocation()
+        {
+            string local = Path.Combine(AppDir, "bin", "ffmpeg.exe");
+            if (File.Exists(local)) return Path.GetDirectoryName(local);
+            try
+            {
+                foreach (string folder in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
+                {
+                    if (string.IsNullOrWhiteSpace(folder)) continue;
+                    string candidate = Path.Combine(folder.Trim().Trim('"'), "ffmpeg.exe");
+                    if (File.Exists(candidate)) return Path.GetDirectoryName(candidate);
+                }
+            }
+            catch { }
+            return null;
+        }
+
         public string StartYtDlp(string url, string quality, string queue, string cookies = null, string userAgent = null, string referer = null, string customName = null, string category = null, bool startNow = true, string customDir = null)
         {
             string gid = "yt_" + Guid.NewGuid().ToString().Substring(0, 8);
             string ytExe = Path.Combine(AppDir, "bin", "yt-dlp.exe");
             if (!File.Exists(ytExe)) ytExe = Path.Combine(AppDir, "yt-dlp.exe");
-            string ffmpegDir = Path.Combine(AppDir, "bin");
+            string ffmpegDir = ResolveFfmpegLocation();
+            if (VideoUpdateService != null)
+            {
+                string selected = VideoUpdateService.GetPreferredYtDlpExecutable();
+                if (!string.IsNullOrEmpty(selected)) ytExe = selected;
+            }
             // Report missing engine instead of presenting a phantom queued task.
             if (!File.Exists(ytExe)) return null;
 
@@ -2466,6 +2506,7 @@ namespace FastDownloader
                 Status = startNow ? "downloading" : "paused",
                 StatusMessage = startNow ? "Connecting to video source..." : "Queued",
                 LastOutputUtc = DateTime.UtcNow,
+                LastProgressUtc = DateTime.UtcNow,
                 StartedAtUtc = DateTime.UtcNow,
                 YtExe = ytExe,
                 FfmpegDir = ffmpegDir,
@@ -2475,13 +2516,19 @@ namespace FastDownloader
                 IsYouTube = isYouTube
             };
 
+            bool ffmpegRequired = quality == "audio" || quality == "1080p" || quality == "720p";
+            if (ffmpegRequired && string.IsNullOrEmpty(ffmpegDir))
+            {
+                taskInfo.Status = "error";
+                taskInfo.StatusMessage = "FFmpeg missing. Install the video merger to download HD or MP3.";
+            }
             lock (ytLock)
             {
                 YtTasks.Insert(0, taskInfo);
             }
             RecordTaskAdded(gid);
 
-            if (startNow)
+            if (startNow && taskInfo.Status != "error")
             {
                 Thread t = new Thread(() =>
                 {
@@ -2495,35 +2542,18 @@ namespace FastDownloader
             return gid;
         }
 
-        // Retry a truly silent initial extractor only once. Do not interrupt
-        // active video metadata extraction, even when total bytes are unknown.
+        // A slow extractor is not a hung download. The process-level watchdog
+        // provides escalating guidance and a bounded terminal failure; never
+        // kill and relaunch a valid extraction after an arbitrary 22 seconds.
         private void MonitorNewYtDownload(YtTaskInfo task)
         {
             ThreadPool.QueueUserWorkItem(_ =>
             {
-                Thread.Sleep(22000);
-                if (task.Status != "downloading" || task.CompletedLength > 0 ||
-                    task.ProgressExact > 0 || task.DownloadSpeed > 0 ||
-                    (DateTime.UtcNow - task.LastOutputUtc).TotalSeconds < 16) return;
-                lock (ytLock)
-                {
-                    if (!YtTasks.Contains(task) || task.Status != "downloading" ||
-                        task.CompletedLength > 0 || task.ProgressExact > 0 ||
-                        task.DownloadSpeed > 0 ||
-                        (DateTime.UtcNow - task.LastOutputUtc).TotalSeconds < 16) return;
-                    task.StatusMessage = "Connection stalled; retrying once...";
-                    Interlocked.Increment(ref task.RunGeneration);
-                    KillProcessTree(task.Process);
-                    string retryArgs = task.ExtraHeaders ?? "";
-                    if (task.IsYouTube)
-                        retryArgs += " --extractor-args \"youtube:player_client=android,web\"";
-                    var retry = new Thread(() =>
-                        RunYtDlpProcess(task, task.YtExe, task.FfmpegDir,
-                            task.FormatArg, retryArgs, task.SaveDir,
-                            task.Url, task.IsYouTube, false));
-                    retry.IsBackground = true;
-                    retry.Start();
-                }
+                Thread.Sleep(30000);
+                if (task.Status == "downloading" && task.CompletedLength == 0 &&
+                    task.ProgressExact == 0 && task.DownloadSpeed == 0 &&
+                    (DateTime.UtcNow - task.StartedAtUtc).TotalSeconds >= 30)
+                    task.StatusMessage = "Still checking the source; no video data received yet...";
             });
         }
 
@@ -2592,7 +2622,7 @@ namespace FastDownloader
                 line.StartsWith("[info]") || line.StartsWith("[generic]"))
                 taskInfo.StatusMessage = "Preparing video stream...";
             else if (line.StartsWith("[download]"))
-                taskInfo.StatusMessage = "Receiving video data...";
+                taskInfo.StatusMessage = "Downloading video data...";
 
             if (line.Contains("Destination: "))
             {
@@ -2637,6 +2667,8 @@ namespace FastDownloader
                     long overallCompleted = previousStreamBytes + comp;
                     long overallTotal = previousStreamBytes + tot;
 
+                    if (overallCompleted > taskInfo.CompletedLength)
+                        taskInfo.LastProgressUtc = DateTime.UtcNow;
                     taskInfo.CompletedLength = overallCompleted;
                     taskInfo.TotalLength = overallTotal;
                     taskInfo.DownloadSpeed = spd;
@@ -2678,7 +2710,10 @@ namespace FastDownloader
                     if (tot > 0)
                     {
                         taskInfo.TotalLength = tot;
-                        taskInfo.CompletedLength = (long)(tot * (taskInfo.ProgressExact / 100.0));
+                        long received = (long)(tot * (taskInfo.ProgressExact / 100.0));
+                        if (received > taskInfo.CompletedLength)
+                            taskInfo.LastProgressUtc = DateTime.UtcNow;
+                        taskInfo.CompletedLength = received;
                     }
                     if (m.Groups[3].Success)
                     {
@@ -2698,9 +2733,43 @@ namespace FastDownloader
                 taskInfo.Progress = 99;
                 taskInfo.ProgressExact = 99;
                 taskInfo.Status = "processing";
+                taskInfo.StatusMessage = line.Contains("[ExtractAudio]") ?
+                    "Extracting audio..." : "Merging audio and video...";
+                taskInfo.LastProgressUtc = DateTime.UtcNow;
                 taskInfo.DownloadSpeed = 0;
                 taskInfo.Eta = 0;
             }
+        }
+
+        private static bool IsExtractorChallengeFailure(string log)
+        {
+            string e = log ?? "";
+            return e.IndexOf("challenge solving failed", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   e.IndexOf("nsig extraction failed", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   e.IndexOf("Only images are available", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   e.IndexOf("a.addOnDisposeCallback", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool IsAccessFailure(string log)
+        {
+            string e = log ?? "";
+            return e.IndexOf("Sign in to confirm", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   e.IndexOf("login required", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   e.IndexOf("HTTP Error 403", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   e.IndexOf("DRM", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   e.IndexOf("video is unavailable", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   e.IndexOf("HTTP Error 404", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static string SanitizeVideoDiagnostic(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return "";
+            string s = Regex.Replace(input,
+                @"(?i)([?&](?:token|sig|signature|key|auth|expire|expires|session|cookie)=)[^\s&]+",
+                "$1[REDACTED]");
+            s = Regex.Replace(s, @"(?i)(--cookies\s+)[^\s]+", "$1[REDACTED]");
+            s = Regex.Replace(s, @"(?i)(authorization|cookie)\s*:\s*[^\r\n]+", "$1: [REDACTED]");
+            return s;
         }
 
         private static string GetDownloadFailureMessage(string errorLog, int exitCode)
@@ -2714,7 +2783,11 @@ namespace FastDownloader
             if (message.IndexOf("HTTP Error 404", StringComparison.OrdinalIgnoreCase) >= 0)
                 return "Video not found (HTTP 404).";
             if (message.IndexOf("Requested format is not available", StringComparison.OrdinalIgnoreCase) >= 0)
-                return "Selected quality unavailable.";
+                return "Selected quality is unavailable. Choose another quality and retry.";
+            if (IsExtractorChallengeFailure(message))
+                return "Video source changed its extractor challenge. Update the engine and retry.";
+            if (message.IndexOf("ffmpeg", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "FFmpeg video merger is missing or failed. Repair video tools.";
             if (message.IndexOf("timed out", StringComparison.OrdinalIgnoreCase) >= 0)
                 return "Source connection timed out. Retry.";
             return "Video extractor failed (code " + exitCode + "). Check log.";
@@ -2743,13 +2816,18 @@ namespace FastDownloader
                 string safeUrl = url.Replace("\"", "\\\"");
                 string safeSaveDir = saveDir.Replace("\"", "\\\"");
                 string safeOutputTemplate = outputTemplate.Replace("\"", "\\\"");
+                string ffmpegArgument = !string.IsNullOrEmpty(ffmpegDir) &&
+                    File.Exists(Path.Combine(ffmpegDir, "ffmpeg.exe"))
+                    ? "--ffmpeg-location \"" + ffmpegDir.Replace("\"", "\\\"") + "\" " : "";
+                taskInfo.LastProgressUtc = DateTime.UtcNow;
+                taskInfo.StatusMessage = "Checking video source...";
                 ProcessStartInfo psi = new ProcessStartInfo
                 {
                     FileName = ytExe,
                     // yt-dlp's native HTTP downloader is more reliable for Facebook's signed media links.
                     // Nested aria2 handoff could stall at zero until manually restarted.
-                    Arguments = string.Format("--encoding utf-8 --continue --newline --retries 3 --fragment-retries 3 --socket-timeout 12 --concurrent-fragments 4 --ffmpeg-location \"{0}\" {1}{2} -o \"{3}\" --windows-filenames --downloader dash:native --downloader m3u8:native --downloader http:native --downloader https:native -P \"{4}\" -- \"{5}\"",
-                        ffmpegDir, formatArg, extraHeaders, safeOutputTemplate, safeSaveDir, safeUrl),
+                    Arguments = string.Format("--encoding utf-8 --continue --newline --retries 3 --fragment-retries 3 --socket-timeout 12 --concurrent-fragments 4 {0}{1}{2} -o \"{3}\" --windows-filenames --downloader dash:native --downloader m3u8:native --downloader http:native --downloader https:native -P \"{4}\" -- \"{5}\"",
+                        ffmpegArgument, formatArg, extraHeaders, safeOutputTemplate, safeSaveDir, safeUrl),
                     CreateNoWindow = true,
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
@@ -2767,13 +2845,54 @@ namespace FastDownloader
                         return;
                     }
                     taskInfo.Process = p;
-                    p.ErrorDataReceived += (s, e) =>
+                    // Keep a bounded progress watchdog scoped to the active generation.
+                    Thread watchdog = new Thread(() =>
                     {
-                        if (!string.IsNullOrEmpty(e.Data))
+                        while (generation == Interlocked.CompareExchange(ref taskInfo.RunGeneration, 0, 0))
                         {
-                            lock (errLog) errLog.AppendLine(e.Data);
-                            taskInfo.LastOutputUtc = DateTime.UtcNow;
+                            Thread.Sleep(10000);
+                            try { if (p.HasExited) return; } catch { return; }
+                            if (taskInfo.Status == "paused" || taskInfo.Status == "removed") return;
+                            double elapsed = (DateTime.UtcNow - taskInfo.LastProgressUtc).TotalSeconds;
+                            int deadline = taskInfo.Status == "processing" ? 300 : 150;
+                            if (elapsed >= deadline &&
+                                (taskInfo.DownloadSpeed <= 0 &&
+                                (taskInfo.CompletedLength == 0 || taskInfo.TotalLength > 0)) &&
+                                (DateTime.UtcNow - taskInfo.LastOutputUtc).TotalSeconds >= 20)
+                            {
+                                taskInfo.WatchdogTimedOutGeneration = generation;
+                                taskInfo.StatusMessage = "No data or output for too long. Retry or check source access.";
+                                KillProcessTree(p);
+                                return;
+                            }
+                            if (elapsed >= 30 && taskInfo.CompletedLength == 0 &&
+                                taskInfo.Status == "downloading")
+                                taskInfo.StatusMessage = "Still preparing stream; waiting for source response...";
                         }
+                    });
+                    watchdog.IsBackground = true;
+                    watchdog.Start();
+
+                    p.ErrorDataReceived += (sender, e) =>
+                    {
+                        if (string.IsNullOrEmpty(e.Data) ||
+                            generation != Interlocked.CompareExchange(ref taskInfo.RunGeneration, 0, 0)) return;
+                        lock (errLog)
+                        {
+                            if (errLog.Length > 65536) errLog.Remove(0, errLog.Length - 32768);
+                            errLog.AppendLine(e.Data);
+                        }
+                        taskInfo.LastOutputUtc = DateTime.UtcNow;
+                        string notice = e.Data;
+                        if (notice.IndexOf("challenge", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            notice.IndexOf("[jsc", StringComparison.OrdinalIgnoreCase) >= 0)
+                            taskInfo.StatusMessage = "Solving video source challenge...";
+                        else if (notice.IndexOf("Retrying", StringComparison.OrdinalIgnoreCase) >= 0)
+                            taskInfo.StatusMessage = "Retrying connection to video source...";
+                        else if (notice.IndexOf("[Merger]", StringComparison.OrdinalIgnoreCase) >= 0)
+                            taskInfo.StatusMessage = "Merging audio and video...";
+                        else if (notice.IndexOf("ERROR:", StringComparison.OrdinalIgnoreCase) >= 0)
+                            taskInfo.StatusMessage = GetDownloadFailureMessage(notice, -1);
                     };
                     p.BeginErrorReadLine();
 
@@ -2820,7 +2939,7 @@ namespace FastDownloader
                     lock (errLog) allErrors = errLog.ToString();
                     if (!string.IsNullOrEmpty(allErrors))
                     {
-                        try { File.WriteAllText(Path.Combine(AppDir, "ytdlp_last_error.log"), allErrors); } catch { }
+                        try { File.WriteAllText(Path.Combine(AppDir, "ytdlp_last_error.log"), SanitizeVideoDiagnostic(allErrors)); } catch { }
                     }
 
                     if (taskInfo.Status == "paused" || taskInfo.Status == "removed")
@@ -2830,18 +2949,51 @@ namespace FastDownloader
                         return;
                     }
 
-                    if (p.ExitCode != 0 && allowRetry && isYouTube)
+                    if (p.ExitCode != 0 &&
+                        taskInfo.WatchdogTimedOutGeneration == generation)
                     {
-                        if (allErrors.Contains("The page needs to be reloaded") ||
-                            allErrors.Contains("challenge solving failed") ||
-                            allErrors.Contains("Sign in to confirm") ||
-                            allErrors.Contains("Requested format is not available") ||
-                            allErrors.Contains("Skipping client") ||
-                            allErrors.Contains("Only images are available"))
+                        taskInfo.Status = "error";
+                        taskInfo.DownloadSpeed = 0;
+                        taskInfo.Eta = 0;
+                        taskInfo.StatusMessage = "Source stopped responding. Retry or check the connection.";
+                        return;
+                    }
+
+                    if (p.ExitCode != 0 && allowRetry && isYouTube && !IsAccessFailure(allErrors))
+                    {
+                        bool challenge = IsExtractorChallengeFailure(allErrors);
+                        bool missingFormat = allErrors.IndexOf("Requested format is not available",
+                            StringComparison.OrdinalIgnoreCase) >= 0;
+                        bool autoQuality = string.IsNullOrEmpty(taskInfo.Quality) ||
+                            taskInfo.Quality == "best" || taskInfo.Quality == "auto";
+                        if (challenge && VideoUpdateService != null && AutoUpdateEngines)
                         {
+                            taskInfo.StatusMessage = "Updating video extractor...";
+                            var refresh = VideoUpdateService.UpdateYtDlp(true);
+                            if (refresh != null && refresh.ok && refresh.updated &&
+                                generation == Interlocked.CompareExchange(ref taskInfo.RunGeneration, 0, 0))
+                            {
+                                string updatedExe = VideoUpdateService.GetPreferredYtDlpExecutable();
+                                if (!string.IsNullOrEmpty(updatedExe) && File.Exists(updatedExe))
+                                {
+                                    taskInfo.YtExe = updatedExe;
+                                    taskInfo.StatusMessage = "Retrying with verified updated extractor...";
+                                    RunYtDlpProcess(taskInfo, updatedExe, ffmpegDir,
+                                        formatArg, extraHeaders, saveDir, url, isYouTube, false);
+                                    return;
+                                }
+                            }
+                        }
+                        // Explicit quality must never silently change.
+                        if (generation != Interlocked.CompareExchange(ref taskInfo.RunGeneration, 0, 0))
+                            return;
+                        if ((challenge || missingFormat) && autoQuality)
+                        {
+                            taskInfo.StatusMessage = "Retrying automatic quality with compatible client...";
                             string retryHeaders = extraHeaders +
                                 " --extractor-args \"youtube:player_client=android,web\"";
-                            RunYtDlpProcess(taskInfo, ytExe, ffmpegDir, formatArg, retryHeaders, saveDir, url, isYouTube, false);
+                            RunYtDlpProcess(taskInfo, ytExe, ffmpegDir,
+                                "-f \"best\"", retryHeaders, saveDir, url, isYouTube, false);
                             return;
                         }
                     }
@@ -2868,6 +3020,9 @@ namespace FastDownloader
                         taskInfo.Status = "error";
                         taskInfo.StatusMessage = GetDownloadFailureMessage(allErrors, p.ExitCode);
                     }
+                    // The verified newer extractor may be waiting on other running tasks.
+                    if (VideoUpdateService != null)
+                        ThreadPool.QueueUserWorkItem(_ => VideoUpdateService.PromotePreparedWhenIdle());
                     if (p.ExitCode == 0)
                     {
                         if (taskInfo.TotalLength > 0 && taskInfo.CompletedLength < taskInfo.TotalLength)
@@ -2893,7 +3048,7 @@ namespace FastDownloader
             }
             catch (Exception ex)
             {
-                try { File.WriteAllText(Path.Combine(AppDir, "ytdlp_last_error.log"), ex.ToString() + "\n" + errLog.ToString()); } catch { }
+                try { File.WriteAllText(Path.Combine(AppDir, "ytdlp_last_error.log"), SanitizeVideoDiagnostic(ex.ToString() + "\n" + errLog.ToString())); } catch { }
                 if (generation == Interlocked.CompareExchange(ref taskInfo.RunGeneration, 0, 0))
                 {
                     taskInfo.Status = "error";
@@ -2905,7 +3060,7 @@ namespace FastDownloader
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "0.1.29";
+        public const string CurrentAppVersion = "0.1.30";
         public const string GitHubRepoOwner = "ZaxMil";
         public const string GitHubRepoName = "fast-downloader";
 
@@ -2927,6 +3082,10 @@ namespace FastDownloader
         public string CachedAria2Version { get; private set; }
         public bool IsYtDlpUpdating { get; private set; }
         private string latestYtDlpUpstream = "";
+        private readonly object ytDlpUpdateLock = new object();
+        private readonly object ffmpegRepairLock = new object();
+        private volatile string verifiedYtDlpStagedPath = null;
+        private string verifiedYtDlpStagedVersion = null;
         private DateTime lastYtDlpCheck = DateTime.MinValue;
         private int updateRequestQueued = 0;
         private readonly object installStatusLock = new object();
@@ -3010,7 +3169,7 @@ namespace FastDownloader
             lastYtDlpCheck = DateTime.UtcNow;
             try
             {
-                using (WebClient wc = new WebClient())
+                using (WebClient wc = new BoundedOfficialWebClient())
                 {
                     wc.Headers["User-Agent"] = "FastDownloader-App/" + CurrentAppVersion;
                     wc.Headers["Accept"] = "application/vnd.github+json";
@@ -3150,7 +3309,10 @@ namespace FastDownloader
         {
             // Keep startup light, then check often enough to notice a release
             // published shortly after the previous check.
-            Thread.Sleep(120000);
+            // UI starts immediately; engine health is checked on this background thread.
+            Thread.Sleep(3000);
+            if (isRunning)
+                CachedYtDlpVersion = GetYtDlpVersion();
 
             while (isRunning)
             {
@@ -3263,9 +3425,13 @@ namespace FastDownloader
                 };
                 using (Process p = Process.Start(psi))
                 {
+                    if (!p.WaitForExit(6000))
+                    {
+                        try { p.Kill(); } catch { }
+                        return "Unknown";
+                    }
                     string output = p.StandardOutput.ReadToEnd().Trim();
-                    p.WaitForExit(4000);
-                    if (!string.IsNullOrEmpty(output)) return output;
+                    if (p.ExitCode == 0 && !string.IsNullOrEmpty(output)) return output;
                 }
             }
             catch { }
@@ -3436,139 +3602,389 @@ namespace FastDownloader
             catch { return new Version(0, 0, 0); }
         }
 
-        public EngineUpdateResult UpdateYtDlp(bool force)
+        // All update requests (UI, background, failed extractor) share one
+        // serialized, checksum-verified pipeline. Never run yt-dlp -U on the
+        // active binary and never delete its executable during a transfer.
+        public string GetPreferredYtDlpExecutable()
         {
-            CheckYtDlpUpstream(force);
-            string current = GetYtDlpVersion();
-            CachedYtDlpVersion = current;
-            if (string.IsNullOrEmpty(latestYtDlpUpstream) ||
-                (current != "Not Installed" && ParseVersionSafe(latestYtDlpUpstream) <= ParseVersionSafe(current)))
-                return new EngineUpdateResult {
-                    ok = true, updated = false, engine = "yt-dlp", currentVersion = current,
-                    latestVersion = latestYtDlpUpstream,
-                    message = string.IsNullOrEmpty(latestYtDlpUpstream)
-                        ? "Upstream version unavailable; no update was attempted."
-                        : "yt-dlp is already up to date (" + current + ")."
-                };
-            return UpdateYtDlpInternal(false);
+            // Reading the last verified executable must never block while an
+            // update is downloading (e.g. on a slow/mobile connection).
+            string candidate = verifiedYtDlpStagedPath;
+            if (!string.IsNullOrEmpty(candidate) && File.Exists(candidate))
+                return candidate;
+            string installed = Path.Combine(engine.AppDir, "bin", "yt-dlp.exe");
+            if (!File.Exists(installed)) installed = Path.Combine(engine.AppDir, "yt-dlp.exe");
+            return File.Exists(installed) ? installed : null;
         }
 
-        private EngineUpdateResult UpdateYtDlpInternal(bool silent)
+        private bool HasLiveYtDlpProcess()
         {
-            IsYtDlpUpdating = true;
-            var res = new EngineUpdateResult
+            foreach (YtTaskInfo task in engine.GetYtTasksSnapshot())
             {
-                engine = "yt-dlp",
-                currentVersion = CachedYtDlpVersion != "Not checked" &&
-                    !string.IsNullOrEmpty(CachedYtDlpVersion)
-                    ? CachedYtDlpVersion : GetYtDlpVersion()
-            };
+                try
+                {
+                    if (task.Process != null && !task.Process.HasExited)
+                        return true;
+                }
+                catch { }
+            }
+            return false;
+        }
 
+        private bool PromotePreparedWhenIdleCore()
+        {
+            if (string.IsNullOrEmpty(verifiedYtDlpStagedPath) ||
+                !File.Exists(verifiedYtDlpStagedPath) || HasLiveYtDlpProcess()) return false;
+            string binDir = Path.Combine(engine.AppDir, "bin");
+            Directory.CreateDirectory(binDir);
+            string target = Path.Combine(binDir, "yt-dlp.exe");
+            string backup = Path.Combine(binDir, "yt-dlp.previous.exe");
+            bool promoted = false;
             try
             {
-                string ytExe = Path.Combine(engine.AppDir, "bin", "yt-dlp.exe");
-                if (!File.Exists(ytExe)) ytExe = Path.Combine(engine.AppDir, "yt-dlp.exe");
-
-                res.logs.Add("[" + DateTime.Now.ToString("HH:mm:ss") + "] Checking official yt-dlp upstream release...");
-
-                if (File.Exists(ytExe))
+                if (File.Exists(target))
+                    File.Replace(verifiedYtDlpStagedPath, target, backup, true);
+                else
+                    File.Move(verifiedYtDlpStagedPath, target);
+                promoted = true;
+                // Verify the promoted executable; if invalid, restore the old one.
+                string installedVersion = ReadYtDlpVersionAtPath(target);
+                if (string.IsNullOrEmpty(installedVersion) ||
+                    ParseVersionSafe(installedVersion) < ParseVersionSafe(verifiedYtDlpStagedVersion))
+                    throw new IOException("Promoted extractor failed version verification.");
+                CachedYtDlpVersion = installedVersion;
+                verifiedYtDlpStagedPath = null;
+                verifiedYtDlpStagedVersion = null;
+                return true;
+            }
+            catch
+            {
+                // Only rollback if THIS attempt had already moved the new binary.
+                // An old backup must never replace a healthy target on a lock error.
+                if (promoted)
                 {
-                    ProcessStartInfo psi = new ProcessStartInfo
+                    if (File.Exists(backup))
                     {
-                        FileName = ytExe,
-                        Arguments = "-U",
-                        CreateNoWindow = true,
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    };
-
-                    using (Process p = Process.Start(psi))
-                    {
-                        string stdout = p.StandardOutput.ReadToEnd();
-                        string stderr = p.StandardError.ReadToEnd();
-                        p.WaitForExit(60000);
-
-                        string combined = (stdout + "\n" + stderr).Trim();
-                        string[] lines = combined.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                        foreach (var l in lines) res.logs.Add("  > " + l.Trim());
-
-                        // Version extraction itself starts the large Python bundle.
-                        // Reuse one result across all status branches.
-                        string verifiedVersion = GetYtDlpVersion();
-                        if (combined.IndexOf("is up to date", StringComparison.OrdinalIgnoreCase) >= 0)
+                        try
                         {
-                            res.ok = true;
-                            res.updated = false;
-                            res.latestVersion = verifiedVersion;
-                            res.message = "yt-dlp is already up to date (" + res.latestVersion + ").";
+                            if (File.Exists(target)) File.Replace(backup, target, null);
+                            else File.Move(backup, target);
                         }
-                        else if (combined.IndexOf("Updated yt-dlp to version", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                 combined.IndexOf("Updated to version", StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            res.ok = true;
-                            res.updated = true;
-                            res.latestVersion = verifiedVersion;
-                            res.message = "Successfully updated yt-dlp to " + res.latestVersion + "!";
-                        }
-                        else if (p.ExitCode == 0)
-                        {
-                            res.ok = true;
-                            res.latestVersion = verifiedVersion;
-                            res.message = "yt-dlp update process completed.";
-                        }
+                        catch { /* Preserve backup for manual recovery. */ }
                     }
-
-                    try
-                    {
-                        string oldExe = Path.Combine(Path.GetDirectoryName(ytExe), "yt-dlp.exe.old");
-                        if (File.Exists(oldExe)) File.Delete(oldExe);
-                    }
-                    catch { }
+                    verifiedYtDlpStagedPath = null;
+                    verifiedYtDlpStagedVersion = null;
                 }
+                return false;
+            }
+        }
 
-                if (!res.ok)
+        // Called only after the user accepts the ~196 MB repair download.
+        // No network usage for FFmpeg repair during normal startup/downloads.
+        public EngineUpdateResult RepairFfmpeg(Action<string> notify)
+        {
+            lock (ffmpegRepairLock)
+            {
+                var result = new EngineUpdateResult { engine = "ffmpeg", ok = false };
+                string tempZip = null;
+                string stagedExe = null;
+                try
                 {
-                    res.logs.Add("[" + DateTime.Now.ToString("HH:mm:ss") + "] Falling back to direct GitHub release download...");
-                    using (WebClient wc = new WebClient())
+                    if (!string.IsNullOrEmpty(engine.ResolveFfmpegLocation()))
+                    {
+                        result.ok = true; result.message = "FFmpeg already installed.";
+                        return result;
+                    }
+                    string targetDir = Path.Combine(engine.AppDir, "bin");
+                    Directory.CreateDirectory(targetDir);
+                    string dest = Path.Combine(targetDir, "ffmpeg.exe");
+                    tempZip = Path.Combine(targetDir, "ffmpeg.repair.zip");
+                    stagedExe = Path.Combine(targetDir, "ffmpeg.repair.exe");
+                    using (var wc = new BoundedOfficialWebClient())
                     {
                         wc.Headers["User-Agent"] = "FastDownloader-App/" + CurrentAppVersion;
-                        string json = wc.DownloadString("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest");
-                        var dict = JsonHelper.ParseDict(json);
-                        string tag = dict.ContainsKey("tag_name") ? dict["tag_name"].ToString() : "";
-                        res.latestVersion = tag;
-
-                        string dlUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
-                        string targetDir = Path.Combine(engine.AppDir, "bin");
-                        if (!Directory.Exists(targetDir)) Directory.CreateDirectory(targetDir);
-                        string tmpPath = Path.Combine(targetDir, "yt-dlp.exe.tmp");
-                        string destPath = Path.Combine(targetDir, "yt-dlp.exe");
-
-                        wc.DownloadFile(dlUrl, tmpPath);
-                        if (File.Exists(destPath)) File.Delete(destPath);
-                        File.Move(tmpPath, destPath);
-
-                        res.ok = true;
-                        res.updated = true;
-                        res.message = "Downloaded latest yt-dlp binary (" + tag + ").";
-                        res.logs.Add("[" + DateTime.Now.ToString("HH:mm:ss") + "] yt-dlp binary installed successfully.");
+                        wc.Headers["Accept"] = "application/vnd.github+json";
+                        var release = JsonHelper.ParseDict(wc.DownloadString(
+                            "https://api.github.com/repos/yt-dlp/FFmpeg-Builds/releases/tags/latest"));
+                        string digest = null, url = null;
+                        object raw;
+                        if (release == null || !release.TryGetValue("assets", out raw))
+                            throw new IOException("Official FFmpeg release manifest missing.");
+                        var assets = raw as System.Collections.IEnumerable;
+                        if (assets == null) throw new IOException("FFmpeg release list invalid.");
+                        foreach (object entry in assets)
+                        {
+                            var item = entry as Dictionary<string, object>;
+                            if (item == null || !item.ContainsKey("name") ||
+                                !string.Equals(Convert.ToString(item["name"]),
+                                "ffmpeg-master-latest-win64-gpl.zip", StringComparison.Ordinal)) continue;
+                            url = Convert.ToString(item["browser_download_url"]);
+                            string rawDigest = item.ContainsKey("digest") ?
+                                Convert.ToString(item["digest"]) : "";
+                            if (Regex.IsMatch(rawDigest ?? "", @"^sha256:[a-fA-F0-9]{64}$"))
+                                digest = rawDigest.Substring(7).ToLowerInvariant();
+                            break;
+                        }
+                        if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(digest) ||
+                            !url.StartsWith("https://github.com/yt-dlp/FFmpeg-Builds/releases/download/",
+                                StringComparison.Ordinal))
+                            throw new IOException("Cannot authenticate official FFmpeg archive.");
+                        if (notify != null) notify("Downloading official FFmpeg (about 196 MB)...");
+                        wc.DownloadFile(url, tempZip);
+                        if (new FileInfo(tempZip).Length < 100000 ||
+                            !string.Equals(Sha256File(tempZip), digest, StringComparison.OrdinalIgnoreCase))
+                            throw new IOException("FFmpeg archive failed SHA-256 verification.");
                     }
+                    if (notify != null) notify("Extracting verified FFmpeg...");
+                    using (var archive = ZipFile.OpenRead(tempZip))
+                    {
+                        ZipArchiveEntry executable = null;
+                        foreach (var entry in archive.Entries)
+                            if (string.Equals(entry.Name, "ffmpeg.exe",
+                                StringComparison.OrdinalIgnoreCase)) { executable = entry; break; }
+                        if (executable == null || executable.Length < 100000)
+                            throw new IOException("FFmpeg executable missing in verified archive.");
+                        if (File.Exists(stagedExe)) File.Delete(stagedExe);
+                        using (var input = executable.Open())
+                        using (var output = new FileStream(stagedExe, FileMode.CreateNew,
+                            FileAccess.Write, FileShare.None))
+                            input.CopyTo(output);
+                    }
+                    // Static FFmpeg build must execute successfully before promotion.
+                    using (var proc = Process.Start(new ProcessStartInfo {
+                        FileName = stagedExe, Arguments = "-version",
+                        UseShellExecute = false, CreateNoWindow = true,
+                        RedirectStandardOutput = true
+                    }))
+                    {
+                        if (proc == null) throw new IOException("FFmpeg could not start.");
+                        if (!proc.WaitForExit(20000))
+                        {
+                            try { proc.Kill(); } catch { }
+                            throw new IOException("FFmpeg verification timed out.");
+                        }
+                        string header = proc.StandardOutput.ReadLine();
+                        if (proc.ExitCode != 0 || !((header ?? "").StartsWith("ffmpeg version")))
+                            throw new IOException("FFmpeg verification failed.");
+                    }
+                    if (File.Exists(dest))
+                        File.Replace(stagedExe, dest, dest + ".previous", true);
+                    else
+                        File.Move(stagedExe, dest);
+                    result.ok = true; result.updated = true;
+                    result.message = "FFmpeg installed and verified. You can retry HD downloads.";
+                    if (notify != null) notify(result.message);
+                }
+                catch (Exception ex)
+                {
+                    result.message = "FFmpeg repair failed: " + ex.Message;
+                    if (notify != null) notify(result.message);
+                }
+                finally
+                {
+                    // Only repair-owned temporary files, never user downloads.
+                    try { if (!string.IsNullOrEmpty(tempZip) && File.Exists(tempZip)) File.Delete(tempZip); } catch { }
+                    try { if (!string.IsNullOrEmpty(stagedExe) && File.Exists(stagedExe)) File.Delete(stagedExe); } catch { }
+                }
+                return result;
+            }
+        }
+
+        public void PromotePreparedWhenIdle()
+        {
+            lock (ytDlpUpdateLock) PromotePreparedWhenIdleCore();
+        }
+
+        private static string ReadYtDlpVersionAtPath(string executable)
+        {
+            if (string.IsNullOrEmpty(executable) || !File.Exists(executable)) return null;
+            try
+            {
+                var psi = new ProcessStartInfo {
+                    FileName = executable, Arguments = "--version",
+                    UseShellExecute = false, CreateNoWindow = true,
+                    RedirectStandardOutput = true, RedirectStandardError = false
+                };
+                using (Process p = Process.Start(psi))
+                {
+                    if (p == null) return null;
+                    // Wait with a deadline BEFORE reading, so a frozen child cannot
+                    // block forever on a missing stdout newline.
+                    if (!p.WaitForExit(15000))
+                    {
+                        try { p.Kill(); } catch { }
+                        return null;
+                    }
+                    string output = p.StandardOutput.ReadLine();
+                    if (p.ExitCode != 0 || !Regex.IsMatch(output ?? "", @"^\d{4}\.\d{1,2}\.\d{1,2}"))
+                        return null;
+                    return output.Trim();
+                }
+            }
+            catch { return null; }
+        }
+
+        private sealed class BoundedOfficialWebClient : WebClient
+        {
+            protected override WebRequest GetWebRequest(Uri address)
+            {
+                if (address.Scheme != Uri.UriSchemeHttps)
+                    throw new InvalidOperationException("Official update must use HTTPS.");
+                WebRequest req = base.GetWebRequest(address);
+                req.Timeout = 30000;
+                HttpWebRequest http = req as HttpWebRequest;
+                if (http != null) http.ReadWriteTimeout = 30000;
+                return req;
+            }
+        }
+
+        private static string GetOfficialReleaseDigest(Dictionary<string, object> release)
+        {
+            object assetsObj;
+            if (release == null || !release.TryGetValue("assets", out assetsObj)) return null;
+            System.Collections.IEnumerable assets = assetsObj as System.Collections.IEnumerable;
+            if (assets == null) return null;
+            foreach (object entry in assets)
+            {
+                var item = entry as Dictionary<string, object>;
+                if (item == null || !item.ContainsKey("name") ||
+                    !string.Equals(Convert.ToString(item["name"]), "yt-dlp.exe",
+                        StringComparison.Ordinal)) continue;
+                string digest = item.ContainsKey("digest") ? Convert.ToString(item["digest"]) : "";
+                if (Regex.IsMatch(digest ?? "", @"^sha256:[a-fA-F0-9]{64}$"))
+                    return digest.Substring("sha256:".Length).ToLowerInvariant();
+            }
+            return null;
+        }
+
+        private static string Sha256File(string path)
+        {
+            using (var sha = SHA256.Create())
+            using (var stream = File.OpenRead(path))
+                return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
+        }
+
+        public EngineUpdateResult UpdateYtDlp(bool force)
+        {
+            lock (ytDlpUpdateLock)
+            {
+                var result = new EngineUpdateResult {
+                    engine = "yt-dlp", ok = false,
+                    currentVersion = CachedYtDlpVersion == "Not checked" ?
+                        GetYtDlpVersion() : CachedYtDlpVersion
+                };
+                try
+                {
+                    if (PromotePreparedWhenIdleCore())
+                        result.currentVersion = CachedYtDlpVersion;
+                    CheckYtDlpUpstream(force);
+                    if (string.IsNullOrEmpty(latestYtDlpUpstream))
+                    {
+                        result.message = "Could not verify official extractor release. Existing engine kept.";
+                        return result;
+                    }
+                    result.latestVersion = latestYtDlpUpstream;
+                    string preferred = !string.IsNullOrEmpty(verifiedYtDlpStagedVersion) ?
+                        verifiedYtDlpStagedVersion : result.currentVersion;
+                    if (ParseVersionSafe(latestYtDlpUpstream) <= ParseVersionSafe(preferred))
+                    {
+                        result.ok = true;
+                        result.updated = false;
+                        result.message = "Video extractor up to date (" + preferred + ").";
+                        return result;
+                    }
+                    return UpdateYtDlpInternal();
+                }
+                catch (Exception ex)
+                {
+                    result.message = "Extractor update failed; existing engine preserved: " + ex.Message;
+                    return result;
+                }
+            }
+        }
+
+        private EngineUpdateResult UpdateYtDlpInternal()
+        {
+            IsYtDlpUpdating = true;
+            var res = new EngineUpdateResult {
+                engine = "yt-dlp", currentVersion = CachedYtDlpVersion,
+                latestVersion = latestYtDlpUpstream
+            };
+            string stage = null;
+            try
+            {
+                var wc = new BoundedOfficialWebClient();
+                using (wc)
+                {
+                    wc.Headers["User-Agent"] = "FastDownloader-App/" + CurrentAppVersion;
+                    wc.Headers["Accept"] = "application/vnd.github+json";
+                    var release = JsonHelper.ParseDict(
+                        wc.DownloadString("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"));
+                    string tag = release != null && release.ContainsKey("tag_name") ?
+                        Convert.ToString(release["tag_name"]) : "";
+                    if (!Regex.IsMatch(tag ?? "", @"^\d{4}\.\d{1,2}\.\d{1,2}$"))
+                        throw new IOException("Unexpected upstream version tag.");
+                    string digest = GetOfficialReleaseDigest(release);
+                    if (string.IsNullOrEmpty(digest))
+                        throw new IOException("Official yt-dlp.exe SHA-256 digest was unavailable.");
+                    res.latestVersion = tag;
+                    if (ParseVersionSafe(tag) <= ParseVersionSafe(res.currentVersion))
+                    {
+                        res.ok = true; res.updated = false;
+                        res.message = "Extractor already up to date.";
+                        return res;
+                    }
+                    string binDir = Path.Combine(engine.AppDir, "bin");
+                    Directory.CreateDirectory(binDir);
+                    stage = Path.Combine(binDir, "yt-dlp.staged-" + tag + ".exe");
+                    string url = "https://github.com/yt-dlp/yt-dlp/releases/download/" + tag + "/yt-dlp.exe";
+                    bool cached = File.Exists(stage) && new FileInfo(stage).Length > 100000 &&
+                        string.Equals(Sha256File(stage), digest, StringComparison.OrdinalIgnoreCase);
+                    if (!cached)
+                    {
+                        string downloading = stage + ".partial";
+                        try
+                        {
+                            if (File.Exists(downloading)) File.Delete(downloading);
+                            res.logs.Add("Downloading official yt-dlp to verified staging area.");
+                            wc.DownloadFile(url, downloading);
+                            if (new FileInfo(downloading).Length < 100000 ||
+                                new FileInfo(downloading).Length > 100000000 ||
+                                !string.Equals(Sha256File(downloading), digest, StringComparison.OrdinalIgnoreCase))
+                                throw new IOException("Official yt-dlp SHA-256 verification failed.");
+                            if (File.Exists(stage)) File.Delete(stage);
+                            File.Move(downloading, stage);
+                        }
+                        finally { try { if (File.Exists(downloading)) File.Delete(downloading); } catch { } }
+                    }
+                    else res.logs.Add("Reused a previously verified staged engine; no repeat download.");
+                    string stagedVersion = ReadYtDlpVersionAtPath(stage);
+                    if (!string.Equals(stagedVersion, tag, StringComparison.Ordinal))
+                        throw new IOException("Staged extractor version verification failed.");
+                    verifiedYtDlpStagedPath = stage;
+                    verifiedYtDlpStagedVersion = stagedVersion;
+                    stage = null; // Owned by the verified-stage state now.
+                    bool installed = PromotePreparedWhenIdleCore();
+                    res.ok = true; res.updated = true;
+                    res.message = installed ? "Verified extractor installed (" + stagedVersion + ")." :
+                        "Verified extractor ready for transfers; installation will complete when idle.";
+                    res.logs.Add(res.message);
+                    CachedYtDlpVersion = stagedVersion;
+                    latestYtDlpUpstream = stagedVersion;
                 }
             }
             catch (Exception ex)
             {
                 res.ok = false;
-                res.message = "Update failed: " + ex.Message;
-                res.logs.Add("Error: " + ex.Message);
+                res.message = "Safe extractor update failed. Original version kept: " + ex.Message;
+                res.logs.Add(res.message);
             }
             finally
             {
+                if (!string.IsNullOrEmpty(stage))
+                    try { if (File.Exists(stage)) File.Delete(stage); } catch { }
                 IsYtDlpUpdating = false;
-                // Keep last verified version; avoid another heavyweight --version.
-                if (!string.IsNullOrWhiteSpace(res.latestVersion))
-                    CachedYtDlpVersion = res.latestVersion;
             }
-
             return res;
         }
 
@@ -6417,6 +6833,8 @@ namespace FastDownloader
         private readonly ToolTip statusTooltip;
 
         private bool isPaused;
+        private bool isRepairingFfmpeg;
+        private string ffmpegRepairStatus = "";
         private bool hasCompleted;
         private readonly DateTime openedAt = DateTime.UtcNow;
         private static readonly Color Surface = Color.FromArgb(20, 24, 32);
@@ -6566,7 +6984,47 @@ namespace FastDownloader
             btnHide = ActionButton("Hide", 337, 98, true);
 
             btnPauseResume.Click += (s, e) => {
-                if (!btnPauseResume.Enabled) return;
+                if (!btnPauseResume.Enabled || isRepairingFfmpeg) return;
+                var current = engine.GetTaskInfo(gid);
+                if (current != null && current.Status == "error" &&
+                    (current.StatusMessage ?? "").StartsWith("FFmpeg missing", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (engine.VideoUpdateService == null) return;
+                    DialogResult accepted = MessageBox.Show(this,
+                        "High-quality video/audio needs FFmpeg. Repair downloads about 196 MB " +
+                        "from the official verified source. Continue?",
+                        "Install video merger", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                    if (accepted != DialogResult.Yes) return;
+                    isRepairingFfmpeg = true;
+                    btnPauseResume.Enabled = false;
+                    btnPauseResume.Text = "Repairing";
+                    ffmpegRepairStatus = "Downloading verified video tools...";
+                    ThreadPool.QueueUserWorkItem(_ =>
+                    {
+                        var result = engine.VideoUpdateService.RepairFfmpeg(message =>
+                        {
+                            ffmpegRepairStatus = message;
+                        });
+                        try
+                        {
+                            if (IsDisposed) return;
+                            BeginInvoke((Action)(() =>
+                            {
+                                isRepairingFfmpeg = false;
+                                if (result.ok) engine.ResumeTask(gid);
+                                else
+                                {
+                                    // Keep the task's error state and its useful repair explanation.
+                                    foreach (YtTaskInfo item in engine.GetYtTasksSnapshot())
+                                        if (item.Gid == gid) { item.StatusMessage = result.message; break; }
+                                }
+                                PollProgress();
+                            }));
+                        }
+                        catch { }
+                    });
+                    return;
+                }
                 if (isPaused)
                 {
                     engine.ResumeTask(gid);
@@ -6686,10 +7144,10 @@ namespace FastDownloader
                 isPaused = false;
                 btnPauseResume.Enabled = true;
                 btnPauseResume.Text = "Pause";
-                lblStatus.Text = task.Status == "processing" ? "Finalizing video..." :
-                    (task.DownloadSpeed > 0 || task.CompletedLength > 0 ? "Receiving data..." :
-                    (!string.IsNullOrEmpty(task.StatusMessage) ?
-                        task.StatusMessage : "Connecting to source..."));
+                lblStatus.Text = task.Status == "processing" ?
+                    (string.IsNullOrEmpty(task.StatusMessage) ? "Merging media..." : task.StatusMessage) :
+                    (!string.IsNullOrEmpty(task.StatusMessage) ? task.StatusMessage :
+                     (task.DownloadSpeed > 0 ? "Downloading..." : "Checking source..."));
                 lblStatus.ForeColor = task.DownloadSpeed > 0 ? Accent : Secondary;
             }
             else if (task.Status == "error" || task.Status == "removed")
@@ -6697,11 +7155,20 @@ namespace FastDownloader
                 isPaused = true;
                 bool canRetry = task.Engine == "yt-dlp" && task.Status == "error";
                 btnPauseResume.Enabled = canRetry;
-                btnPauseResume.Text = canRetry ? "Retry" : "Failed";
+                btnPauseResume.Text = canRetry &&
+                    (task.StatusMessage ?? "").StartsWith("FFmpeg missing", StringComparison.OrdinalIgnoreCase) ?
+                    "Repair" : (canRetry ? "Retry" : "Failed");
                 lblStatus.Text = !string.IsNullOrEmpty(task.StatusMessage) ?
                     task.StatusMessage : "Transfer failed. Check the link.";
                 lblStatus.ForeColor = Color.FromArgb(248, 113, 113);
                 lblTimeLeft.Text = "--";
+            }
+            if (isRepairingFfmpeg)
+            {
+                lblStatus.Text = ffmpegRepairStatus;
+                lblStatus.ForeColor = Secondary;
+                btnPauseResume.Enabled = false;
+                btnPauseResume.Text = "Repairing";
             }
             statusTooltip.SetToolTip(lblStatus, lblStatus.Text);
 
@@ -7487,6 +7954,7 @@ namespace FastDownloader
             };
 
             updateManager = new UpdateManager(engine, notifyAction);
+            engine.VideoUpdateService = updateManager;
             bridge = new HttpBridgeServer(engine, notifyAction, updateManager);
             bridge.Start();
             updateManager.SetBridgeStopAction(bridge.Stop);

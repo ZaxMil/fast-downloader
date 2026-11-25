@@ -8,6 +8,10 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+Write-Host "1b. Verifying native video recovery logic..." -ForegroundColor Cyan
+& (Join-Path $RootDir "scripts/test-recovery-runtime.ps1")
+if (-not $?) { throw "Native recovery runtime tests failed." }
+
 Write-Host "2. Packaging fast-downloader-extension.zip..." -ForegroundColor Cyan
 $ExtZip = Join-Path $RootDir "fast-downloader-extension.zip"
 if (Test-Path $ExtZip) { Remove-Item $ExtZip -Force }
