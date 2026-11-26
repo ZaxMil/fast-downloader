@@ -139,3 +139,10 @@ finally {
         Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
     }
 }
+
+# Keep the Windows CI release gate tied to the exact updater regression that
+# reproduced the user's PID/socket handover failure. Execute in its own
+# PowerShell process so no mocked Get-Process/Get-NetTCPConnection functions
+# leak into the live restart rehearsal above.
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'updater_edge_cases.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'Updater listener race/rollback regression suite failed.' }
